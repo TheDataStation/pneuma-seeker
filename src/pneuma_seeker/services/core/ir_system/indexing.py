@@ -20,16 +20,17 @@ from pneuma_seeker.shared.schemas.core.ir_system import (
     TableContext,
 )
 
+# KramaBench
 INDEXING_ARCHEOLOGY = False
+INDEXING_ASTRONOMY = False
 INDEXING_BIOMEDICAL = False
 INDEXING_ENVIRONMENT = False
-INDEXING_TAG = False
+INDEXING_LEGAL = False
+INDEXING_WILDFIRE = False
+
+# Internal datasets
 INDEXING_BUYSITE = False
 INDEXING_FEDERAL_STUDENT_LOAN = False
-INDEXING_CSAIL_STATA_NEUTRON = False
-INDEXING_DW = False
-INDEXING_GEOQUERY = False
-INDEXING_ATIS = False
 
 
 config = Config("../../../../../.env")
@@ -97,40 +98,29 @@ def index_dataset(dataset_name: str, metadata_available=False):
             )
 
     ir_sys = IRSystem(
-        config, logger, DBAPI(config, logger), LanguageModelAPI(config, logger)
+        "user_id",
+        "chat_id",
+        config,
+        logger,
+        DBAPI(config, logger),
+        LanguageModelAPI(config, logger),
     )
     ir_sys.index_documents(RetrieverType.PNEUMA_RETRIEVER, documents)
 
 
 if INDEXING_ARCHEOLOGY:
     index_dataset("archeology", True)
+if INDEXING_ASTRONOMY:
+    index_dataset("astronomy", False)
 if INDEXING_BIOMEDICAL:
     index_dataset("biomedical", True)
 if INDEXING_ENVIRONMENT:
     index_dataset("environment", True)
-if INDEXING_TAG:
-    index_dataset("tag", False)
 if INDEXING_BUYSITE:
     index_dataset("buysite", True)
 if INDEXING_FEDERAL_STUDENT_LOAN:
     index_dataset("federal_student_loan", True)
-if INDEXING_CSAIL_STATA_NEUTRON:
-    index_dataset("csail_stata_neutron", False)
-if INDEXING_DW:
-    index_dataset("dw", False)
-if INDEXING_GEOQUERY:
-    index_dataset("geoquery", False)
-if INDEXING_ATIS:
-    index_dataset("atis", False)
-
-
-# Extra: Processing for TAG data
-# for topic in os.listdir(DATASET_DIR):
-#     topic_path = f"dataset/{topic}"
-#     if os.path.isdir(topic_path):
-#         for table_fname in os.listdir(topic_path):
-#             original_table_path = f"{topic_path}/{table_fname}"
-#             appended_table_path = f"{topic_path}/{topic}_{table_fname}"
-#             print(f"=> {original_table_path} => {appended_table_path}")
-#             os.rename(original_table_path, appended_table_path)
-# Future-TODO: don't forget to move the tables outside (manually for now)
+if INDEXING_LEGAL:
+    index_dataset("legal", False)
+if INDEXING_WILDFIRE:
+    index_dataset("wildfire", False)
