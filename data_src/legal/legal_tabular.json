@@ -1,0 +1,285 @@
+[
+    {
+        "id": "legal-easy-3",
+        "query": "Give the ratio of identity theft reports in 2024 vs 2001? Round to 4 decimal places",
+        "answer": 13.1628,
+        "answer_type": "numeric_approximate",
+        "data_sources": [
+            "2024_CSN_Number_of_Reports_by_Type.csv"
+        ]
+    },
+    {
+        "id": "legal-easy-4",
+        "query": "How many frauds were reported by FTC over the web between 2022 and 2024 in total?",
+        "answer": 2111635,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "2024_CSN_Data_Contributors.csv"
+        ]
+    },
+    {
+        "id": "legal-easy-5",
+        "query": "What is the total number of money befrauded when summed over all payment methods. Give an integer number in millions of dollars.",
+        "answer": 5435,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "2024_CSN_Fraud_Reports_by_Payment_Method.csv"
+        ]
+    },
+    {
+        "id": "legal-hard-6",
+        "query": "What is the ratio of reported credit card frauds between 2024 and 2020? (2024 reports ) / (2020 reports) and round to 4 decimal places",
+        "answer": 1.1413,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "2024_CSN_Top_Three_Identity_Theft_Reports_by_Year.csv"
+        ]
+    },
+    {
+        "id": "legal-hard-7",
+        "query": "Which identity theft category was growing the fastest between 2020 and 2024 in relative terms?",
+        "answer": "Bank Account",
+        "answer_type": "string_exact",
+        "data_sources": [
+            "2024_CSN_Top_Three_Identity_Theft_Reports_by_Year.csv"
+        ]
+    },
+    {
+        "id": "legal-hard-8",
+        "query": "Are the report counts of for 'frauds and other data' in 2024 consistent for the Metropolitan area of Miami-Fort Lauderdale-West Palm Beach? Answer True or False. No explanation needed.",
+        "answer": "True",
+        "answer_type": "string_exact",
+        "data_sources": [
+            "State MSA Fraud and Other data/Florida.csv",
+            "2024_CSN_Metropolitan_Areas_Fraud_and_Other_Reports.csv"
+        ]
+    },
+    {
+        "id": "legal-easy-9",
+        "query": "Between 2002 and 2024 inclusive, which year saw the greatest relative increase in total reports (Fraud, Identity Theft and Other) compared to the previous year?",
+        "answer": 2002,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "2024_CSN_Report_Count.csv"
+        ]
+    },
+    {
+        "id": "legal-easy-10",
+        "query": "In which years were Fraud reports at least 50% of the total reports?",
+        "answer": [
+            2010,
+            2011,
+            2012,
+            2013,
+            2014,
+            2019
+        ],
+        "answer_type": "list_exact",
+        "data_sources": [
+            "2024_CSN_Number_of_Reports_by_Type.csv"
+        ]
+    },
+    {
+        "id": "legal-easy-11",
+        "query": "Was there ever a year between 2001-2024 inclusive where 'Other' reports were more than half of the total reports? Answer Yes or No. No explanation needed.",
+        "answer": "No",
+        "answer_type": "string_exact",
+        "data_sources": [
+            "2024_CSN_Number_of_Reports_by_Type.csv"
+        ]
+    },
+    {
+        "id": "legal-easy-12",
+        "query": "What is the minimum number of report categories that collectively account for at least 50% of reports in 2024?",
+        "answer": 3,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "2024_CSN_Report_Categories.csv"
+        ]
+    },
+    {
+        "id": "legal-easy-13",
+        "query": "In 2024, what was the ratio of reports between the most frequent and the least frequent category (rounded to two decimal places)?",
+        "answer": 1097.47,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "2024_CSN_Report_Categories.csv"
+        ]
+    },
+    {
+        "id": "legal-hard-14",
+        "query": "What are the top 5 distinct Metropolitan areas in New England that have the most Identity Theft reports in 2024?",
+        "answer": [
+            "Boston-Cambridge-Newton, MA-NH Metropolitan Statistical Area",
+            "Providence-Warwick, RI-MA Metropolitan Statistical Area",
+            "Hartford-West Hartford-East Hartford, CT Metropolitan Statistical Area",
+            "Bridgeport-Stamford-Danbury, CT Metropolitan Statistical Area",
+            "Worcester, MA Metropolitan Statistical Area"
+        ],
+        "answer_type": "list_exact",
+        "data_sources": [
+            "State MSA Identity Theft data/*.csv",
+            "new_england_states.csv"
+        ]
+    },
+    {
+        "id": "legal-hard-15",
+        "query": "How many total Identity Theft reports were there in 2024 from cross-state Metropolitan Statistical Areas?",
+        "answer": 243377,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "State MSA Identity Theft data/*.csv"
+        ]
+    },
+    {
+        "id": "legal-hard-16",
+        "query": "Among states with at least two metropolitan areas, considering each multi-state metropolitan area separately in each state it belongs to, which state has the highest concentration of identity theft reports in a single metropolitan area?",
+        "answer": "Delaware",
+        "answer_type": "string_exact",
+        "data_sources": [
+            "State MSA Identity Theft data/*.csv"
+        ]
+    },
+    {
+        "id": "legal-hard-17",
+        "query": "If the 2007 report category distribution were exactly like the 2024 ones, how many reports in 2007 would be Auto Related (rounded to the nearest integer)?",
+        "answer": 32542,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "2024_CSN_Report_Count.csv",
+            "2024_CSN_Report_Categories.csv"
+        ]
+    },
+    {
+        "id": "legal-hard-18",
+        "query": "If the 2007 reports were distributed exactly like the 2024 ones, how many identity theft reports in 2007 would concern people ages 40 or older (rounded to the nearest thousand)?",
+        "answer": 91000,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "2024_CSN_Report_Count.csv",
+            "2024_CSN_Report_Categories.csv",
+            "2024_CSN_Identity_Theft_Reports_by_Age.csv"
+        ]
+    },
+    {
+        "id": "legal-easy-19",
+        "query": "What is the proportion (round to 3 decimal places) of fraud reporters who lost between $1-$500 in 2024?",
+        "answer": 0.523,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "2024_CSN_Fraud_Reports_by_Amount_Lost.csv"
+        ]
+    },
+    {
+        "id": "legal-easy-20",
+        "query": "What is the percentage of fraud reporters in 2024? Express the number as an integer.",
+        "answer": 40,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "2024_CSN_Number_of_Reports_by_Type.csv"
+        ]
+    },
+    {
+        "id": "legal-easy-21",
+        "query": "What is the total number of identity theft reporters in Alabama in 2024?",
+        "answer": 15387,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "2024_CSN_State_Identity_Theft_Reports.csv"
+        ]
+    },
+    {
+        "id": "legal-hard-22",
+        "query": "What is the proportion (round to 4 decimal places) of all reports who reported identity theft with Back Account (Theft Type) and New Accounts (Theft Subtype)?",
+        "answer": 0.0555,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "2024_CSN_Report_Type.csv",
+            "2024_CSN_Identity_Theft_Reports_by_Type.csv"
+        ]
+    },
+    {
+        "id": "legal-hard-23",
+        "query": "What state (including DC and PR) has the highest report density (reports per 100K population) considering all type of reports (identity theft, fraud and others)?",
+        "answer": "District of Columbia",
+        "answer_type": "string_approximate",
+        "data_sources": [
+            "2024_CSN_State_Rankings_Identity_Theft_Reports.csv",
+            "2024_CSN_State_Rankings_Fraud_and_Other_Reports.csv"
+        ]
+    },
+    {
+        "id": "legal-hard-24",
+        "query": "For the state (including DC and PR) with the highest # of reporter of all type of reports (identity theft, fraud and others), which one of its metropolitan area has the highest # of reports for identity theft?",
+        "answer": "Los Angeles-Long Beach-Anaheim CA Metropolitan Statistical Area",
+        "answer_type": "string_exact",
+        "data_sources": [
+            "2024_CSN_State_Rankings_Identity_Theft_Reports.csv",
+            "2024_CSN_State_Rankings_Fraud_and_Other_Reports.csv",
+            "State MSA Identity Theft data/*.csv"
+        ]
+    },
+    {
+        "id": "legal-easy-25",
+        "query": "Which branch of the U.S. Military had the largest \"Median Fraud Loss\" reported by its service members in 2024?",
+        "answer": "U.S. Space Force",
+        "answer_type": "string_approximate",
+        "data_sources": [
+            "2024_CSN_Fraud, Identity Theft, and Other Reports by Military Consumers.csv"
+        ]
+    },
+    {
+        "id": "legal-easy-26",
+        "query": "Which states had \"Identity Theft\" as their top report category?",
+        "answer": [
+            "Arizona",
+            "California",
+            "Massachusetts",
+            "Ohio",
+            "Oklahoma",
+            "Rhode Island"
+        ],
+        "answer_type": "list_exact",
+        "data_sources": [
+            "2024_CSN_State_Top_Ten_Report_Categories.csv"
+        ]
+    },
+    {
+        "id": "legal-easy-27",
+        "query": "How many states had \"Prizes, Sweepstakes and Lotteries\" in their top-10 report categories in 2024?",
+        "answer": 27,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "2024_CSN_State_Top_Ten_Report_Categories.csv"
+        ]
+    },
+    {
+        "id": "legal-hard-28",
+        "query": "In 2024, as a percentage of all reports for the same demographic, did military consumers report a higher percentage of Imposter Scams than the general population? Answer Yes or No. No explanation needed.",
+        "answer": "Yes",
+        "answer_type": "string_exact",
+        "data_sources": [
+            "2024_CSN_Reports_by_Military_Consumers.csv",
+            "2024_CSN_Report_Categories.csv"
+        ]
+    },
+    {
+        "id": "legal-hard-29",
+        "query": "Among states with 5 or more metro areas, which metropolitan area had the largest percentage of fraud reports in its own state?",
+        "answer": "Washington-Arlington-Alexandria, DC-VA-MD-WV Metropolitan Statistical Area",
+        "answer_type": "string_exact",
+        "data_sources": [
+            "State MSA Fraud and Other Data/*.csv"
+        ]
+    },
+    {
+        "id": "legal-hard-30",
+        "query": "Does there exist a metropolitan area in which the number of reports of identity theft exceeded the number of reports of fraud in 2024? Answer with Yes or No. No explanation needed.",
+        "answer": "No",
+        "answer_type": "string_exact",
+        "data_sources": [
+            "State MSA Fraud and Other Data/*.csv",
+            "State MSA Identity Theft Data/*.csv"
+        ]
+    }
+]

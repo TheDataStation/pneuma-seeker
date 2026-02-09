@@ -1,0 +1,116 @@
+[
+    {
+        "id": "archeology-hard-1",
+        "query": "What is the average Potassium in ppm from the first and last time the study recorded people in the Maltese area? Assume that Potassium is linearly interpolated between samples. Round your answer to 4 decimal places.",
+        "answer": 8577.5298,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "climateMeasurements.xlsx",
+            "radiocarbon_database_regional.xlsx"
+        ]
+    },
+    {
+        "id": "archeology-hard-2",
+        "query": "Across the years, what was the percent of years the wet-dry index was increasing? Give your answer in percentage, round your answer to 2 decimal places.",
+        "answer": 38.42,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "climateMeasurements.xlsx",
+            "radiocarbon_database_regional.xlsx"
+        ]
+    },
+    {
+        "id": "archeology-easy-3",
+        "query": "What is the average rank of cities in Greece? Assume that if there is an 'or', the average of the two numbers. Round your answer to 4 decimal places.",
+        "answer": 3.1333,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "roman_cities.csv"
+        ]
+    },
+    {
+        "id": "archeology-easy-4",
+        "query": "What is the amount of calcium in ppm when the dust proxy was the smallest, breaking ties by the minimum wet-dry index? Round your answer to 4 decimal places.",
+        "answer": 207878.8774,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "climateMeasurements.xlsx"
+        ]
+    },
+    {
+        "id": "archeology-hard-5",
+        "query": "In the Maltese dataset, find the year of the most northern Neolithic sample, breaking ties by considering the later year. What is the maximum aluminum value recorded in the climate dataset in the closest year to that year? If there are multiple closest years, take the max aluminum value measured across all of them. Round your answer to 4 decimal places.",
+        "answer": 66158.3691,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "climateMeasurements.xlsx",
+            "radiocarbon_database_regional.xlsx"
+        ]
+    },
+    {
+        "id": "archeology-easy-6",
+        "query": "What city contained in both the southern and western hemispheres has the highest population?",
+        "answer": "S\u00e3o Paulo",
+        "answer_type": "string_exact",
+        "data_sources": [
+            "worldcities.csv"
+        ]
+    },
+    {
+        "id": "archeology-hard-7",
+        "query": "How many modern cities with a population of over 100k are within 0.1 degrees of ancient Roman-era cities?",
+        "answer": 274,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "roman_cities.csv",
+            "worldcities.csv"
+        ]
+    },
+    {
+        "id": "archeology-easy-8",
+        "query": "How many unique sources were used in the Roman cities dataset?",
+        "answer": 52,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "roman_cities.csv"
+        ]
+    },
+    {
+        "id": "archeology-hard-9",
+        "query": "What is the correlation (to 6 decimal places) between the rank of ancient Roman cities and the population of their corresponding modern cities with a population of over one million? For rank, assume that if there is an 'or', the average of the two numbers. Assume that an ancient city is the same as a current city if the distance between the two is less than 0.1 degrees. If there are multiple ancient cities, take the last sample in the data. Round your answer to 6 decimal places.",
+        "answer": 0.015648,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "roman_cities.csv",
+            "worldcities.csv"
+        ]
+    },
+    {
+        "id": "archeology-easy-10",
+        "query": "Which country has the highest average population in its cities?",
+        "answer": "Singapore",
+        "answer_type": "string_exact",
+        "data_sources": [
+            "worldcities.csv"
+        ]
+    },
+    {
+        "id": "archeology-easy-11",
+        "query": "What is the average latitude of capital cities? If there're more than one capital in a country, only count the lat of the capital with the largest population. Round your answer to 4 decimal places.",
+        "answer": 17.4274,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "worldcities.csv"
+        ]
+    },
+    {
+        "id": "archeology-hard-12",
+        "query": "Count the number of human conflicts between 800 and 1400 AD, and attribute them as best you can to modern countries. Define a conflict as between two actors that lasts at least a year.",
+        "answer": 409,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "conflict_brecke.csv",
+            "worldcities.csv"
+        ]
+    }
+]

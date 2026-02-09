@@ -1,0 +1,58 @@
+[
+    {
+        "id": "astronomy-easy-2",
+        "query": "Calculate the ratio of peak atmospheric mass density experienced by Swarm A satellite during March 14th-17th 2014 vs July 18th-21st 2018.",
+        "answer": 7.52,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "STORM-AI/warmup/v2/Sat_Density/swarma-wu016-20140314_to_20140317.csv",
+            "STORM-AI/warmup/v2/Sat_Density/swarma-wu545-20180718_to_20180721.csv"
+        ]
+    },
+    {
+        "id": "astronomy-easy-3",
+        "query": "Using Swarm Alpha satellite data available by the warmup dataset, find the average atmospheric density measured between 450km and 500km altitude during in 2015 for availiable data points at 00:00 of each day in the initial state file. Clean up the density measurement data (n/a values or 9.99E32).",
+        "answer": 7.95e-13,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "STORM-AI/warmup/v2/wu001_to_wu715-initial_states.csv",
+            "STORM-AI/warmup/v2/Sat_Density/swarma-*2015*.csv"
+        ]
+    },
+    {
+        "id": "astronomy-easy-4",
+        "query": "Determine the approximate period of solar activity cycles and identify the top five years of minimum and maximum activity between 1960 and 2020 using historical yearly mean sunspot numbers. To be considered as a maximum, a peak needs to have a prominence of 20 and distance of 5. Similar rules apply for the minimum.",
+        "answer": "The average period is 11 years, with maxima in 1968, 1979, 1989, 2000, and 2014, and minima in 1964, 1976, 1986, 1996, and 2008.",
+        "answer_type": "string_approximate",
+        "data_sources": [
+            "SILSO/SN_y_tot_V2.0.csv"
+        ]
+    },
+    {
+        "id": "astronomy-easy-6",
+        "query": "Using TLE data fetched for Starlink satellites 58214, calculate the average rate of semi-major axis decay (km/day) for the Gannon storm (May 10-13, 2024) and the preceding quiet period (May 1-4, 2024). Use earth's gravitational paremeter mu = 398600.4418 km^3/s^2, earth radius 6371.0 km, and Kepler's law as a rough estimate of the semi-major axis length. Report in a pair of numbers: (average_quiet_rate_km_day, average_storm_rate_km_day). The tle files are located in input/space-track/, with format <NORAD_ID>_storm.csv and <NORAD_ID>_quiet.csv.",
+        "answer": [
+            0.0193,
+            -0.002
+        ],
+        "answer_type": "list_approximate",
+        "data_sources": [
+            "space-track/58214_storm.csv",
+            "space-track/58214_quiet.csv"
+        ]
+    },
+    {
+        "id": "astronomy-hard-7",
+        "query": "Train a density prediction model using OMNI2 variables (f10.7_index, Kp_index, Dst_index_nT) and GOES variables (xrsb_flux_observed, xrsa_flux_observed) to forecast Swarm Alpha's atmospheric density 4 hours ahead. Specifically, use a 16-hour context window to project the input time series forward using a VAR(1) model, then fit a linear regression model to predict the next 4 hours of density. Use data from wu334 (OMNI/GOES: 2016-10-22 to 2016-10-23; Density: 2016-10-23 to 2016-10-24) for training, and wu335 (OMNI/GOES: 2016-10-25 to 2016-10-26; Density: 2016-10-29) for evaluation. Assume that all windows contain valid data. Note that the data for training VAR lies at the end of the OMNI2 and GOES input window, and the corresponding Swarm Alpha density data begins immediately afterward; i.e., they only overlap at a single timestamp where OMNI/GOES ends and Density begins. Report the RMSE between the predicted and observed density values over the 4-hour forecast window.",
+        "answer": 1.211e-13,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "STORM-AI/warmup/v2/OMNI2/omni2-wu334-20161022_to_20161024.csv",
+            "STORM-AI/warmup/v2/GOES/goes-wu334-20161022_to_20161024.csv",
+            "STORM-AI/warmup/v2/Sat_Density/swarma-wu334-20161022_to_20161024.csv",
+            "STORM-AI/warmup/v2/OMNI2/omni2-wu335-20161025_to_20161029.csv",
+            "STORM-AI/warmup/v2/GOES/goes-wu335-20161025_to_20161029.csv",
+            "STORM-AI/warmup/v2/Sat_Density/swarma-wu335-20161025_to_20161029.csv"
+        ]
+    }
+]

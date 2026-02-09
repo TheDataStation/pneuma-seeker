@@ -1,0 +1,182 @@
+[
+    {
+        "id": "wildfire-easy-1",
+        "query": "Find the 3-month period with the highest total acres burned since Jan 2000, according to NOAA. What was the total acres burned in that period?",
+        "answer": 7805421,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "noaa_wildfires_monthly_stats.csv"
+        ]
+    },
+    {
+        "id": "wildfire-hard-4",
+        "query": "Find the year with the highest suppression cost per acre of human-caused fire. What was the cost per acre, rounded to the nearest cent?",
+        "answer": 2065.1,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "nifc_suppression_costs.csv",
+            "nifc_human_caused_acres.csv"
+        ]
+    },
+    {
+        "id": "wildfire-hard-5",
+        "query": "On average, how many more annual fires are reported by NOAA compared to NIFC since 2000? Round to the nearest whole number.",
+        "answer": -1039,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "noaa_wildfires_monthly_stats.csv",
+            "nifc_wildfires.csv"
+        ]
+    },
+    {
+        "id": "wildfire-hard-6",
+        "query": "What is the correlation between (1) the difference between the number of NOAA and NIFC-reported fires and (2) the difference between the acres burned by NOAA and NIFC-reported fires, on an annual basis? Answer to three decimal places.",
+        "answer": 0.519,
+        "answer_type": "numeric_approximate",
+        "data_sources": [
+            "noaa_wildfires_monthly_stats.csv",
+            "nifc_wildfires.csv"
+        ]
+    },
+    {
+        "id": "wildfire-hard-7",
+        "query": "Which geographic area had the most anomalous year (by Z-score) in terms of total acres burned compared to its historical annual average, and what year was it in? Answer with the geographic area and year, separated by a comma.",
+        "answer": "Northwest, 2020",
+        "answer_type": "string_approximate",
+        "data_sources": [
+            "nifc_human_caused_acres.csv",
+            "nifc_lightning_caused_acres.csv"
+        ]
+    },
+    {
+        "id": "wildfire-easy-8",
+        "query": "Did lighting or humans cause more fires impacting above 100 acres? Answer with **only** 'Lightning' or 'Human'. No explanation needed.",
+        "answer": "Lightning",
+        "answer_type": "string_exact",
+        "data_sources": [
+            "Fire_Weather_Data_2002-2014_2016.csv"
+        ]
+    },
+    {
+        "id": "wildfire-easy-9",
+        "query": "How many more or less fatalities occurred due to wildfires on days with humidity less than 30% compared to the average? Positive numbers indicate more, and negative numbers will indicate less. Round to four decimal places.",
+        "answer": -0.0059,
+        "answer_type": "numeric_approximate",
+        "data_sources": [
+            "Fire_Weather_Data_2002-2014_2016.csv"
+        ]
+    },
+    {
+        "id": "wildfire-hard-10",
+        "query": "By count, are there more fires in Democratic states or Republican states? Answer **only** with 'Democratic' or 'Republican'.",
+        "answer": "Republican",
+        "answer_type": "string_exact",
+        "data_sources": [
+            "Wildfire_Acres_by_State.csv",
+            "democratic_vs_republican_votes_by_usa_state_2020.csv",
+            "wildfire_total_fires_p45_54.csv"
+        ]
+    },
+    {
+        "id": "wildfire-hard-11",
+        "query": "Which state has the most land area (in Acres) impacted by fire, per capita?",
+        "answer": "Wyoming",
+        "answer_type": "string_exact",
+        "data_sources": [
+            "Wildfire_Acres_by_State.csv"
+        ]
+    },
+    {
+        "id": "wildfire-hard-12",
+        "query": "Has fire start distribution around the year shifted earlier or later over time? Answer with **only** 'Yes' or 'No'. No explanation needed.",
+        "answer": "No",
+        "answer_type": "string_approximate",
+        "data_sources": [
+            "Fire_Weather_Data_2002-2014_2016.csv"
+        ]
+    },
+    {
+        "id": "wildfire-easy-13",
+        "query": "Which of the 10 NICC-defined geographic areas requested the most helicopters for firefighting?",
+        "answer": "Great Basin Area",
+        "answer_type": "string_approximate",
+        "data_sources": [
+            "cleaned_helicopter_requests_by_region.csv"
+        ]
+    },
+    {
+        "id": "wildfire-hard-14",
+        "query": "What is the correlation between the proportion of generally unsafe air quality days according to the EPA and the amount of land affected by fires in 2024? Round to 2 decimal places.",
+        "answer": 0.65,
+        "answer_type": "numeric_approximate",
+        "data_sources": [
+            "Wildfire_Acres_by_State.csv",
+            "annual_aqi_by_county_2024.csv"
+        ]
+    },
+    {
+        "id": "wildfire-easy-15",
+        "query": "According to NOAA, in Julies, are the size of a fire and the median wind speed in the area strongly correlated? The answer should be Yes or No.",
+        "answer": "No",
+        "answer_type": "string_exact",
+        "data_sources": [
+            "noaa_wildfires.csv",
+            "noaa_wildfires_variabledescrip.csv"
+        ]
+    },
+    {
+        "id": "wildfire-hard-16",
+        "query": "According to NOAA, find the breakdowns of causes of fires of each geographical region for fires with known causes that start in the months of January, February, and March? Perform a chi-square statistics test. What are the chi-square statistic and p-value? Report a list of two numbers.",
+        "answer": [
+            6.326,
+            0.787
+        ],
+        "answer_type": "list_exact",
+        "data_sources": [
+            "noaa_wildfires.csv",
+            "noaa_wildfires_variabledescrip.csv"
+        ]
+    },
+    {
+        "id": "wildfire-hard-17",
+        "query": "What is the average elevation (in feet) of the weather stations used for fire site monitoring in the NOAA dataset?",
+        "answer": 4830.9,
+        "answer_type": "numeric_approximate",
+        "data_sources": [
+            "noaa_wildfires.csv",
+            "noaa_wildfires_variabledescrip.csv",
+            "PublicView_RAWS_-3515561676727363726.csv"
+        ]
+    },
+    {
+        "id": "wildfire-hard-18",
+        "query": "Based on the NOAA dataset, controlling for the weather, do more aggressive suppression actually contribute to fire ending faster and affecting less buildings?",
+        "answer": "More aggressive suppression does not help fires end faster but helps fires affect less buildings.",
+        "answer_type": "string_approximate",
+        "data_sources": [
+            "noaa_wildfires.csv",
+            "noaa_wildfires_variabledescrip.csv"
+        ]
+    },
+    {
+        "id": "wildfire-hard-19",
+        "query": "In 2016, what percentage (to 2 decimal places) of fires were brought under control with it raining moderately or heavily (>0.05 in) in the fire area on the same or a day before the control day? Assume that the narrowest diameter of the fire area is 1km. Under this assumption, if a weather station falls into the fire area, you can use the detailed weather observation from that station for that fire incident.",
+        "answer": 32.76,
+        "answer_type": "numeric_approximate",
+        "data_sources": [
+            "noaa_wildfires.csv",
+            "noaa_wildfires_variabledescrip.csv",
+            "WeatherEvents_Jan2016-Dec2022.csv"
+        ]
+    },
+    {
+        "id": "wildfire-hard-20",
+        "query": "According to NOAA, what percentage (to 2 decimal places) of wildfires account for at least 90% of residential houses damaged in 2008?",
+        "answer": 0.0465,
+        "answer_type": "numeric_exact",
+        "data_sources": [
+            "noaa_wildfires.csv",
+            "noaa_wildfires_variabledescrip.csv"
+        ]
+    }
+]
