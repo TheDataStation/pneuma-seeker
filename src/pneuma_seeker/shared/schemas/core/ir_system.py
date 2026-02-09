@@ -103,7 +103,10 @@ class Table(AbstractDocument):
 
     def __str__(self) -> str:
         table: DataFrame = self.content
-        cols = " | ".join(table.columns)
+        cols = " | ".join(
+            f"{col} ({dtype})"
+            for col, dtype in zip(table.columns, table.dtypes)
+        )
 
         if "description" in self.metadata and "keywords_existence" in self.metadata:
             header = (
