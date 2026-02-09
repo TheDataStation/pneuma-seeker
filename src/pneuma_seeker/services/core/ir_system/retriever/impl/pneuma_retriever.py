@@ -682,7 +682,7 @@ Your task is to analyze a natural-language query and extract **explicitly mentio
             for i in tqdm(range(0, len(conversations), max_batch_size)):
                 llm_output = self.language_model_api.batch_chat(
                     conversations[i : i + max_batch_size],
-                    LLMOption(max_new_tokens=400, batch_size=optimal_batch_size),
+                    LLMOption(max_new_tokens=800, batch_size=optimal_batch_size),
                 )
                 outputs += llm_output[0]
 
