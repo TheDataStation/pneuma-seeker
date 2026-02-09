@@ -5,6 +5,10 @@ import re
 def clean_column_table_name(name):
     """Cleans and normalizes column/table names."""
     name = name.lower()
+    # Semantic replacements
+    name = name.replace("$", "usd")
+    name = name.replace("%", "percentage")
+    name = name.replace("#", "num")
     # Replace spaces and hyphens with underscores
     name = name.replace("-", "_").replace(" ", "_")
     # Replace "(" and ")" with underscores
