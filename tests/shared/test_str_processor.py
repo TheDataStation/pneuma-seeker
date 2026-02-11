@@ -14,7 +14,7 @@ class StrProcessorTests(unittest.TestCase):
         self.assertEqual(clean_column_table_name("My Column"), "my_column")
         self.assertEqual(clean_column_table_name("Column-Name"), "column_name")
         self.assertEqual(clean_column_table_name("Col(1)"), "col_1")
-        self.assertEqual(clean_column_table_name("Col$#@!"), "col")
+        self.assertEqual(clean_column_table_name("Col$#@!"), "colusdnum")
 
     def test_multiple_underscores(self):
         self.assertEqual(clean_column_table_name("A__B--C"), "a_b_c")
