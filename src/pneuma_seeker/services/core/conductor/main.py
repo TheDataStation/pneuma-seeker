@@ -1,5 +1,6 @@
 import os
 from logging import Logger
+from time import time
 from typing import Any, cast
 
 import pandas as pd
@@ -113,6 +114,7 @@ class Conductor:
         external_table_paths: list[str],
     ):
         """Processes user input and yields responses."""
+        chat_start_time = time()
         self.__log(f"Processing user input: {user_input}")
         self.reset_conductor()
         self.external_tables = self.table_reader.process_external_tables(
@@ -279,6 +281,21 @@ class Conductor:
             self.is_user_facing_response = True
 
         yield self.user_facing_response
+
+        chat_end_time = time()
+        self.__log(f"Chat completed in {chat_end_time - chat_start_time:.2f} seconds.")
+        if hasattr(self.language_model_api.llm, "total_llm_time"):
+            self.__log(
+                f"Total LLM time for this chat: {self.language_model_api.llm.total_llm_time:.2f} seconds."  # type: ignore
+            )
+        if hasattr(self.language_model_api.llm, "total_input_tokens"):
+            self.__log(
+                f"Total input tokens for this chat: {self.language_model_api.llm.total_input_tokens} tokens."  # type: ignore
+            )
+        if hasattr(self.language_model_api.llm, "total_output_tokens"):
+            self.__log(
+                f"Total output tokens for this chat: {self.language_model_api.llm.total_output_tokens} tokens."  # type: ignore
+            )
 
     def __execute_action(
         self, action_name: str, action_args: dict[str, Any]
@@ -587,9 +604,7 @@ class Conductor:
                     T_df[t_id] = i.content
 
                 try:
-                    execution_result = self.action_set.execute_code(
-                        T_df, self.state.S
-                    )
+                    execution_result = self.action_set.execute_code(T_df, self.state.S)
                     self.__log(f"Script (S) execution result: {execution_result}")
 
                     self.state.is_S_executed = True
@@ -674,6 +689,9 @@ class Conductor:
         self.is_user_facing_response = False
         self.actions = []
         self.llm_messages = []
+
+        if hasattr(self.language_model_api.llm, "reset_metrics"):
+            self.language_model_api.llm.reset_metrics()  # type: ignore
 
     def __log(self, text):
         formatted_log(self.logger, "CONDUCTOR", text)

@@ -121,6 +121,11 @@ class AzureOpenAILLM(AbstractModel):
         if usage is not None:
             self.total_input_tokens += usage.prompt_tokens
             self.total_output_tokens += usage.completion_tokens
+    
+    def reset_metrics(self):
+        self.total_llm_time = 0.0
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
 
     def batch_chat(
         self,
