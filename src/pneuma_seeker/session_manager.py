@@ -15,8 +15,6 @@ class SessionManager:
         self.config = config
         self.logger = logger
         self.chat_sessions: dict[tuple[str, str], ChatSession] = {}
-        self.db_api = DBAPI(self.config, self.logger)
-        self.language_model_api = LanguageModelAPI(self.config, self.logger)
 
     def get_chat_session(self, user_id: str, chat_id: str) -> ChatSession:
         """Retrieves or creates a ChatSession for the given user and chat IDs."""
@@ -27,7 +25,7 @@ class SessionManager:
                 chat_id,
                 self.config,
                 self.logger,
-                self.db_api,
-                self.language_model_api,
+                DBAPI(self.config, self.logger),
+                LanguageModelAPI(self.config, self.logger),
             )
         return self.chat_sessions[key]
