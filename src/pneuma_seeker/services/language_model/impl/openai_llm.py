@@ -1,18 +1,18 @@
-from logging import Logger
-
 from collections.abc import Generator
+from logging import Logger
+from time import time
 from typing import Optional
 
 from numpy import ndarray
 from openai import Omit, OpenAI
 
+from pneuma_seeker.services.language_model.abstract_model import AbstractModel
+from pneuma_seeker.shared.config import Config
+from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.schemas.language_model.option import (
     EmbeddingModelOption,
     LLMOption,
 )
-from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
-from pneuma_seeker.services.language_model.abstract_model import AbstractModel
-from pneuma_seeker.shared.config import Config
 
 
 class OpenAILLM(AbstractModel):
@@ -25,6 +25,10 @@ class OpenAILLM(AbstractModel):
         self.logger = logger
         self.client = OpenAI(api_key=config.OPENAI_API_KEY)
 
+        self.total_llm_time = 0.0
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+
     def load_model(self):
         # OpenAI API does not require model loading
         pass
@@ -36,6 +40,7 @@ class OpenAILLM(AbstractModel):
     def chat(
         self, messages: list[LLMMessage], llm_option: Optional[LLMOption] = None
     ) -> Generator[str, None, None]:
+        start_llm_time = time()
         max_completion_tokens = None
         json_mode = False
         stream = False
@@ -44,7 +49,7 @@ class OpenAILLM(AbstractModel):
             max_completion_tokens = llm_option.max_new_tokens
             json_mode = llm_option.json_mode
             stream = llm_option.stream
-            if llm_option.temperature:
+            if llm_option.temperature is not None:
                 temperature = llm_option.temperature
 
         if stream:
@@ -57,9 +62,10 @@ class OpenAILLM(AbstractModel):
                 max_completion_tokens=max_completion_tokens,
                 response_format={"type": "json_object"} if json_mode else Omit(),
                 stream=stream,
+                stream_options={"include_usage": True},
             )  # type: ignore
-
             for event in response_stream:
+                self.__accumulate_usage(getattr(event, "usage", None))
                 # Some stream events may be keep-alives with empty choices — skip them
                 if not getattr(event, "choices", None):
                     continue
@@ -67,26 +73,29 @@ class OpenAILLM(AbstractModel):
                 delta = getattr(first, "delta", None)
                 if delta and getattr(delta, "content", None):
                     chunk = delta.content
-                    print(chunk, end="", flush=True)  # Optional live print
                     yield chunk
-
+            end_llm_time = time()
         else:
-            # Non-streaming version (current behavior)
-            gpt_output = (
-                self.client.chat.completions.create(
-                    messages=messages,  # type: ignore
-                    model=self.config.LLM_PATH,
-                    seed=42,
-                    temperature=temperature,
-                    max_completion_tokens=max_completion_tokens,
-                    response_format={"type": "json_object"} if json_mode else Omit(),
-                )
-                .choices[0]
-                .message.content
+            # Non-streaming
+            response_obj = self.client.chat.completions.create(
+                messages=messages,  # type: ignore
+                model=self.config.LLM_PATH,
+                seed=42,
+                temperature=temperature,
+                max_completion_tokens=max_completion_tokens,
+                response_format={"type": "json_object"} if json_mode else Omit(),
             )
-
-            response = gpt_output or ""
+            end_llm_time = time()
+            self.__accumulate_usage(getattr(response_obj, "usage", None))
+            response = response_obj.choices[0].message.content or ""
             yield response
+
+        self.total_llm_time += end_llm_time - start_llm_time
+
+    def __accumulate_usage(self, usage):
+        if usage is not None:
+            self.total_input_tokens += usage.prompt_tokens
+            self.total_output_tokens += usage.completion_tokens
 
     def batch_chat(
         self,
@@ -113,4 +122,4 @@ class OpenAILLM(AbstractModel):
         embed_model_option: EmbeddingModelOption | None = None,
     ) -> ndarray:
         """Embed texts."""
-        raise NotImplementedError("GPT does not support embedding texts.")
+        raise NotImplementedError("OpenAI LLM does not support embedding texts.")
