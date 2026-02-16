@@ -273,7 +273,7 @@ class ConductorTests(unittest.TestCase):
             ]}}"""
         ]
         self.conductor.materializer.materialize_T = MagicMock(
-            return_value={"t1": pd.DataFrame({"a": [1, 2], "b": [3, 4]})}
+            return_value=([], None, None, None, {"t1": pd.DataFrame({"a": [1, 2], "b": [3, 4]})})
         )
         self.conductor.action_set.execute_code = MagicMock(
             return_value=pd.DataFrame({"sum": [3]})

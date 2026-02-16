@@ -667,7 +667,13 @@ class Conductor:
         for T_id, T_doc in T.items():
             T_dfs[T_id] = T_doc.content
 
-        materialized_T_dfs = self.materializer.materialize_T(
+        (
+            retrieved_tables,
+            web_search_result,
+            web_crawl_result,
+            join_paths,
+            materialized_T_dfs,
+        ) = self.materializer.materialize_T(
             T_dfs,
             col_descriptions,
             S,
@@ -677,6 +683,15 @@ class Conductor:
             self.web_search_result,
             self.web_crawl_result,
         )
+
+        if len(retrieved_tables) > 0:
+            self.retrieved_tables = retrieved_tables
+        if web_search_result is not None:
+            self.web_search_result = web_search_result
+        if web_crawl_result is not None:
+            self.web_crawl_result = web_crawl_result
+        if join_paths is not None:
+            self.join_paths = join_paths
 
         materialized_T: dict[str, AbstractDocument] = {}
         for T_id, T_df in materialized_T_dfs.items():

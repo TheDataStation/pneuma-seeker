@@ -1,5 +1,5 @@
 # src/pneuma_seeker/shared/config.py
-from os import getenv, path
+from os import getenv
 
 from dotenv import load_dotenv
 

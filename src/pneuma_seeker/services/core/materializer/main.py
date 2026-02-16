@@ -77,7 +77,13 @@ class Materializer:
         prefetched_web_search_result: AbstractDocument | None = None,
         prefetched_web_crawl_result: AbstractDocument | None = None,
         precomputed_join_paths: str | None = None,
-    ) -> dict[str, DataFrame]:
+    ) -> tuple[
+            list[AbstractDocument],  # Retrieved tables
+            AbstractDocument | None,  # Web search result
+            AbstractDocument | None,  # Web crawl result
+            str | None,  # Join paths
+            dict[str, DataFrame],  # Materialized T
+        ]:
         """Materialize target tables T based on the provided script S and external tables."""
         self.__log(f"Materializing {len(T)} target tables...")
         self.__reset_materializer()
@@ -200,7 +206,13 @@ class Materializer:
                 final_result[intermediate_table_doc.doc_id] = (
                     intermediate_table_doc.content
                 )
-        return final_result
+        return (
+            self.state.retrieved_tables,
+            self.state.web_search_result,
+            self.state.web_crawl_result,
+            self.state.join_paths,
+            final_result,
+        )
 
     def __execute_action(
         self,

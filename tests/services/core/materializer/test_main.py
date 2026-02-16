@@ -92,7 +92,7 @@ class MaterializerTests(unittest.TestCase):
         # Define target T (schema only) so materializer knows it needs t1
         T = {"t1": pd.DataFrame(columns=["a", "b"])}
 
-        result = self.materializer.materialize_T(T=T, column_descriptions={}, S="")
+        result = self.materializer.materialize_T(T=T, column_descriptions={}, S="")[-1]
 
         self.assertIn("t1", result)
         pd.testing.assert_frame_equal(result["t1"].reset_index(drop=True), table_df)
@@ -137,7 +137,7 @@ class MaterializerTests(unittest.TestCase):
 
         T = {"t1": pd.DataFrame(columns=["a", "b"])}
 
-        result = self.materializer.materialize_T(T=T, column_descriptions={}, S="")
+        result = self.materializer.materialize_T(T=T, column_descriptions={}, S="")[-1]
 
         # After web_search operation the state should have web_search_result set
         self.assertIsNotNone(self.materializer.state.web_search_result)
@@ -200,7 +200,7 @@ class MaterializerTests(unittest.TestCase):
 
         T = {"t1": pd.DataFrame(columns=["a", "b"])}
 
-        result = self.materializer.materialize_T(T=T, column_descriptions={}, S="")
+        result = self.materializer.materialize_T(T=T, column_descriptions={}, S="")[-1]
 
         # After web_crawl operation the state should have web_crawl_result set
         self.assertIsNotNone(self.materializer.state.web_crawl_result)
@@ -260,7 +260,7 @@ class MaterializerTests(unittest.TestCase):
 
         T = {"t1": pd.DataFrame(columns=["a", "b", "newcol"])}
 
-        result = self.materializer.materialize_T(T=T, column_descriptions={}, S="")
+        result = self.materializer.materialize_T(T=T, column_descriptions={}, S="")[-1]
 
         self.assertIn("t1", result)
         res_df = result["t1"].reset_index(drop=True)
