@@ -58,9 +58,6 @@ class Enumerator(AbstractRetriever):
                 if sample_size is None or sample_size <= 0:
                     sample_size = 5
                 query_table += f" LIMIT {sample_size}"
-            self.db_api.link_dataset_tables(
-                self.user_id, self.chat_id, self.config.DATA_SOURCES[0]
-            )
             actual_table = self.db_api.execute_query(
                 self.user_id, self.chat_id, query_table
             )

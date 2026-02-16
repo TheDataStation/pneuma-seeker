@@ -78,12 +78,12 @@ class Materializer:
         prefetched_web_crawl_result: AbstractDocument | None = None,
         precomputed_join_paths: str | None = None,
     ) -> tuple[
-            list[AbstractDocument],  # Retrieved tables
-            AbstractDocument | None,  # Web search result
-            AbstractDocument | None,  # Web crawl result
-            str | None,  # Join paths
-            dict[str, DataFrame],  # Materialized T
-        ]:
+        list[AbstractDocument],  # Retrieved tables
+        AbstractDocument | None,  # Web search result
+        AbstractDocument | None,  # Web crawl result
+        str | None,  # Join paths
+        dict[str, DataFrame],  # Materialized T
+    ]:
         """Materialize target tables T based on the provided script S and external tables."""
         self.__log(f"Materializing {len(T)} target tables...")
         self.__reset_materializer()
@@ -262,7 +262,7 @@ class Materializer:
                         return
                     self.state.retrieved_tables = (
                         self.action_set.retrieve_multi_topic_documents(
-                            prompts, RetrieverType.PNEUMA_RETRIEVER, 10
+                            prompts, RetrieverType.PNEUMA_RETRIEVER, 10, True, 5
                         )
                     )
                 else:
@@ -288,7 +288,7 @@ class Materializer:
                         )
                         return
                     self.state.retrieved_tables = self.action_set.retrieve_documents(
-                        prompt, RetrieverType.PNEUMA_RETRIEVER, 10
+                        prompt, RetrieverType.PNEUMA_RETRIEVER, 10, True, 5
                     )
 
                 if len(self.state.retrieved_tables) == 0:
@@ -419,7 +419,7 @@ class Materializer:
                 pattern = action_args.get("pattern", "")
                 extra_tables: list[AbstractDocument] = (
                     self.action_set.retrieve_documents(
-                        pattern, RetrieverType.ENUMERATOR, 10, True, 5
+                        pattern, RetrieverType.ENUMERATOR, 20, True, 5
                     )
                 )
 
@@ -542,30 +542,17 @@ class Materializer:
                             )
                         )
                         return
-
-                    table_to_project = matches[0].content
-                    if not isinstance(table_to_project, DataFrame):
-                        error_msg = f"Content of table {table_id_to_project!r} is not a valid DataFrame."
-                        self.__log(f"==> {error_msg}")
-                        self.llm_messages.append(
-                            LLMMessage(
-                                role=Role.USER.value,
-                                content=error_msg,
-                            )
-                        )
-                        return
                     # END INPUT VALIDATION
 
                     self.__log(
                         f"==> target_table_id: {target_table_id}; table_id_to_project: {table_id_to_project}"
                     )
-
                     try:
-                        projected_table = self.action_set.project_table(
-                            table_to_project, relevant_columns
+                        projected_table_sample_rows = self.action_set.project_table(
+                            table_id_to_project, target_table_id, relevant_columns
                         )
                     except Exception as e:
-                        error_msg = f"Failed selecting columns {relevant_columns!r} from table {table_id_to_project!r}: {e}"
+                        error_msg = f"Failed projecting columns {relevant_columns!r} from table {table_id_to_project!r}: {e}"
                         self.__log(f"==> {error_msg}")
                         self.llm_messages.append(
                             LLMMessage(
@@ -620,7 +607,7 @@ class Materializer:
                         Table(
                             doc_id=target_table_id,
                             retriever_type=RetrieverType.MATERIALIZER,
-                            content=projected_table,
+                            content=projected_table_sample_rows,
                             metadata={},
                             last_node_id=new_node_id,
                         )
@@ -637,7 +624,7 @@ class Materializer:
             case ActionNames.SEMANTIC_COLUMN_GENERATION.value:
                 table_id: str | None = action_args.get("table_id")
                 new_column_name: str | None = action_args.get("new_column_name")
-                table_relevant_columns: list[str] | None = action_args.get(
+                src_table_columns: list[str] | None = action_args.get(
                     "relevant_columns"
                 )
                 instruction: str | None = action_args.get("instruction")
@@ -662,7 +649,7 @@ class Materializer:
                         )
                     )
                     return
-                if table_relevant_columns is None:
+                if src_table_columns is None:
                     error_msg = "relevant_columns is not provided."
                     self.__log(f"==> {error_msg}")
                     self.llm_messages.append(
@@ -676,10 +663,21 @@ class Materializer:
                 conditioned_table_doc = [i for i in all_tables if i.doc_id == table_id][
                     0
                 ]
-                conditioned_table: DataFrame = conditioned_table_doc.content
+                if conditioned_table_doc.retriever_type != RetrieverType.MATERIALIZER:
+                    error_msg = "Semantic column generation is only supported for intermediate tables generated within the materialization process."
+                    self.__log(f"==> {error_msg}")
+                    self.llm_messages.append(
+                        LLMMessage(
+                            role=Role.USER.value,
+                            content=error_msg,
+                        )
+                    )
+                    return
 
-                if not set(table_relevant_columns) <= set(
-                    list(conditioned_table.columns)
+                conditioned_table_sample_rows: DataFrame = conditioned_table_doc.content
+
+                if not set(src_table_columns) <= set(
+                    list(conditioned_table_sample_rows.columns)
                 ):
                     error_msg = f"relevant_columns must be a subset of the columns of table {table_id}."
                     self.__log(f"==> {error_msg}")
@@ -701,12 +699,13 @@ class Materializer:
                     )
                     return
 
-                augmented_table = self.action_set.generate_semantic_column(
-                    conditioned_table[table_relevant_columns],
+                augmented_table_sample_rows = self.action_set.generate_semantic_column(
+                    conditioned_table_doc.doc_id,
+                    src_table_columns,
                     new_column_name,
                     instruction,
                 )
-                conditioned_table_doc.content = augmented_table
+                conditioned_table_doc.content = augmented_table_sample_rows
                 success_msg = f"Successfully added a new column named {new_column_name} to table with ID {table_id}."
                 self.__log(f"==> {success_msg}")
                 self.llm_messages.append(
@@ -717,10 +716,10 @@ class Materializer:
                 )
 
                 sem_col_code = self.action_set.generate_semantic_col_generator_code(
-                    table_relevant_columns,
+                    src_table_columns,
                     conditioned_table_doc,
                     new_column_name,
-                    list(augmented_table[new_column_name]),
+                    list(augmented_table_sample_rows[new_column_name]),
                     os.path.join(
                         self._get_intermediate_table_dir_path(),
                         f"{conditioned_table_doc.doc_id}.csv",
@@ -739,18 +738,14 @@ class Materializer:
                 new_node = ProvenanceNode(
                     source_retriever=RetrieverType.MATERIALIZER,
                     python_code=sem_col_code,
-                    description=f"Uses an LLM to generate column named `{new_column_name}` in the table `{table_id}`, conditioned on the following columns: {', '.join(f'`{col}`' for col in table_relevant_columns)}.",
+                    description=f"Uses an LLM to generate column named `{new_column_name}` in the table `{table_id}`, conditioned on the following columns: {', '.join(f'`{col}`' for col in src_table_columns)}.",
                 )
                 self.prov_graph.add_node(new_node, True)
                 if parent_node_id is not None:
                     parent_node = self.prov_graph.get_node_by_id(parent_node_id)
                     if parent_node is not None:
                         self.prov_graph.connect(parent_node, new_node)
-
                 conditioned_table_doc.last_node_id = new_node.id
-                self.__save_new_or_updated_intermediate_table(
-                    conditioned_table_doc.doc_id
-                )
             case ActionNames.SEMANTIC_JOIN.value:
                 left_table_id: str | None = action_args.get("left_table_id")
                 right_table_id: str | None = action_args.get("right_table_id")
@@ -1024,7 +1019,7 @@ class Materializer:
                                 LLMMessage(
                                     role=Role.USER.value,
                                     content=python_code,
-                                )
+                                ),
                             ]
                         )
                     )

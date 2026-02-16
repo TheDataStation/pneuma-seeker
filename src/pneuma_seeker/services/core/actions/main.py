@@ -216,11 +216,14 @@ class ActionSet:
         tables_df: dict[str, DataFrame] = {doc.doc_id: doc.content for doc in tables}
         return self.join_path_extraction.discover_join_paths(tables_df)
 
-    def project_table(self, table: DataFrame, relevant_columns: list[str]) -> DataFrame:
+    def project_table(
+        self, src_table_id: str, target_table_id: str, src_table_columns: list[str]
+    ) -> DataFrame:
         return self.table_projection.apply(
             {
-                "table": table,
-                "relevant_columns": relevant_columns,
+                "src_table_id": src_table_id,
+                "target_table_id": target_table_id,
+                "src_table_columns": src_table_columns,
             }
         )
 
@@ -299,15 +302,22 @@ class ActionSet:
 
     def generate_semantic_column(
         self,
-        source_table: DataFrame,
+        src_table_id: str,
+        src_table_columns: list[str],
         new_column_name: str,
-        instruction: str,  # Explanation includes the possible values, i.e., the domain
+        instruction: str,
     ) -> DataFrame:
+        """
+        Generates a new column based on the instruction and source table columns,
+        using the language model to perform the transformation. Returns the updated
+        table with the new column (sample rows only).
+        """
         return self.semantic_column_generation.apply(
             {
-                "table": source_table,
-                "column_name": new_column_name,
-                "description": instruction,
+                "src_table_id": src_table_id,
+                "src_table_columns": src_table_columns,
+                "new_column_name": new_column_name,
+                "instruction": instruction,
             }
         )
 
@@ -332,14 +342,14 @@ class ActionSet:
 
     def generate_semantic_col_generator_code(
         self,
-        conditioned_cols: list[str],
+        src_table_columns: list[str],
         doc: AbstractDocument,
         new_col_name: str,
         new_col_values: list[Any],
         path: str,
     ):
         return generate_semantic_col_generator_code(
-            conditioned_cols, doc, new_col_name, new_col_values, path
+            src_table_columns, doc, new_col_name, new_col_values, path
         )
 
     def generate_semantic_join_generator_code(

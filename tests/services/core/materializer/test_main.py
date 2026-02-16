@@ -33,6 +33,7 @@ class MaterializerTests(unittest.TestCase):
         self.prov_graph = ProvenanceGraph(self.logger)
 
         self.config = Config(".env.test")
+        self.config.DATA_SOURCES = ["test_ds"]
         self.config.ENABLE_MULTI_TOPIC_TABLE_RETRIEVE = False
         self.config.ENABLE_WEB_SEARCH = True
         self.config.ENABLE_WEB_CRAWL = True
@@ -79,6 +80,9 @@ class MaterializerTests(unittest.TestCase):
         self.lm_api.llm._responses = [f"""{{"plan": [{plan1}, {plan2}]}}"""]  # type: ignore
 
         table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+        os.makedirs(Path(self.tmpdir) / "test_ds", exist_ok=True)
+        table_df.to_csv(Path(self.tmpdir) / "test_ds" / "table_1.csv", index=False)
+        self.db_api.ingest_dataset("test_ds", str(Path(self.tmpdir) / "test_ds"))
         table_doc = Table(
             doc_id="table_1",
             retriever_type=RetrieverType.PNEUMA_RETRIEVER,
@@ -111,11 +115,16 @@ class MaterializerTests(unittest.TestCase):
     def test_web_search_sets_web_search_result(self):
         # LLM will call table_retrieve, web_search, then table_projection to finish
         plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompt":"find tables"}}}}'
-        plan2 = f'{{"action":"{ActionNames.WEB_SEARCH.value}","args":{{"prompt":"query"}}}}'
+        plan2 = (
+            f'{{"action":"{ActionNames.WEB_SEARCH.value}","args":{{"prompt":"query"}}}}'
+        )
         plan3 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"table_1","columns":["a","b"]}}}}}}'
-        self.lm_api.llm._responses = [f"{{\"plan\": [{plan1}, {plan2}, {plan3}]}}"]  # type: ignore
+        self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}, {plan3}]}}']  # type: ignore
 
         table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+        os.makedirs(Path(self.tmpdir) / "test_ds", exist_ok=True)
+        table_df.to_csv(Path(self.tmpdir) / "test_ds" / "table_1.csv", index=False)
+        self.db_api.ingest_dataset("test_ds", str(Path(self.tmpdir) / "test_ds"))
         table_doc = Table(
             doc_id="table_1",
             retriever_type=RetrieverType.PNEUMA_RETRIEVER,
@@ -176,9 +185,12 @@ class MaterializerTests(unittest.TestCase):
         plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompt":"find tables"}}}}'
         plan2 = f'{{"action":"{ActionNames.WEB_CRAWL.value}","args":{{"url":"http://example.com"}}}}'
         plan3 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"table_1","columns":["a","b"]}}}}}}'
-        self.lm_api.llm._responses = [f"{{\"plan\": [{plan1}, {plan2}, {plan3}]}}"]  # type: ignore
+        self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}, {plan3}]}}']  # type: ignore
 
         table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+        os.makedirs(Path(self.tmpdir) / "test_ds", exist_ok=True)
+        table_df.to_csv(Path(self.tmpdir) / "test_ds" / "table_1.csv", index=False)
+        self.db_api.ingest_dataset("test_ds", str(Path(self.tmpdir) / "test_ds"))
         table_doc = Table(
             doc_id="table_1",
             retriever_type=RetrieverType.PNEUMA_RETRIEVER,
@@ -235,13 +247,28 @@ class MaterializerTests(unittest.TestCase):
         )
 
     def test_semantic_column_generator_adds_column(self):
-        # LLM will call table_retrieve, semantic_column_generator, then table_projection
+        # LLM will call table_retrieve, table_projection, then semantic_column_generator
         plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompt":"find tables"}}}}'
-        plan2 = f'{{"action":"{ActionNames.SEMANTIC_COLUMN_GENERATION.value}","args":{{"table_id":"table_1","new_column_name":"newcol","relevant_columns":["b"],"instruction":"make new"}}}}'
-        plan3 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"table_1","columns":["a","b","newcol"]}}}}}}'
-        self.lm_api.llm._responses = [f"{{\"plan\": [{plan1}, {plan2}, {plan3}]}}"]  # type: ignore
+        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"table_1","columns":["a","b"]}}}}}}'
+        plan3 = f'{{"action":"{ActionNames.SEMANTIC_COLUMN_GENERATION.value}","args":{{"table_id":"t1","new_column_name":"newcol","relevant_columns":["b"],"instruction":"make new"}}}}'
+
+        # Mock the LLM responses using llm._responses (the internal list used by the LLM mock)
+        # First response: planning response with the actions
+        planning_response_1 = f'{{"plan": [{plan1}, {plan2}, {plan3}]}}'
+        # Second response: the semantic column generation LLM call returns the transformed values
+        sem_col_response = (
+            "['Result for: name: Alice; age: 30', 'Result for: name: Alice; age: 30']"
+        )
+
+        self.lm_api.llm._responses = [  # type: ignore
+            planning_response_1,  # Planning call
+            sem_col_response,  # Semantic column generation call
+        ]  # type: ignore
 
         table_df = pd.DataFrame({"a": [1, 2], "b": [10, 20]})
+        os.makedirs(Path(self.tmpdir) / "test_ds", exist_ok=True)
+        table_df.to_csv(Path(self.tmpdir) / "test_ds" / "table_1.csv", index=False)
+        self.db_api.ingest_dataset("test_ds", str(Path(self.tmpdir) / "test_ds"))
         table_doc = Table(
             doc_id="table_1",
             retriever_type=RetrieverType.PNEUMA_RETRIEVER,
@@ -251,13 +278,6 @@ class MaterializerTests(unittest.TestCase):
 
         self.action_set.retrieve_documents = MagicMock(return_value=[table_doc])
 
-        # Mock generation of semantic column
-        augmented_table = table_df.copy()
-        augmented_table["newcol"] = [100, 200]
-        self.action_set.generate_semantic_column = MagicMock(
-            return_value=augmented_table
-        )
-
         T = {"t1": pd.DataFrame(columns=["a", "b", "newcol"])}
 
         result = self.materializer.materialize_T(T=T, column_descriptions={}, S="")[-1]
@@ -265,24 +285,34 @@ class MaterializerTests(unittest.TestCase):
         self.assertIn("t1", result)
         res_df = result["t1"].reset_index(drop=True)
         self.assertIn("newcol", res_df.columns)
-        self.assertEqual(list(res_df["newcol"]), [100, 200])
+        # The semantic column generation returns the LLM responses
+        self.assertEqual(
+            list(res_df["newcol"]),
+            ["Result for: name: Alice; age: 30", "Result for: name: Alice; age: 30"],
+        )
 
         self.assertTrue(len(self.materializer.prov_graph.nodes) == 4)
+        t1_doc = next(
+            doc
+            for doc in self.materializer.state.intermediate_tables
+            if doc.doc_id == "t1"
+        )
         prov_graph_code_lines_1 = [
             self.materializer.prov_graph.ROOT_NODE_CODE,
             self.action_set.generate_pandas_read_csv_code(table_doc),
+            self.action_set.generate_table_select_code("t1", "table_1", ["a", "b"]),
             self.action_set.generate_semantic_col_generator_code(
                 ["b"],
-                table_doc,
+                t1_doc,
                 "newcol",
-                [100, 200],
+                [
+                    "Result for: name: Alice; age: 30",
+                    "Result for: name: Alice; age: 30",
+                ],
                 os.path.join(
                     self.materializer._get_intermediate_table_dir_path(),
-                    f"{table_doc.doc_id}.csv",
+                    f"{t1_doc.doc_id}.csv",
                 ),
-            ),
-            self.action_set.generate_table_select_code(
-                "t1", "table_1", ["a", "b", "newcol"]
             ),
         ]
         self.assertEqual(
