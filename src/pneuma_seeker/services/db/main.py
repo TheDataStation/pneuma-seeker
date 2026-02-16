@@ -404,6 +404,7 @@ class PneumaDB:
         chat_id: str,
         document: AbstractDocument,
         document_type: str,
+        overwrite_content: bool,
     ):
         """
         Persists a single document with its metadata and document_type.
@@ -438,6 +439,7 @@ class PneumaDB:
                     document.content,
                     document.doc_id,
                     con,
+                    overwrite_content,
                 )
             self.__insert_document(con, state_id, document, document_type)
             con.commit()
@@ -450,10 +452,13 @@ class PneumaDB:
         df: DataFrame,
         table_name: str,
         con: duckdb.DuckDBPyConnection,
+        overwrite_content: bool,
     ):
         """Persists a DataFrame as a table in the workspace DB (skip if exists)."""
         try:
             con.register("df", df)
+            if overwrite_content:
+                con.execute(f'DROP TABLE IF EXISTS "{table_name}"')
             con.execute(
                 f'CREATE TABLE IF NOT EXISTS "{table_name}" AS SELECT * FROM df'
             )
