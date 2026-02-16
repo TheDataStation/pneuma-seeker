@@ -426,11 +426,44 @@ class PneumaDB:
             else:
                 state_id = None  # No state yet, document will be orphaned
 
+            if document_type in {
+                DocumentType.TARGET_TABLE.value,
+                DocumentType.INTERMEDIATE_TABLE.value,
+                DocumentType.EXTERNAL_TABLE.value,
+            }:
+                self.__log(
+                    "Persist the DataFrame content of the document as a table in the workspace DB..."
+                )
+                self.__persist_df(
+                    document.content,
+                    document.doc_id,
+                    con,
+                )
             self.__insert_document(con, state_id, document, document_type)
             con.commit()
         except Exception as e:
             con.rollback()
             self.__log(f"Failed to persist document: {e}")
+
+    def __persist_df(
+        self,
+        df: DataFrame,
+        table_name: str,
+        con: duckdb.DuckDBPyConnection,
+    ):
+        """Persists a DataFrame as a table in the workspace DB (skip if exists)."""
+        try:
+            con.register("df", df)
+            con.execute(
+                f'CREATE TABLE IF NOT EXISTS "{table_name}" AS SELECT * FROM df'
+            )
+        except Exception as e:
+            self.__log(f"Failed to persist DataFrame: {e}")
+        finally:
+            try:
+                con.unregister("df")
+            except Exception:
+                pass
 
     def persist_session(
         self,
