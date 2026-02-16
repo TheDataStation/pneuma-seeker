@@ -1020,6 +1020,10 @@ class Materializer:
                                 LLMMessage(
                                     role=Role.SYSTEM.value,
                                     content=f"Summarize in 1-3 sentences what the following Python code does, especially in terms of how it uses the tables as inputs, and what it produces as output. Use the following style for the summary: \nExecutes Python code to produce a new table named {assign_to} by <summary of the code's operations on the used tables>.",
+                                ),
+                                LLMMessage(
+                                    role=Role.USER.value,
+                                    content=python_code,
                                 )
                             ]
                         )
