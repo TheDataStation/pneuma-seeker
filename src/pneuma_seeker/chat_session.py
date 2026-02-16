@@ -124,7 +124,7 @@ class ChatSession:
                 self.conductor.web_crawl_result,
                 self.conductor.join_paths,
             )
-            self.__log("State persisted successfully.")
+            self.__log("Session persisted successfully.")
         except Exception as e:
             self.__log(f"Failed to persist session: {e}")
 
