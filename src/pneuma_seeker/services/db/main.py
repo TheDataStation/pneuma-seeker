@@ -398,6 +398,40 @@ class PneumaDB:
     # ------------------------------------------------------------------
     # Session Persistence
     # ------------------------------------------------------------------
+    def persist_document(
+        self,
+        user_id: str,
+        chat_id: str,
+        document: AbstractDocument,
+        role: str,
+    ):
+        """
+        Persists a single document with its metadata and role.
+        This is a helper for persisting documents outside of the full session persistence flow.
+        """
+        con = self.get_ws_db_connection(user_id, chat_id)
+        try:
+            con.begin()
+            # Get the latest state_id to associate the document with
+            row = con.execute(
+                """
+                SELECT state_id
+                FROM conductor_state
+                ORDER BY creation_timestamp DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            if row:
+                state_id = row[0]  # Already a UUID object from DuckDB
+            else:
+                state_id = None  # No state yet, document will be orphaned
+
+            self.__insert_document(con, state_id, document, role)
+            con.commit()
+        except Exception as e:
+            con.rollback()
+            self.__log(f"Failed to persist document: {e}")
+
     def persist_session(
         self,
         user_id: str,
@@ -592,7 +626,7 @@ class PneumaDB:
     def __insert_document(
         self,
         con: duckdb.DuckDBPyConnection,
-        state_id: UUID,
+        state_id: UUID | None,
         document: AbstractDocument,
         role: str,
     ):
@@ -622,6 +656,7 @@ class PneumaDB:
                 document_content = f"{dataset_name}.{document.doc_id}"
             else:
                 document_content = document.doc_id
+
         # doc_id is a PRIMARY KEY, so in fine-grained tracking we must support reusing
         # the same doc_id across states. Upsert keeps the latest document representation.
         con.execute(
@@ -667,17 +702,19 @@ class PneumaDB:
                 """,
                 (document.doc_id, meta_key, meta_value),
             )
-        con.execute(
-            """
-            INSERT INTO state_document_roles (
-                state_id,
-                doc_id,
-                role
-            ) VALUES (?, ?, ?)
-            ON CONFLICT (state_id, doc_id, role) DO NOTHING
-            """,
-            (state_id, document.doc_id, role),
-        )
+
+        if state_id is not None:
+            con.execute(
+                """
+                INSERT INTO state_document_roles (
+                    state_id,
+                    doc_id,
+                    role
+                ) VALUES (?, ?, ?)
+                ON CONFLICT (state_id, doc_id, role) DO NOTHING
+                """,
+                (state_id, document.doc_id, role),
+            )
 
     def load_session(
         self,

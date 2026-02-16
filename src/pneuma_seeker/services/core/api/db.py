@@ -40,7 +40,7 @@ class DBAPI:
         - only reads file once for ingestion (fast path)
         """
         self.pneuma_db.ingest_dataset(dataset_name, dataset_path)
-    
+
     def get_table_description(self, dataset_name: str, table_name: str) -> str:
         """Returns the description of a table in the dataset."""
         return self.pneuma_db.get_table_description(dataset_name, table_name)
@@ -71,6 +71,19 @@ class DBAPI:
     # ------------------------------------------------------------------
     # Chat Session Persistence
     # ------------------------------------------------------------------
+    def persist_document(
+        self,
+        user_id: str,
+        chat_id: str,
+        document: AbstractDocument,
+        role: str,
+    ):
+        """
+        Persists a document in the chat session.
+        The document is linked to the latest conductor state if it exists, otherwise it's orphaned.
+        """
+        self.pneuma_db.persist_document(user_id, chat_id, document, role)
+
     def persist_session(
         self,
         user_id: str,

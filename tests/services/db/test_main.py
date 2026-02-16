@@ -20,6 +20,7 @@ from pneuma_seeker.services.core.conductor.state import ConductorState
 from pneuma_seeker.services.db.main import PneumaDB
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.schemas.core.ir_system import AbstractDocument, RetrieverType, Table, Text
+from pneuma_seeker.shared.schemas.db.document_type import DocumentType
 from pneuma_seeker.shared.schemas.language_model.role import Role
 
 
@@ -475,6 +476,104 @@ class TestQueryExecution(unittest.TestCase):
             self.user_id, self.chat_id, "SELECT 42 as answer;"
         )
         self.assertIsInstance(result, pd.DataFrame)
+
+
+class TestPersistDocument(unittest.TestCase):
+    """Tests for persist_document helper."""
+
+    def setUp(self):
+        self.config = Config()
+        self.logger = logging.getLogger("test")
+        self.tmpdir = tempfile.mkdtemp()
+        self.db = PneumaDB(logger=self.logger, config=self.config)
+        self.db.dataset_db_path = Path(self.tmpdir) / "datasets"
+        self.db.workspace_db_path = Path(self.tmpdir) / "workspaces"
+        self.db.dataset_db_path.mkdir(parents=True, exist_ok=True)
+        self.db.workspace_db_path.mkdir(parents=True, exist_ok=True)
+
+        self.user_id = "user_doc"
+        self.chat_id = "chat_doc"
+
+    def tearDown(self):
+        self.db.close_all_connections()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_persist_document_without_state(self):
+        """Documents should persist even if no conductor_state exists yet."""
+        doc = Text(
+            doc_id="doc_no_state",
+            retriever_type=RetrieverType.WEB_SEARCH,
+            content="Result content",
+            metadata={"url": "https://example.com", "title": "Example"},
+        )
+
+        self.db.persist_document(
+            self.user_id,
+            self.chat_id,
+            doc,
+            DocumentType.WEB_SEARCH_RESULT.value,
+        )
+
+        con = self.db.get_ws_db_connection(self.user_id, self.chat_id)
+        doc_count = con.execute("SELECT COUNT(*) FROM documents;").fetchone()
+        meta_count = con.execute("SELECT COUNT(*) FROM document_metadata;").fetchone()
+        role_count = con.execute("SELECT COUNT(*) FROM state_document_roles;").fetchone()
+
+        assert doc_count is not None
+        assert meta_count is not None
+        assert role_count is not None
+
+        self.assertEqual(doc_count[0], 1)
+        self.assertEqual(meta_count[0], 2)
+        self.assertEqual(role_count[0], 0)
+
+    def test_persist_document_links_latest_state(self):
+        """Documents should link to the latest conductor_state when it exists."""
+        self.db.persist_session(
+            self.user_id,
+            self.chat_id,
+            "U1",
+            "A1",
+            ConductorState(),
+            ProvenanceGraph(self.logger),
+            [],
+            [],
+        )
+
+        doc = Text(
+            doc_id="doc_with_state",
+            retriever_type=RetrieverType.WEB_SEARCH,
+            content="Result content",
+            metadata={"url": "https://example.com"},
+        )
+
+        self.db.persist_document(
+            self.user_id,
+            self.chat_id,
+            doc,
+            DocumentType.WEB_SEARCH_RESULT.value,
+        )
+
+        con = self.db.get_ws_db_connection(self.user_id, self.chat_id)
+        latest_state_id = con.execute(
+            "SELECT state_id FROM conductor_state ORDER BY creation_timestamp DESC LIMIT 1;"
+        ).fetchone()
+        assert latest_state_id is not None
+        latest_state_id = latest_state_id[0]
+
+        role_row = con.execute(
+            """
+            SELECT state_id, role
+            FROM state_document_roles
+            WHERE doc_id = ?
+            """,
+            (doc.doc_id,),
+        ).fetchone()
+
+        self.assertIsNotNone(role_row)
+        if role_row:
+            self.assertEqual(str(role_row[0]), str(latest_state_id))
+            self.assertEqual(role_row[1], DocumentType.WEB_SEARCH_RESULT.value)
 
 
 class TestSessionPersistence(unittest.TestCase):
