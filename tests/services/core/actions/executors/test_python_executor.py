@@ -24,7 +24,7 @@ class PythonExecutorTests(unittest.TestCase):
         self.db_api = MagicMock()
         self.lm_api = MagicMock()
         self.python_executor = PythonExecutor(
-            self.config, self.logger, self.db_api, self.lm_api
+            "user_id", "chat_id", self.config, self.logger, self.db_api, self.lm_api
         )
 
     def test_execute_code_happy_path_and_table_ids(self):

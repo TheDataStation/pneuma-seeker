@@ -7,7 +7,18 @@ from pneuma_seeker.shared.config import Config
 
 
 class Action(ABC):
-    def __init__(self, config: Config, logger: Logger, db_api: DBAPI, language_model_api: LanguageModelAPI, **kwargs):
+    def __init__(
+        self,
+        user_id: str,
+        chat_id: str,
+        config: Config,
+        logger: Logger,
+        db_api: DBAPI,
+        language_model_api: LanguageModelAPI,
+        **kwargs
+    ):
+        self.user_id = user_id
+        self.chat_id = chat_id
         self.config = config
         self.logger = logger
         self.db_api = db_api

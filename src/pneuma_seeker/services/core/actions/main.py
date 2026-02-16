@@ -71,33 +71,78 @@ class ActionSet:
             self.language_model_api,
         )
         self.table_retrieve = TableRetrieve(
-            self.config, self.logger, self.db_api, self.language_model_api
+            self.user_id,
+            self.chat_id,
+            self.config,
+            self.logger,
+            self.db_api,
+            self.language_model_api,
         )
         self.table_enumeration = TableEnumeration(
-            self.config, self.logger, self.db_api, self.language_model_api
+            self.user_id,
+            self.chat_id,
+            self.config,
+            self.logger,
+            self.db_api,
+            self.language_model_api,
         )
         self.web_search = WebSearch(
-            self.config, self.logger, self.db_api, self.language_model_api
+            self.user_id,
+            self.chat_id,
+            self.config,
+            self.logger,
+            self.db_api,
+            self.language_model_api,
         )
         self.web_crawl = WebCrawl(
-            self.config, self.logger, self.db_api, self.language_model_api
+            self.user_id,
+            self.chat_id,
+            self.config,
+            self.logger,
+            self.db_api,
+            self.language_model_api,
         )
         self.join_path_extraction = JoinPathExtraction(
-            self.config, self.logger, self.db_api, self.language_model_api
+            self.user_id,
+            self.chat_id,
+            self.config,
+            self.logger,
+            self.db_api,
+            self.language_model_api,
         )
 
         self.python_executor = PythonExecutor(
-            self.config, self.logger, self.db_api, self.language_model_api
+            self.user_id,
+            self.chat_id,
+            self.config,
+            self.logger,
+            self.db_api,
+            self.language_model_api,
         )
 
         self.semantic_join = SemanticJoin(
-            self.config, self.logger, self.db_api, self.language_model_api
+            self.user_id,
+            self.chat_id,
+            self.config,
+            self.logger,
+            self.db_api,
+            self.language_model_api,
         )
         self.semantic_column_generation = SemanticColumnGeneration(
-            self.config, self.logger, self.db_api, self.language_model_api
+            self.user_id,
+            self.chat_id,
+            self.config,
+            self.logger,
+            self.db_api,
+            self.language_model_api,
         )
         self.table_projection = TableProjection(
-            self.config, self.logger, self.db_api, self.language_model_api
+            self.user_id,
+            self.chat_id,
+            self.config,
+            self.logger,
+            self.db_api,
+            self.language_model_api,
         )
 
         self.valid_conductor_actions = [

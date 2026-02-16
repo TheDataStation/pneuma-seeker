@@ -24,13 +24,15 @@ class JoinPathExtractionTests(unittest.TestCase):
         self.db_api = MagicMock()
         self.lm_api = MagicMock()
         self.join_path_extractor = JoinPathExtraction(
-            self.config, self.logger, self.db_api, self.lm_api
+            "user_id", "chat_id", self.config, self.logger, self.db_api, self.lm_api
         )
 
     def test_discover_join_paths_with_matching_columns(self):
         """Test discovering join paths with tables having matching column names and values."""
         tables = {
-            "users": pd.DataFrame({"user_id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]}),
+            "users": pd.DataFrame(
+                {"user_id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]}
+            ),
             "orders": pd.DataFrame({"user_id": [1, 2, 3], "amount": [100, 200, 150]}),
         }
 
@@ -45,7 +47,9 @@ class JoinPathExtractionTests(unittest.TestCase):
     def test_discover_join_paths_with_similar_column_names(self):
         """Test discovering join paths with similar but not identical column names."""
         tables = {
-            "customers": pd.DataFrame({"customer_id": [1, 2], "name": ["Alice", "Bob"]}),
+            "customers": pd.DataFrame(
+                {"customer_id": [1, 2], "name": ["Alice", "Bob"]}
+            ),
             "sales": pd.DataFrame({"cust_id": [1, 2], "amount": [100, 200]}),
         }
 
@@ -95,8 +99,15 @@ class JoinPathExtractionTests(unittest.TestCase):
     def test_discover_join_paths_with_value_overlap(self):
         """Test discovering join paths based on value overlap."""
         tables = {
-            "products": pd.DataFrame({"product_code": ["A1", "B2", "C3"], "name": ["Prod A", "Prod B", "Prod C"]}),
-            "inventory": pd.DataFrame({"code": ["A1", "B2", "C3"], "quantity": [10, 20, 30]}),
+            "products": pd.DataFrame(
+                {
+                    "product_code": ["A1", "B2", "C3"],
+                    "name": ["Prod A", "Prod B", "Prod C"],
+                }
+            ),
+            "inventory": pd.DataFrame(
+                {"code": ["A1", "B2", "C3"], "quantity": [10, 20, 30]}
+            ),
         }
 
         result = self.join_path_extractor.discover_join_paths(tables)
@@ -117,8 +128,12 @@ class JoinPathExtractionTests(unittest.TestCase):
 
         self.assertIsInstance(result, str)
         # Count the number of join suggestions (lines starting with "-")
-        suggestion_lines = [line for line in result.split("\n") if line.strip().startswith("-")]
-        self.assertLessEqual(len(suggestion_lines), self.config.JOIN_PATH_EXTRACTION_TOP_K)
+        suggestion_lines = [
+            line for line in result.split("\n") if line.strip().startswith("-")
+        ]
+        self.assertLessEqual(
+            len(suggestion_lines), self.config.JOIN_PATH_EXTRACTION_TOP_K
+        )
 
     def test_discover_join_paths_with_single_table(self):
         """Test discovering join paths with only one table (should return no paths)."""
@@ -131,14 +146,18 @@ class JoinPathExtractionTests(unittest.TestCase):
         self.assertIsInstance(result, str)
         self.assertIn("Top-", result)
         # Should have no actual suggestions
-        suggestion_lines = [line for line in result.split("\n") if line.strip().startswith("-")]
+        suggestion_lines = [
+            line for line in result.split("\n") if line.strip().startswith("-")
+        ]
         self.assertEqual(len(suggestion_lines), 0)
 
     def test_discover_join_paths_with_nulls(self):
         """Test discovering join paths with columns containing null values."""
         tables = {
             "table_a": pd.DataFrame({"id": [1, 2, None, 4], "value": [10, 20, 30, 40]}),
-            "table_b": pd.DataFrame({"id": [1, 2, 3, None], "amount": [100, 200, 300, 400]}),
+            "table_b": pd.DataFrame(
+                {"id": [1, 2, 3, None], "amount": [100, 200, 300, 400]}
+            ),
         }
 
         result = self.join_path_extractor.discover_join_paths(tables)
