@@ -403,10 +403,10 @@ class PneumaDB:
         user_id: str,
         chat_id: str,
         document: AbstractDocument,
-        role: str,
+        document_type: str,
     ):
         """
-        Persists a single document with its metadata and role.
+        Persists a single document with its metadata and document_type.
         This is a helper for persisting documents outside of the full session persistence flow.
         """
         con = self.get_ws_db_connection(user_id, chat_id)
@@ -426,7 +426,7 @@ class PneumaDB:
             else:
                 state_id = None  # No state yet, document will be orphaned
 
-            self.__insert_document(con, state_id, document, role)
+            self.__insert_document(con, state_id, document, document_type)
             con.commit()
         except Exception as e:
             con.rollback()

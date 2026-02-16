@@ -76,13 +76,13 @@ class DBAPI:
         user_id: str,
         chat_id: str,
         document: AbstractDocument,
-        role: str,
+        document_type: str,
     ):
         """
         Persists a document in the chat session.
         The document is linked to the latest conductor state if it exists, otherwise it's orphaned.
         """
-        self.pneuma_db.persist_document(user_id, chat_id, document, role)
+        self.pneuma_db.persist_document(user_id, chat_id, document, document_type)
 
     def persist_session(
         self,
