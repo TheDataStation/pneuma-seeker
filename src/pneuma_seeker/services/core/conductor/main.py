@@ -1,9 +1,8 @@
-import os
 from logging import Logger
 from time import time
 from typing import Any, cast
 
-import pandas as pd
+from pandas import DataFrame
 
 from pneuma_seeker.provenance.graph import ProvenanceGraph, ProvenanceNode
 from pneuma_seeker.services.core.actions.main import ActionSet
@@ -22,6 +21,7 @@ from pneuma_seeker.shared.schemas.core.ir_system import (
     RetrieverType,
     Table,
 )
+from pneuma_seeker.shared.schemas.db.document_type import DocumentType
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.schemas.language_model.option import LLMOption
 from pneuma_seeker.shared.schemas.language_model.role import Role
@@ -80,17 +80,6 @@ class Conductor:
         self.web_crawl_result: AbstractDocument | None = None
         self.join_paths: str | None = None
 
-        self.target_tables_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "..",
-            "..",
-            "..",
-            "..",
-            "..",
-            "data_src",
-            "target_tables",
-        )
-
         # Short-lived state (per chat call)
         self.user_facing_response = ""
         self.is_user_facing_response = False
@@ -139,6 +128,14 @@ class Conductor:
                 )
                 self.prov_graph.add_node(new_node, True)
                 doc.last_node_id = new_node.id
+
+                self.db_api.persist_document(
+                    self.user_id,
+                    self.chat_id,
+                    doc,
+                    DocumentType.EXTERNAL_TABLE.value,
+                    True,
+                )
 
         self.llm_messages = [
             LLMMessage(
@@ -305,7 +302,9 @@ class Conductor:
             self.__log(
                 f"==> [PROFILING] Total Non-LLM time for this chat: {(chat_end_time - chat_start_time) - self.language_model_api.llm.total_llm_time:.2f} seconds."  # type: ignore
             )
-        self.__log(f"[PROFILING] [OVERALL] Chat completed in {chat_end_time - chat_start_time:.2f} seconds.")
+        self.__log(
+            f"[PROFILING] [OVERALL] Chat completed in {chat_end_time - chat_start_time:.2f} seconds."
+        )
         if hasattr(self.language_model_api.llm, "total_input_tokens"):
             self.__log(
                 f"==> [PROFILING] Total input tokens for this chat: {self.language_model_api.llm.total_input_tokens} tokens."  # type: ignore
@@ -376,7 +375,7 @@ class Conductor:
 
                     self.retrieved_tables = (
                         self.action_set.retrieve_multi_topic_documents(
-                            action_args["prompts"], RetrieverType.PNEUMA_RETRIEVER, 10
+                            action_args["prompts"], RetrieverType.PNEUMA_RETRIEVER, 10, True, 5
                         )
                     )
                 else:
@@ -396,7 +395,7 @@ class Conductor:
                         return error_msg, ActionExecutionStatus.ERROR
 
                     self.retrieved_tables = self.action_set.retrieve_documents(
-                        action_args["prompt"], RetrieverType.PNEUMA_RETRIEVER, 10
+                        action_args["prompt"], RetrieverType.PNEUMA_RETRIEVER, 10, True, 5
                     )
 
                 self.__log(
@@ -486,7 +485,7 @@ class Conductor:
                     return error_msg, ActionExecutionStatus.ERROR
 
                 self.enumerated_tables = self.action_set.retrieve_documents(
-                    action_args["pattern"], RetrieverType.ENUMERATOR, 10
+                    action_args["pattern"], RetrieverType.ENUMERATOR, 20, True, 5
                 )
                 success_msg = f"Enumerated table IDs based on this pattern: {action_args['pattern']}. If there are any matches, the IDs will be reflected in `OTHER TABLE IDS WITH SIMILAR NAMING PATTERNS`."
                 self.__log(success_msg)
@@ -513,27 +512,21 @@ class Conductor:
                     if column_descriptions is not None:
                         T_docs: dict[str, AbstractDocument] = dict()
                         for schema_id in T:
-                            target_schema_df = pd.DataFrame(columns=T[schema_id])
-
-                            target_schema_path = os.path.join(
-                                self.target_tables_path,
-                                self.user_id,
-                                self.chat_id,
-                                f"{schema_id}.csv",
-                            )
-                            os.makedirs(
-                                os.path.dirname(target_schema_path), exist_ok=True
-                            )
-
-                            target_schema_df.to_csv(target_schema_path, index=False)
+                            target_schema_df = DataFrame(columns=T[schema_id])
                             T_docs[schema_id] = Table(
                                 doc_id=schema_id,
                                 retriever_type=RetrieverType.CONDUCTOR,
                                 content=target_schema_df,
                                 metadata={},
-                                path=target_schema_path,
+                                path=schema_id,
                             )
-
+                            self.db_api.persist_document(
+                                self.user_id,
+                                self.chat_id,
+                                T_docs[schema_id],
+                                DocumentType.TARGET_TABLE.value,
+                                True,
+                            )
                         self.state.T = T_docs
                         self.state.column_descriptions = column_descriptions
                         self.state.is_T_materialized = False
@@ -594,8 +587,13 @@ class Conductor:
                 self.state.is_T_materialized = True
 
                 for _, T_doc in self.state.T.items():
-                    updated_content: pd.DataFrame = T_doc.content
-                    updated_content.to_csv(T_doc.path, index=False)
+                    self.db_api.persist_document(
+                        self.user_id,
+                        self.chat_id,
+                        T_doc,
+                        DocumentType.TARGET_TABLE.value,
+                        True,
+                    )
 
                 success_msg = "Successfully materialized T."
                 self.__log(success_msg)
@@ -617,7 +615,7 @@ class Conductor:
                     self.__log(f"=> {error_msg}")
                     return error_msg, ActionExecutionStatus.ERROR
 
-                T_df: dict[str, pd.DataFrame] = {}
+                T_df: dict[str, DataFrame] = {}
                 for t_id, i in self.state.T.items():
                     T_df[t_id] = i.content
 
@@ -645,7 +643,7 @@ class Conductor:
                     self.__log(f"=> {error_msg}")
                     return error_msg, ActionExecutionStatus.ERROR
 
-                all_tables: dict[str, pd.DataFrame] = {}
+                all_tables: dict[str, DataFrame] = {}
                 for table in self.retrieved_tables:
                     all_tables[table.doc_id] = table.content
                 for table in self.external_tables:
@@ -681,7 +679,7 @@ class Conductor:
         user_side_note: str,
         external_tables: list[AbstractDocument],
     ):
-        T_dfs: dict[str, pd.DataFrame] = {}
+        T_dfs: dict[str, DataFrame] = {}
         for T_id, T_doc in T.items():
             T_dfs[T_id] = T_doc.content
 
