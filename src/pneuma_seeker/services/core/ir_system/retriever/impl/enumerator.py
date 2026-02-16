@@ -50,7 +50,7 @@ class Enumerator(AbstractRetriever):
             table_name for table_name in all_table_names if regex.match(table_name)
         ]
 
-        for table_name in match_table_names:
+        for table_name in match_table_names[:k]:
             query_table = f"""
             SELECT * FROM {self.config.DATA_SOURCES[0]}."{table_name}"
             """
