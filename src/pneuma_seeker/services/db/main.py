@@ -632,24 +632,7 @@ class PneumaDB:
     ):
         """Inserts a document and its metadata into the workspace DB."""
         document_content = document.content
-        last_node_id = document.last_node_id
-        if last_node_id is not None:
-            try:
-                if isna(last_node_id):
-                    last_node_id = None
-            except Exception:
-                pass
-        if isinstance(last_node_id, str) and last_node_id.strip() in {
-            "",
-            "<NA>",
-            "NA",
-            "N/A",
-            "nan",
-            "NaN",
-            "None",
-            "null",
-        }:
-            last_node_id = None
+        last_node_id = self.__get_document_last_node_id(document)
         if isinstance(document_content, DataFrame):
             if "dataset_name" in document.metadata:
                 dataset_name = document.metadata["dataset_name"]
@@ -715,6 +698,28 @@ class PneumaDB:
                 """,
                 (state_id, document.doc_id, role),
             )
+
+    def __get_document_last_node_id(self, doc: AbstractDocument) -> str | None:
+        """Helper to get the last_node_id for a document, handling potential NaN or missing values."""
+        last_node_id = doc.last_node_id
+        if last_node_id is not None:
+            try:
+                if isna(last_node_id):
+                    last_node_id = None
+            except Exception:
+                pass
+        if isinstance(last_node_id, str) and last_node_id.strip() in {
+            "",
+            "<NA>",
+            "NA",
+            "N/A",
+            "nan",
+            "NaN",
+            "None",
+            "null",
+        }:
+            last_node_id = None
+        return last_node_id
 
     def load_session(
         self,
