@@ -50,12 +50,11 @@ def generate_semantic_col_generator_code(
     doc: AbstractDocument,
     new_col_name: str,
     new_col_values: list[Any],
-    path: str,
 ):
     """Generates Python code to semantically generate a new column for a table."""
     doc_var_name = re.sub(r"\W|^(?=\d)", "_", doc.doc_id or "var")
     return f"""# Semantically generate new column `{new_col_name}` for the table {doc_var_name}, conditioned on these columns: {conditioned_cols}
-tables["{doc_var_name}"]["{new_col_name}"] = {new_col_values}  # Path: {path}
+tables["{doc_var_name}"]["{new_col_name}"] = {new_col_values}
 """
 
 
@@ -65,7 +64,6 @@ def generate_semantic_join_generator_code(
     relevant_left_cols: list[str],
     relevant_right_cols: list[str],
     top_k: int,
-    path: str,
 ):
     """Generates Python code to semantically join two tables."""
     left_doc_var_name = re.sub(r"\W|^(?=\d)", "_", doc_1.doc_id or "var")
@@ -74,7 +72,6 @@ def generate_semantic_join_generator_code(
     return f"""# Semantically join two tables, A ({left_doc_var_name}) and B ({right_doc_var_name}), and keep the top-{top_k} join candidates for each row in the smaller table
 # => Relevant columns in A: {relevant_left_cols}
 # => Relevant columns in B: {relevant_right_cols}
-# => Resulting join table path: {path}
 """
 
 

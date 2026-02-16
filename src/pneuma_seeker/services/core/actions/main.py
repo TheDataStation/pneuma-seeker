@@ -274,23 +274,25 @@ class ActionSet:
 
     def join_semantic(
         self,
-        left_df: DataFrame,
-        right_df: DataFrame,
-        left_cols: list[str],
-        right_cols: list[str],
+        left_table_id: str,
+        right_table_id: str,
+        relevant_left_cols: list[str],
+        relevant_right_cols: list[str],
+        joined_table_id: str,
         alpha: float = 0.5,
         top_k: int = 3,
         delimiter: str = " [SEP] ",
-        embed_batch_size=30,
+        embed_batch_size: int = 30,
         syntactic_sim_metric: SyntacticSimMetric = SyntacticSimMetric.EDIT_DIST,
-        use_llm=False,
+        use_llm: bool = False,
     ) -> DataFrame:
         return self.semantic_join.apply(
             {
-                "left_df": left_df,
-                "right_df": right_df,
-                "left_cols": left_cols,
-                "right_cols": right_cols,
+                "left_table_id": left_table_id,
+                "right_table_id": right_table_id,
+                "relevant_left_cols": relevant_left_cols,
+                "relevant_right_cols": relevant_right_cols,
+                "joined_table_id": joined_table_id,
                 "alpha": alpha,
                 "top_k": top_k,
                 "delimiter": delimiter,
@@ -346,10 +348,9 @@ class ActionSet:
         doc: AbstractDocument,
         new_col_name: str,
         new_col_values: list[Any],
-        path: str,
     ):
         return generate_semantic_col_generator_code(
-            src_table_columns, doc, new_col_name, new_col_values, path
+            src_table_columns, doc, new_col_name, new_col_values
         )
 
     def generate_semantic_join_generator_code(
@@ -359,10 +360,9 @@ class ActionSet:
         relevant_left_cols: list[str],
         relevant_right_cols: list[str],
         top_k: int,
-        path: str,
     ):
         return generate_semantic_join_generator_code(
-            doc_1, doc_2, relevant_left_cols, relevant_right_cols, top_k, path
+            doc_1, doc_2, relevant_left_cols, relevant_right_cols, top_k
         )
 
     def append_comment_to_existing_code(self, code: str, comment: str):

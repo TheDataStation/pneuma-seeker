@@ -309,10 +309,6 @@ class MaterializerTests(unittest.TestCase):
                     "Result for: name: Alice; age: 30",
                     "Result for: name: Alice; age: 30",
                 ],
-                os.path.join(
-                    self.materializer._get_intermediate_table_dir_path(),
-                    f"{t1_doc.doc_id}.csv",
-                ),
             ),
         ]
         self.assertEqual(

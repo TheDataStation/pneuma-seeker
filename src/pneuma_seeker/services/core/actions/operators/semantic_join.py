@@ -30,10 +30,11 @@ class SemanticJoin(Action, Applicable):
 
     def get_input_schema(self) -> dict[str, str]:
         return {
-            "left_df": "Pandas DataFrame representing the left table.",
-            "right_df": "Pandas DataFrame representing the right table.",
-            "left_cols": "List of column names from left_df to use for semantic comparison.",
-            "right_cols": "List of column names from right_df to use for semantic comparison.",
+            "left_table_id": "String table ID for the left table (backed by DB).",
+            "right_table_id": "String table ID for the right table (backed by DB).",
+            "relevant_left_cols": "List of column names from the left table for semantic comparison.",
+            "relevant_right_cols": "List of column names from the right table for semantic comparison.",
+            "joined_table_id": "String table ID to store the joined results.",
             "alpha": "Float (0 to 1) weighting cosine vs syntactic similarity (default=0.5).",
             "top_k": "Integer number of best matches to keep per left row (default=3).",
             "delimiter": "String delimiter used when concatenating text (default=' [SEP] ').",
@@ -44,42 +45,52 @@ class SemanticJoin(Action, Applicable):
 
     def get_notes(self) -> str:
         return """
-        This action performs a semantic join between two pandas DataFrames based on specified columns.
-        It computes semantic similarity using embeddings and optionally syntactic similarity metrics.
-        The result is a DataFrame containing joined rows along with their similarity scores.
+        This action performs a semantic join between two DB-backed tables based on specified columns.
+        It computes semantic similarity using embeddings and optionally syntactic similarity metrics,
+        and materializes results into a target table, returning sample rows.
         """
 
     def apply(self, input: dict[str, Any]) -> DataFrame:
-        left_df: DataFrame | None = input.get("left_df")
-        right_df: DataFrame | None = input.get("right_df")
-        left_cols: list[str] | None = input.get("left_cols")
-        right_cols: list[str] | None = input.get("right_cols")
-        alpha: float = input.get("alpha", 0.5)
-        top_k: int = input.get("top_k", 3)
-        delimiter: str = input.get("delimiter", " [SEP] ")
-        embed_batch_size: int = input.get("embed_batch_size", 30)
+        left_table_id = input.get("left_table_id")
+        right_table_id = input.get("right_table_id")
+        relevant_left_cols = input.get("relevant_left_cols")
+        relevant_right_cols = input.get("relevant_right_cols")
+        joined_table_id = input.get("joined_table_id")
+        alpha: float = input.get("alpha", self.config.SEMANTIC_JOIN_ALPHA)
+        top_k: int = input.get("top_k", self.config.SEMANTIC_JOIN_TOP_K)
+        delimiter: str = input.get("delimiter", self.config.SEMANTIC_JOIN_DELIMITER)
+        embed_batch_size: int = input.get(
+            "embed_batch_size", self.config.SEMANTIC_JOIN_BATCH_SIZE
+        )
         syntactic_sim_metric: SyntacticSimMetric = input.get(
             "syntactic_sim_metric", SyntacticSimMetric.EDIT_DIST
         )
         use_llm: bool = input.get("use_llm", False)
 
-        if not isinstance(left_df, DataFrame):
-            raise ValueError("left_df must be a pandas DataFrame.")
-        if not isinstance(right_df, DataFrame):
-            raise ValueError("right_df must be a pandas DataFrame.")
-        if not isinstance(left_cols, list) or not all(
-            isinstance(c, str) for c in left_cols
+        if not isinstance(left_table_id, str):
+            raise ValueError("left_table_id must be a string.")
+        if not isinstance(right_table_id, str):
+            raise ValueError("right_table_id must be a string.")
+        if not isinstance(joined_table_id, str):
+            raise ValueError("joined_table_id must be a string.")
+        if not isinstance(relevant_left_cols, list) or not all(
+            isinstance(c, str) for c in relevant_left_cols
         ):
-            raise ValueError("left_cols must be a list of strings.")
-        if not isinstance(right_cols, list) or not all(
-            isinstance(c, str) for c in right_cols
+            raise ValueError("relevant_left_cols must be a list of strings.")
+        if not isinstance(relevant_right_cols, list) or not all(
+            isinstance(c, str) for c in relevant_right_cols
         ):
-            raise ValueError("right_cols must be a list of strings.")
+            raise ValueError("relevant_right_cols must be a list of strings.")
+        if len(relevant_left_cols) == 0 or len(relevant_right_cols) == 0:
+            raise ValueError(
+                "relevant_left_cols and relevant_right_cols cannot be empty."
+            )
         return self.join(
-            left_df,
-            right_df,
-            left_cols,
-            right_cols,
+            left_table_id,
+            right_table_id,
+            relevant_left_cols,
+            relevant_right_cols,
+            joined_table_id,
             alpha,
             top_k,
             delimiter,
@@ -90,22 +101,23 @@ class SemanticJoin(Action, Applicable):
 
     def join(
         self,
-        left_df: DataFrame,
-        right_df: DataFrame,
-        left_cols: list[str],
-        right_cols: list[str],
+        left_table_id: str,
+        right_table_id: str,
+        relevant_left_cols: list[str],
+        relevant_right_cols: list[str],
+        joined_table_id: str,
         alpha: float = 0.5,
         top_k: int = 3,
         delimiter: str = " [SEP] ",
-        embed_batch_size=30,
+        embed_batch_size: int = 30,
         syntactic_sim_metric: SyntacticSimMetric = SyntacticSimMetric.EDIT_DIST,
-        use_llm=False,
+        use_llm: bool = False,
     ) -> DataFrame:
         """
-        Join rows from left_df and right_df using semantic similarity.
+        Join rows from left_table_id and right_table_id using semantic similarity.
 
         Parameters:
-            left_cols / right_cols: columns to use for semantic comparison
+            relevant_left_cols / relevant_right_cols: columns to use for semantic comparison
             alpha: weight for cosine vs edit similarity (0 to 1)
             top_k: number of best matches to keep for each row in left_df
             delimiter: used when concatenating text
@@ -116,93 +128,232 @@ class SemanticJoin(Action, Applicable):
             DataFrame of joined rows with similarity_score column.
         """
 
-        # Ensure left_df is the smaller one (to minimize LLM calls later)
-        if len(left_df) > len(right_df):
-            left_df, right_df = right_df, left_df
-            left_cols, right_cols = right_cols, left_cols
+        left_table_ref = self.__resolve_table_ref(left_table_id)
+        right_table_ref = self.__resolve_table_ref(right_table_id)
+        left_all_cols = self.__get_table_columns(left_table_ref)
+        right_all_cols = self.__get_table_columns(right_table_ref)
 
-        # Edge case: at least one of the tables has no rows
-        if len(left_df) == 0 or len(right_df) == 0:
-            return DataFrame(
-                columns=[
-                    *(f"left_{c}" for c in left_df.columns),
-                    *(f"right_{c}" for c in right_df.columns),
-                    "similarity_score",
-                ]
+        if not set(relevant_left_cols) <= set(left_all_cols):
+            raise ValueError(
+                "relevant_left_cols is not a subset of left_table columns."
+            )
+        if not set(relevant_right_cols) <= set(right_all_cols):
+            raise ValueError(
+                "relevant_right_cols is not a subset of right_table columns."
             )
 
-        # Concatenate relevant values from left_df and right_df
-        left_values = self.__concat_relevant_values(left_df, left_cols, delimiter)
-        right_values = self.__concat_relevant_values(right_df, right_cols, delimiter)
+        row_batch_size = max(1, int(self.config.SEMANTIC_JOIN_BATCH_SIZE))
 
-        # Produce embeddings for the concatenated values
-        left_emb = self.__embed_texts(
-            left_values,
-            "Embedding left (concat)",
-            embed_batch_size,
-        )
-        right_emb = self.__embed_texts(
-            right_values,
-            "Embedding right (concat)",
-            embed_batch_size,
+        left_select = ", ".join(f'l."{col}" AS "left_{col}"' for col in left_all_cols)
+        right_select = ", ".join(
+            f'r."{col}" AS "right_{col}"' for col in right_all_cols
         )
 
-        # Compute pairwise cosine similarities (L x R)
-        cos_mat = self.__pairwise_cosine_sim_matrix(left_emb, right_emb)
+        temp_table = f"{joined_table_id}__tmp_semantic_join"
+        self.db_api.execute_query(
+            self.user_id,
+            self.chat_id,
+            f"""
+            CREATE OR REPLACE TABLE "{temp_table}" AS
+            SELECT {left_select}, {right_select}, CAST(NULL AS DOUBLE) AS similarity_score
+            FROM {left_table_ref} AS l
+            JOIN {right_table_ref} AS r ON FALSE;
+            """,
+        )
 
-        # Compute pairwise edit similarities (L x R)
-        if syntactic_sim_metric == SyntacticSimMetric.NONE:
-            score_mat = cos_mat
-        elif syntactic_sim_metric == SyntacticSimMetric.EDIT_DIST:
-            edit_mat = self.__pairwise_edit_sim_matrix(
-                left_values, right_values, desc="Edit similarity (concat)"
+        offset = 0
+        while True:
+            left_df = self.db_api.execute_query(
+                self.user_id,
+                self.chat_id,
+                f"""
+                SELECT rowid, {", ".join(f'"{c}"' for c in relevant_left_cols)}
+                FROM {left_table_ref}
+                ORDER BY rowid
+                LIMIT {row_batch_size}
+                OFFSET {offset};
+                """,
             )
-            score_mat = alpha * cos_mat + (1.0 - alpha) * edit_mat
-        else:
-            jaccard_qgram_mat = self.__pairwise_jaccard_qgram_matrix(
-                left_values, right_values
+
+            if left_df.empty:
+                break
+
+            left_values = self.__concat_relevant_values(
+                left_df[relevant_left_cols], relevant_left_cols, delimiter
             )
-            score_mat = alpha * cos_mat + (1.0 - alpha) * jaccard_qgram_mat
+            left_emb = self.__embed_texts(
+                left_values,
+                "Embedding left (concat)",
+                embed_batch_size,
+            )
 
-        # For each left row, take top-k right matches
-        joined_rows: list[dict[str, object]] = []
+            top_scores = np.full((len(left_df), top_k), -np.inf, dtype=np.float32)
+            top_right_rowids = np.full((len(left_df), top_k), -1, dtype=np.int64)
 
-        if use_llm:
-            for li in tqdm(range(score_mat.shape[0]), desc="Materializing joined rows"):
-                row_scores = score_mat[li, :]
-                top_indices = np.argsort(-row_scores)[:top_k]  # descending order
+            right_offset = 0
+            while True:
+                right_df = self.db_api.execute_query(
+                    self.user_id,
+                    self.chat_id,
+                    f"""
+                    SELECT rowid, {", ".join(f'"{c}"' for c in relevant_right_cols)}
+                    FROM {right_table_ref}
+                    ORDER BY rowid
+                    LIMIT {row_batch_size}
+                    OFFSET {right_offset};
+                    """,
+                )
 
-                lrow = left_df.iloc[int(li)]
-                candidate_rrows = [right_df.iloc[int(ri)] for ri in top_indices]
+                if right_df.empty:
+                    break
 
-                mask = self.__llm_filter_pairs(lrow, candidate_rrows)
-                for keep, ri in zip(mask, top_indices):
-                    if keep == 1:
-                        rrow = right_df.iloc[int(ri)]
-                        joined_rows.append(
-                            {
-                                **{f"left_{k}": lrow[k] for k in left_df.columns},
-                                **{f"right_{k}": rrow[k] for k in right_df.columns},
-                                "similarity_score": float(row_scores[ri]),
-                            }
-                        )
-        else:
-            for li in tqdm(range(score_mat.shape[0]), desc="Materializing joined rows"):
-                row_scores = score_mat[li, :]
-                top_indices = np.argsort(-row_scores)[:top_k]  # descending order
+                right_values = self.__concat_relevant_values(
+                    right_df[relevant_right_cols], relevant_right_cols, delimiter
+                )
+                right_emb = self.__embed_texts(
+                    right_values,
+                    "Embedding right (concat)",
+                    embed_batch_size,
+                )
 
-                lrow = left_df.iloc[int(li)]
-                for ri in top_indices:
-                    rrow = right_df.iloc[int(ri)]
-                    joined_rows.append(
-                        {
-                            **{f"left_{k}": lrow[k] for k in left_df.columns},
-                            **{f"right_{k}": rrow[k] for k in right_df.columns},
-                            "similarity_score": float(row_scores[ri]),
-                        }
+                cos_mat = self.__pairwise_cosine_sim_matrix(left_emb, right_emb)
+
+                if syntactic_sim_metric == SyntacticSimMetric.NONE:
+                    score_mat = cos_mat
+                elif syntactic_sim_metric == SyntacticSimMetric.EDIT_DIST:
+                    edit_mat = self.__pairwise_edit_sim_matrix(
+                        left_values, right_values, desc="Edit similarity (concat)"
                     )
+                    score_mat = alpha * cos_mat + (1.0 - alpha) * edit_mat
+                else:
+                    jaccard_qgram_mat = self.__pairwise_jaccard_qgram_matrix(
+                        left_values, right_values
+                    )
+                    score_mat = alpha * cos_mat + (1.0 - alpha) * jaccard_qgram_mat
 
-        return DataFrame(joined_rows)
+                right_rowids = right_df["rowid"].to_numpy(dtype=np.int64)
+                for li in range(len(left_df)):
+                    combined_scores = np.concatenate([top_scores[li], score_mat[li]])
+                    combined_rowids = np.concatenate(
+                        [top_right_rowids[li], right_rowids]
+                    )
+                    top_idx = np.argsort(-combined_scores)[:top_k]
+                    top_scores[li] = combined_scores[top_idx]
+                    top_right_rowids[li] = combined_rowids[top_idx]
+
+                right_offset += row_batch_size
+
+            pairs: list[tuple[int, int, float]] = []
+            left_rowids = left_df["rowid"].to_numpy(dtype=np.int64)
+
+            if use_llm:
+                left_full_rows = self.__fetch_rows_by_rowid(left_table_ref, left_rowids)
+                right_needed = np.unique(top_right_rowids[top_right_rowids >= 0])
+                right_full_rows = self.__fetch_rows_by_rowid(
+                    right_table_ref, right_needed
+                )
+                left_rows_by_id = {
+                    int(row.rowid): row for _, row in left_full_rows.iterrows()
+                }
+                right_rows_by_id = {
+                    int(row.rowid): row for _, row in right_full_rows.iterrows()
+                }
+
+                for li, left_rowid in enumerate(left_rowids):
+                    valid_mask = top_right_rowids[li] >= 0
+                    candidate_rowids = top_right_rowids[li][valid_mask].tolist()
+                    if not candidate_rowids:
+                        continue
+                    lrow = left_rows_by_id.get(int(left_rowid))
+                    if lrow is None:
+                        continue
+                    candidate_rrows = [
+                        right_rows_by_id.get(int(rid)) for rid in candidate_rowids
+                    ]
+                    candidate_rrows = [
+                        row for row in candidate_rrows if row is not None
+                    ]
+                    if not candidate_rrows:
+                        continue
+                    mask = self.__llm_filter_pairs(lrow, candidate_rrows)
+                    for keep, rid, score in zip(
+                        mask,
+                        candidate_rowids,
+                        top_scores[li][valid_mask],
+                    ):
+                        if keep == 1:
+                            pairs.append((int(left_rowid), int(rid), float(score)))
+            else:
+                for li, left_rowid in enumerate(left_rowids):
+                    valid_mask = top_right_rowids[li] >= 0
+                    candidate_rowids = top_right_rowids[li][valid_mask]
+                    candidate_scores = top_scores[li][valid_mask]
+                    for rid, score in zip(candidate_rowids, candidate_scores):
+                        pairs.append((int(left_rowid), int(rid), float(score)))
+
+            if pairs:
+                values_sql = ", ".join(
+                    f"({l_id}, {r_id}, {repr(score)})" for l_id, r_id, score in pairs
+                )
+                self.db_api.execute_query(
+                    self.user_id,
+                    self.chat_id,
+                    f"""
+                    INSERT INTO "{temp_table}"
+                    SELECT {left_select}, {right_select}, v.score AS similarity_score
+                    FROM {left_table_ref} AS l
+                    JOIN {right_table_ref} AS r
+                    JOIN (VALUES {values_sql}) AS v(left_rowid, right_rowid, score)
+                    ON l.rowid = v.left_rowid AND r.rowid = v.right_rowid
+                    ORDER BY l.rowid;
+                    """,
+                )
+
+            offset += row_batch_size
+
+        self.db_api.execute_query(
+            self.user_id,
+            self.chat_id,
+            f'DROP TABLE IF EXISTS "{joined_table_id}";',
+        )
+        self.db_api.execute_query(
+            self.user_id,
+            self.chat_id,
+            f'ALTER TABLE "{temp_table}" RENAME TO "{joined_table_id}";',
+        )
+
+        return self.db_api.execute_query(
+            self.user_id,
+            self.chat_id,
+            f'SELECT * FROM "{joined_table_id}" LIMIT 5;',
+        )
+
+    def __resolve_table_ref(self, table_id: str) -> str:
+        db_tables = self.db_api.execute_query(
+            self.user_id, self.chat_id, "SHOW TABLES;"
+        )
+        if "name" in db_tables.columns and table_id in db_tables["name"].tolist():
+            return f'"{table_id}"'
+        self.db_api.link_dataset_tables(
+            self.user_id, self.chat_id, self.config.DATA_SOURCES[0]
+        )
+        return f'{self.config.DATA_SOURCES[0]}."{table_id}"'
+
+    def __get_table_columns(self, table_ref: str) -> list[str]:
+        df = self.db_api.execute_query(
+            self.user_id, self.chat_id, f"SELECT * FROM {table_ref} LIMIT 0;"
+        )
+        return list(df.columns)
+
+    def __fetch_rows_by_rowid(self, table_ref: str, rowids: np.ndarray) -> DataFrame:
+        if rowids.size == 0:
+            return DataFrame(columns=["rowid"])
+        rowid_list = ", ".join(str(int(rid)) for rid in rowids)
+        return self.db_api.execute_query(
+            self.user_id,
+            self.chat_id,
+            f"SELECT rowid, * FROM {table_ref} WHERE rowid IN ({rowid_list});",
+        )
 
     def __concat_relevant_values(
         self, df: DataFrame, relevant_cols: list[str], delimiter: str
