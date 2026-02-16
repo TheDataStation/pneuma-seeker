@@ -7,18 +7,16 @@ from pandas import DataFrame
 
 class RetrieverType(Enum):
     """
-    Represents all type of data in Pneuma-Seeker's domain,
-    not only internally available data from IR System but also
-    user-provided and Materializer-produced intermediate data.
+    Represents all types of data in Pneuma-Seeker.
     """
 
-    PNEUMA_RETRIEVER = "Pneuma"
+    PNEUMA_RETRIEVER = "Pneuma"  # Internal tables
     CONDUCTOR = "Conductor"
     ENUMERATOR = "Enumerator"
     MATERIALIZER = "Materializer"
     DOCUMENT_DB = "Document DB"
     WEB_SEARCH = "Web Search"
-    USER = "User"
+    USER = "User"  # External tables
     WEB_CRAWL = "Web Crawl"
 
 
@@ -104,14 +102,11 @@ class Table(AbstractDocument):
     def __str__(self) -> str:
         table: DataFrame = self.content
         cols = " | ".join(
-            f"{col} ({dtype})"
-            for col, dtype in zip(table.columns, table.dtypes)
+            f"{col} ({dtype})" for col, dtype in zip(table.columns, table.dtypes)
         )
 
         if "description" in self.metadata and "keywords_existence" in self.metadata:
-            header = (
-                f"Table {self.doc_id} ({self.metadata['description']}; include these keywords: {self.metadata['keywords_existence']}):\ncol: {cols}"
-            )
+            header = f"Table {self.doc_id} ({self.metadata['description']}; include these keywords: {self.metadata['keywords_existence']}):\ncol: {cols}"
         elif "description" in self.metadata:
             header = (
                 f"Table {self.doc_id} ({self.metadata['description']}):\ncol: {cols}"
