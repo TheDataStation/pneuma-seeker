@@ -139,8 +139,8 @@ class ActionSet:
         prompt: str,
         retriever_type: RetrieverType,
         k=10,
-        sample_only=False,
-        sample_size=None,
+        sample_only: bool = False,
+        sample_size: int | None = None,
     ) -> list[AbstractDocument]:
         return self.ir_system.retrieve_documents(
             retriever_type, prompt, k, sample_only, sample_size
@@ -151,8 +151,8 @@ class ActionSet:
         prompts: list[str],
         retriever_type: RetrieverType,
         k=10,
-        sample_only=False,
-        sample_size=None,
+        sample_only: bool = False,
+        sample_size: int | None = None,
     ) -> list[AbstractDocument]:
         multi_topic_docs: dict[str, list[AbstractDocument]] = (
             self.ir_system.retrieve_multi_topic_documents(
