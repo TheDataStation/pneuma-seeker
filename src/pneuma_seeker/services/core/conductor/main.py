@@ -147,7 +147,8 @@ class Conductor:
             )
         ]
         current_step = 0
-
+        previous_step_input_tokens = 0
+        previous_step_output_tokens = 0
         while (
             not self.is_user_facing_response
             and current_step < self.config.MAX_CONDUCTOR_STEPS
@@ -267,6 +268,20 @@ class Conductor:
                     LLMMessage(role=Role.USER.value, content=action_outcome)
                 )
 
+            if hasattr(self.language_model_api.llm, "total_input_tokens"):
+                step_input_tokens = self.language_model_api.llm.total_input_tokens - previous_step_input_tokens  # type: ignore
+                previous_step_input_tokens = step_input_tokens
+                self.__log(
+                    f"==> [PROFILING] Total input tokens for this step: {step_input_tokens} tokens."
+                )
+
+            if hasattr(self.language_model_api.llm, "total_output_tokens"):
+                step_output_tokens = self.language_model_api.llm.total_output_tokens - previous_step_output_tokens  # type: ignore
+                previous_step_output_tokens = step_output_tokens
+                self.__log(
+                    f"==> [PROFILING] Total output tokens for this step: {step_output_tokens} tokens."
+                )
+
         if not self.is_user_facing_response:
             self.__log("Force produce user-facing response")
             self.llm_messages.append(
@@ -283,18 +298,21 @@ class Conductor:
         yield self.user_facing_response
 
         chat_end_time = time()
-        self.__log(f"Chat completed in {chat_end_time - chat_start_time:.2f} seconds.")
         if hasattr(self.language_model_api.llm, "total_llm_time"):
             self.__log(
-                f"Total LLM time for this chat: {self.language_model_api.llm.total_llm_time:.2f} seconds."  # type: ignore
+                f"==> [PROFILING] Total LLM time for this chat: {self.language_model_api.llm.total_llm_time:.2f} seconds."  # type: ignore
             )
+            self.__log(
+                f"==> [PROFILING] Total Non-LLM time for this chat: {(chat_end_time - chat_start_time) - self.language_model_api.llm.total_llm_time:.2f} seconds."  # type: ignore
+            )
+        self.__log(f"[PROFILING] [OVERALL] Chat completed in {chat_end_time - chat_start_time:.2f} seconds.")
         if hasattr(self.language_model_api.llm, "total_input_tokens"):
             self.__log(
-                f"Total input tokens for this chat: {self.language_model_api.llm.total_input_tokens} tokens."  # type: ignore
+                f"==> [PROFILING] Total input tokens for this chat: {self.language_model_api.llm.total_input_tokens} tokens."  # type: ignore
             )
         if hasattr(self.language_model_api.llm, "total_output_tokens"):
             self.__log(
-                f"Total output tokens for this chat: {self.language_model_api.llm.total_output_tokens} tokens."  # type: ignore
+                f"==> [PROFILING] Total output tokens for this chat: {self.language_model_api.llm.total_output_tokens} tokens."  # type: ignore
             )
 
     def __execute_action(
