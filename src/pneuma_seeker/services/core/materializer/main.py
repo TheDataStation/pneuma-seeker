@@ -990,21 +990,7 @@ class Materializer:
                         if parent_node is not None:
                             parent_nodes.append(parent_node)
 
-                    code_nl_summary = "".join(
-                        self.language_model_api.chat(
-                            [
-                                LLMMessage(
-                                    role=Role.SYSTEM.value,
-                                    content=f"Summarize in 1-3 sentences what the following Python code does, especially in terms of how it uses the tables as inputs, and what it produces as output. Use the following style for the summary: \nExecutes Python code to produce a new table named {assign_to} by <summary of the code's operations on the used tables>.",
-                                ),
-                                LLMMessage(
-                                    role=Role.USER.value,
-                                    content=python_code,
-                                ),
-                            ]
-                        )
-                    )
-
+                    code_nl_summary = f"Executes Python code to produce a new table named {assign_to} by performing operations on the following tables: {', '.join(f'`{tid}`' for tid in used_table_ids)}. The code uses these tables as inputs and produces a new table as output."
                     new_node = ProvenanceNode(
                         source_retriever=RetrieverType.MATERIALIZER,
                         python_code=self.action_set.append_comment_to_existing_code(
