@@ -1,16 +1,14 @@
 # src/pneuma_seeker/main.py
-import asyncio
-import io
-import json
-import tempfile
-import zipfile
+from asyncio import create_task, sleep
 from datetime import datetime
+from io import BytesIO, StringIO
+from json import dumps
 from pathlib import Path
 from queue import Queue
+from tempfile import NamedTemporaryFile
 from typing import Any
+from zipfile import ZIP_DEFLATED, ZipFile
 
-import markdown
-import markdown2
 from anyio import to_thread
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,12 +19,14 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from fastapi.templating import Jinja2Templates
+from markdown import markdown
+from markdown2 import markdown as markdown_2
+
 from pneuma_seeker.session_manager import SessionManager
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import setup_logger
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.table_serializer import serialize_dataframe
-
 
 app = FastAPI(title="Pneuma-Seeker")
 logger = setup_logger("Core Service")
@@ -64,7 +64,7 @@ def now_ms() -> int:
 def stream_payload(sender: str, text: str) -> str:
     """Formats a message payload for streaming responses."""
     return (
-        json.dumps(
+        dumps(
             {
                 "sender": sender,
                 "text": text,
@@ -157,7 +157,7 @@ async def download_chat_pdf(data: dict):
     for msg in messages:
         role = "User" if msg["role"] == "user" else model.capitalize()
         color = "#f2f2f2" if msg["role"] == "user" else "#e8f0fe"
-        content_html = markdown2.markdown(msg["content"])
+        content_html = markdown_2(msg["content"])
         html_messages += f"""
             <div style="margin-bottom: 16px; padding: 10px; border-radius: 10px; background-color: {color}">
                 <strong>{role}:</strong><br>{content_html}
@@ -187,7 +187,7 @@ async def download_chat_pdf(data: dict):
     </html>
     """
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+    with NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
         HTML(string=full_html).write_pdf(tmp_file.name)
         return FileResponse(
             tmp_file.name, filename=f"chat_{chat_id}.pdf", media_type="application/pdf"
@@ -206,7 +206,7 @@ async def read_combined_html(request: Request, user_id: str, chat_id: str, data:
         )
         if prov_explanation_steps_markdown:
             prov_steps = [
-                markdown.markdown(
+                markdown(
                     step_md,
                     extensions=["fenced_code", "sane_lists"],
                 )
@@ -262,7 +262,7 @@ async def chat(request: Request):
         start = datetime.now().timestamp()
 
         yield stream_payload("log", "Pneuma connected. Starting processing...")
-        await asyncio.sleep(0)
+        await sleep(0)
 
         response_queue: Queue[str | None] = Queue()
 
@@ -273,9 +273,7 @@ async def chat(request: Request):
             finally:
                 response_queue.put(None)
 
-        producer = asyncio.create_task(
-            to_thread.run_sync(run_chat, abandon_on_cancel=True)
-        )
+        producer = create_task(to_thread.run_sync(run_chat, abandon_on_cancel=True))
 
         try:
             while True:
@@ -296,7 +294,7 @@ async def chat(request: Request):
                         payload = stream_payload("assistant", response)
 
                     yield payload
-                    await asyncio.sleep(0)
+                    await sleep(0)
                 except Exception as e:
                     break
         finally:
@@ -323,8 +321,8 @@ def download_all_tables(user_id: str, chat_id: str):
         raise HTTPException(status_code=404, detail="No target tables found")
 
     # Create a ZIP file in memory (no temp file needed)
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
+    zip_buffer = BytesIO()
+    with ZipFile(zip_buffer, "w", ZIP_DEFLATED) as zipf:
         for table_id in target_table_ids:
             try:
                 df = conductor.db_api.execute_query(
@@ -338,7 +336,7 @@ def download_all_tables(user_id: str, chat_id: str):
                     detail=f"Failed to load table '{table_id}': {exc}",
                 )
 
-            csv_buffer = io.StringIO()
+            csv_buffer = StringIO()
             df.to_csv(csv_buffer, index=False)
             zipf.writestr(f"{table_id}.csv", csv_buffer.getvalue())
 
@@ -362,7 +360,7 @@ def download_materializer_code(user_id: str, chat_id: str):
     chat_session = session_manager.get_chat_session(user_id, chat_id)
     materializer_code = chat_session.conductor.materializer.prov_graph.get_graph_code()
 
-    file_stream = io.BytesIO()
+    file_stream = BytesIO()
     file_stream.write(materializer_code.encode("utf-8"))
     file_stream.seek(0)
 
