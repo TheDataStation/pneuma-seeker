@@ -273,7 +273,31 @@ async def chat(request: Request):
             finally:
                 response_queue.put(None)
 
-        producer = create_task(to_thread.run_sync(run_chat, abandon_on_cancel=True))
+        def run_chat_with_profiling():
+            from psutil import Process
+            from os import getpid
+
+            p = Process(getpid())
+
+            def mem():
+                return str(p.memory_info().rss / 1024 / 1024)
+
+            logger.info(f"[MEMORY PROFILING] run_chat start mem: {mem()} MB")
+
+            try:
+                for msg in chat_session.chat(llm_messages, files):
+                    logger.info(f"[MEMORY PROFILING] mem mid: {mem()} MB")
+                    response_queue.put(msg)
+            finally:
+                logger.info(f"[MEMORY PROFILING] run_chat end mem: {mem()} MB")
+                response_queue.put(None)
+
+        producer = create_task(
+            to_thread.run_sync(
+                run_chat_with_profiling if config.ENABLE_MEMORY_PROFILING else run_chat,
+                abandon_on_cancel=True,
+            )
+        )
 
         try:
             while True:
