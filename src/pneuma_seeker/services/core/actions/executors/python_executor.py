@@ -1,15 +1,12 @@
-import ast
-import re
 from typing import Any
 
-import duckdb
 import numpy as np
 import pandas as pd
 import scipy
 
-from pneuma_seeker.shared.schemas.core.action import ActionNames
 from pneuma_seeker.services.core.actions.interfaces.abstract_action import Action
 from pneuma_seeker.services.core.actions.interfaces.executable import Executable
+from pneuma_seeker.shared.schemas.core.action import ActionNames
 
 
 class PythonExecutor(Action, Executable):
@@ -42,47 +39,21 @@ class PythonExecutor(Action, Executable):
         input: dict[str, Any],
     ) -> pd.DataFrame:
         """Executes the tool with the given input and returns the output."""
-        tables = input.get("tables", {})
         code = input.get("code")
-        if not isinstance(tables, dict) or not all(
-            isinstance(v, pd.DataFrame) for v in tables.values()
-        ):
-            raise ValueError("Input 'tables' must be a dictionary of DataFrames.")
+        result_table_id = input.get("result_table_id")
         if not isinstance(code, str):
             raise ValueError("Input 'code' must be a string.")
+        if not isinstance(result_table_id, str):
+            raise ValueError("Input 'result_table_id' must be a string.")
 
         env = {
             "pd": pd,
             "np": np,
-            "re": re,
-            "tables": tables,
-            "duckdb": duckdb,
             "scipy": scipy,
+            "db_api": self.db_api,
         }
         exec(code, env)
 
-        if "result" not in env:
-            raise ValueError("Executed code did not set a 'result' variable.")
-        if not isinstance(env.get("result"), pd.DataFrame):
-            raise ValueError("The 'result' variable must be a pandas DataFrame.")
-
-        return env["result"]
-
-    def extract_table_ids(self, code: str) -> list[str]:
-        """Extracts table IDs accessed in the code by parsing 'tables[...]' subscripts."""
-        tree = ast.parse(code)
-        ids = []
-
-        class TableVisitor(ast.NodeVisitor):
-            def visit_Subscript(self, node):
-                # Check if it's "tables[...]"
-                if isinstance(node.value, ast.Name) and node.value.id == "tables":
-                    # Extract key inside tables["..."]
-                    if isinstance(node.slice, ast.Constant) and isinstance(
-                        node.slice.value, str
-                    ):
-                        ids.append(node.slice.value)
-                self.generic_visit(node)
-
-        TableVisitor().visit(tree)
-        return ids
+        return self.db_api.execute_query(
+            self.user_id, self.chat_id, f"SELECT * FROM {result_table_id} LIMIT 5;"
+        )

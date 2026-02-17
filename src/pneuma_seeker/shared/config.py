@@ -11,8 +11,8 @@ class Config:
             load_dotenv(env_path)
 
         # Language Model Settings
-        self.LLM_PATH = getenv("LLM_PATH", "o4-mini")
-        self.LLM_MAX_TOKENS = int(getenv("LLM_MAX_TOKENS", "128000"))
+        self.LLM_PATH = getenv("LLM_PATH", "o3-2025-04-16")
+        self.LLM_MAX_TOKENS = int(getenv("LLM_MAX_TOKENS", "200000"))
         self.EMBED_MODEL_PATH = getenv("EMBED_MODEL_PATH", "text-embedding-3-small")
         self.EMBEDDING_MAX_TOKENS = int(getenv("EMBEDDING_MAX_TOKENS", "1536"))
 
@@ -38,7 +38,7 @@ class Config:
         self.PERSIST_CHAT_SESSION = (
             getenv("PERSIST_CHAT_SESSION", "true").lower() == "true"
         )
-        self.DATA_SOURCES = ["biomedical"]
+        self.DATA_SOURCES = ["archeology"]
 
         # Action Settings
         ## Retrieval Action Settings
@@ -73,7 +73,7 @@ class Config:
             1, int(getenv("SEMANTIC_COL_GEN_ROW_PROCESSING_BATCH_SIZE", "60"))
         )
         self.SEMANTIC_COL_GEN_VALUE_GENERATION_BATCH_SIZE = max(
-            1, int(getenv("SEMANTIC_COL_GEN_VALUE_GENERATION_BATCH_SIZE", "10"))
+            1, int(getenv("SEMANTIC_COL_GEN_VALUE_GENERATION_BATCH_SIZE", "20"))
         )
 
         ## Other Action Settings

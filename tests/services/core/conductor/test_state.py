@@ -28,7 +28,7 @@ class InformationNeedStateTests(unittest.TestCase):
 
     def test_add_table_and_get_current_state(self):
         df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
-        table = Table("tbl1", RetrieverType.USER, df, {}, path="dummy")
+        table = Table("tbl1", RetrieverType.USER, df, {}, path="dummy.tbl1")
         self.state.T["tbl1"] = table
         self.state.is_T_materialized = True
         self.state.column_descriptions["tbl1"] = {"a": "col a", "b": "col b"}
@@ -46,7 +46,7 @@ class InformationNeedStateTests(unittest.TestCase):
 
     def test_str_representation(self):
         df = pd.DataFrame({"x": [10]})
-        table = Table("tblX", RetrieverType.USER, df, {}, path="dummy")
+        table = Table("tblX", RetrieverType.USER, df, {}, path="dummy.tblX")
         self.state.T["tblX"] = table
         s = str(self.state)
         self.assertIn("Target tables", s)

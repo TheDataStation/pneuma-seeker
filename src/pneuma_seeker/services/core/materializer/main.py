@@ -1,6 +1,4 @@
 # src/pneuma_seeker/core/materializer/main.py
-import glob
-import os
 from logging import Logger
 from typing import Any
 
@@ -29,6 +27,7 @@ from pneuma_seeker.provenance.graph import ProvenanceGraph, ProvenanceNode
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import formatted_log
 from pneuma_seeker.shared.parser import parse_code, parse_json
+from pneuma_seeker.shared.str_processor import extract_table_ids_from_code
 
 
 class Materializer:
@@ -612,8 +611,7 @@ class Materializer:
                             last_node_id=new_node_id,
                         )
                     )
-                    self.__save_new_or_updated_intermediate_table(target_table_id)
-                    success_msg = "Successfully selected retrieved tables in the mapping as target tables. Notice the state's intermediate tables have changed, but please CHECK if the schemas in the selected tables match, either fully or partially, with the ones in target tables."
+                    success_msg = "Successfully projected retrieved tables in the mapping as target tables. Notice the state's intermediate tables have changed, but please CHECK if the schemas in the selected tables match, either fully or partially, with the ones in target tables."
                     self.__log(f"==> {success_msg}")
                     self.llm_messages.append(
                         LLMMessage(
@@ -720,10 +718,6 @@ class Materializer:
                     conditioned_table_doc,
                     new_column_name,
                     list(augmented_table_sample_rows[new_column_name]),
-                    os.path.join(
-                        self._get_intermediate_table_dir_path(),
-                        f"{conditioned_table_doc.doc_id}.csv",
-                    ),
                 )
                 # Ensure we have a parent node for the conditioned table (read node)
                 parent_node_id = self.__create_or_get_read_node(
@@ -895,20 +889,12 @@ class Materializer:
                     )
                     return
 
-                if len(left_table) > len(right_table):
-                    # Swap to make sure the smaller table is on the left for better performance
-                    left_table, right_table = right_table, left_table
-                    left_table_doc, right_table_doc = right_table_doc, left_table_doc
-                    relevant_left_cols, relevant_right_cols = (
-                        relevant_right_cols,
-                        relevant_left_cols,
-                    )
-
-                joined_table = self.action_set.join_semantic(
-                    left_table,
-                    right_table,
+                joined_table_sample_rows = self.action_set.join_semantic(
+                    left_table_id,
+                    right_table_id,
                     relevant_left_cols,
                     relevant_right_cols,
+                    joined_table_id,
                     syntactic_sim_metric=SyntacticSimMetric.JACCARD_QGRAM,
                     top_k=self.config.SEMANTIC_JOIN_TOP_K,
                 )
@@ -919,10 +905,6 @@ class Materializer:
                     relevant_left_cols,
                     relevant_right_cols,
                     self.config.SEMANTIC_JOIN_TOP_K,
-                    os.path.join(
-                        self._get_intermediate_table_dir_path(),
-                        f"{joined_table_id}.csv",
-                    ),
                 )
                 parent_node_1_id = self.__create_or_get_read_node(
                     left_table_doc,
@@ -956,12 +938,11 @@ class Materializer:
                     Table(
                         doc_id=joined_table_id,
                         retriever_type=RetrieverType.MATERIALIZER,
-                        content=joined_table,
+                        content=joined_table_sample_rows,
                         metadata={},
                         last_node_id=new_node.id,
                     )
                 )
-                self.__save_new_or_updated_intermediate_table(joined_table_id)
                 success_msg = "Successfully joined the left and right tables semantically. Notice the state's intermediate tables have changed."
                 self.__log(f"==> {success_msg}")
                 self.llm_messages.append(
@@ -971,10 +952,8 @@ class Materializer:
                     )
                 )
             case ActionNames.PYTHON_EXECUTOR.value:
-                id_dfs: dict[str, DataFrame] = {}
                 id_docs: dict[str, AbstractDocument] = {}
                 for table_doc in all_tables:
-                    id_dfs[table_doc.doc_id] = table_doc.content
                     id_docs[table_doc.doc_id] = table_doc
                 assign_to: str | None = action_args.get("assign_to")
                 if assign_to is None or assign_to.strip() == "":
@@ -990,10 +969,8 @@ class Materializer:
 
                 try:
                     python_code: str = parse_code(action_args.get("code", ""))
-                    exec_res = self.action_set.execute_code(id_dfs, python_code)
-                    used_table_ids = self.action_set.extract_table_ids_from_code(
-                        python_code
-                    )
+                    exec_res = self.action_set.execute_code(python_code, assign_to)
+                    used_table_ids = extract_table_ids_from_code(python_code)
 
                     used_table_retrievers: list[RetrieverType] = []
                     parent_nodes: list[ProvenanceNode] = []
@@ -1027,11 +1004,7 @@ class Materializer:
                     new_node = ProvenanceNode(
                         source_retriever=RetrieverType.MATERIALIZER,
                         python_code=self.action_set.append_comment_to_existing_code(
-                            python_code,
-                            f"Result path: {os.path.join(
-                                self._get_intermediate_table_dir_path(),
-                                f"{assign_to}.csv",
-                            )}",
+                            python_code, f"Result: {assign_to}"
                         ),
                         description=code_nl_summary,
                     )
@@ -1060,7 +1033,6 @@ class Materializer:
                             last_node_id=new_node.id,
                         )
                     )
-                    self.__save_new_or_updated_intermediate_table(assign_to)
                     success_msg = f"Successfully executed the Python code, resulting in a table named {assign_to}"
                     self.__log(f"==> {success_msg}")
                     self.llm_messages.append(
@@ -1091,13 +1063,11 @@ class Materializer:
                         )
                     )
                     return
-
-                id_dfs: dict[str, DataFrame] = {}
-                for table_doc in all_tables:
-                    id_dfs[table_doc.doc_id] = table_doc.content
                 try:
                     python_code: str = parse_code(action_args.get("code", ""))
-                    exec_res = self.action_set.execute_code(id_dfs, python_code)
+                    exec_res = self.action_set.execute_code(
+                        python_code, "materializer_assumption_check"
+                    )
                     success_msg = f"Assumption check result: {exec_res}"
                     self.__log(f"==> {success_msg}")
                     self.llm_messages.append(
@@ -1105,6 +1075,11 @@ class Materializer:
                             role=Role.USER.value,
                             content=success_msg,
                         )
+                    )
+                    self.db_api.execute_query(
+                        self.user_id,
+                        self.chat_id,
+                        "DROP TABLE IF EXISTS materializer_assumption_check;",
                     )
                 except Exception as exception:
                     error_msg = f"Error during assumption checking: {exception}"
@@ -1186,7 +1161,7 @@ class Materializer:
             for target_table_id in all_T_ids:
                 df = id_dfs.get(target_table_id)
                 if df is None or not isinstance(df, DataFrame):
-                    issue_msg = f"- For table `{target_table_id}`: no valid DataFrame was materialized."
+                    issue_msg = f"- For table `{target_table_id}`: no valid table was materialized."
                     self.__log(issue_msg)
                     column_issues.append(issue_msg)
                     is_complete = False
@@ -1229,50 +1204,10 @@ class Materializer:
         self.__log("Resetting materializer...")
         self.state.reset()
         self.prov_graph.reset_materialization_nodes()
-        self.__clear_csv_files()
         self.actions = []
         self.llm_messages = []
         self.join_paths = None
         self.__log("Materializer reset complete.")
 
-    def __clear_csv_files(self):
-        """Delete all .csv files in the module directory."""
-        pattern = os.path.join(self._get_intermediate_table_dir_path(), "*.csv")
-        for csv_file in glob.glob(pattern):
-            try:
-                os.remove(csv_file)
-            except Exception:
-                continue
-
     def __log(self, text: str):
         formatted_log(self.logger, "MATERIALIZER", text)
-
-    def __save_new_or_updated_intermediate_table(self, table_id: str):
-        """Save a new or updated intermediate table to a CSV file."""
-        intermediate_table_dir_path = self._get_intermediate_table_dir_path()
-        csv_path = os.path.join(intermediate_table_dir_path, f"{table_id}.csv")
-        intermediate_table: DataFrame | None = None
-        for table_doc in self.state.intermediate_tables:
-            if table_doc.doc_id == table_id:
-                intermediate_table = table_doc.content
-                break
-
-        if isinstance(intermediate_table, DataFrame):
-            intermediate_table.to_csv(csv_path, index=False)
-
-    def _get_intermediate_table_dir_path(self):
-        """Get the directory path for storing intermediate table CSV files."""
-        intermediate_table_dir_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "..",
-            "..",
-            "..",
-            "..",
-            "..",
-            "data_src",
-            "intermediate_data",
-            self.user_id,
-            self.chat_id,
-        )
-        os.makedirs(intermediate_table_dir_path, exist_ok=True)
-        return intermediate_table_dir_path

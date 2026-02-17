@@ -19,12 +19,24 @@ def get_materializer_actions(
     - Example: {{"pattern": "^sales_\\d{4}$"}} will match all tables named like `sales_2020`, `sales_2021`, etc.
 
 - **{ActionNames.PYTHON_EXECUTOR.value}**
-    - Executes Python code to transform and/or combine data. Output is a **SINGLE** new table (Pandas DataFrame).
-    - All tables — whether internal, external, or intermediate — are available via `tables["<ID>"]` (Pandas DataFrame).
-    - Never use `pd.read_csv`; tables are already provided in memory.
-    - Pandas, NumPy, and SciPy are available for data manipulation (remember to add relevant import statements in the code if you need them).
-    - You can perform many things, including renaming columns, reordering columns, transforming the values of certain columns, etc. For example, if the SQLs (S) expect "yyyy-mm-dd" format for a column, and the column values use "Month Date, Year" format, you can adjust it. Another example is a SQL query may expect uppercase values like "YES" instead of "yes", so adjust the values as well in this case.
-    - Make sure to assign the result, which must be a **SINGLE** pandas DataFrame, to a variable named 'result'
+    - Executes Python code to transform and/or combine data.
+    - Tables are stored in the workspace database and are NOT guaranteed to fit in memory.
+    - To access tables, use the provided database API:
+        - `db_api.execute_query(user_id, chat_id, "<SQL query>")`
+        - `db_api`, `chat_id`, and `user_id` are available in the environment.
+        - This returns a Pandas DataFrame containing the relational query result.
+        - NOTE: Table IDs may be accompanied by a dataset name (e.g., "Table x (dataset: y)"). In such cases, treat the dataset name as the schema and reference the table in SQL as SELECT * FROM "y.x".
+    - Prefer performing transformations directly in SQL whenever possible (filtering, projection, joins, aggregation, casting, renaming columns, value normalization, date parsing, etc.) instead of loading tables into Pandas.
+    - If Python processing is necessary, process data in batches and never load full tables into memory. For example:
+        - Offset pagination:
+            - SELECT * FROM "<table_id>" ORDER BY rowid LIMIT 100 OFFSET 0;
+            - SELECT * FROM "<table_id>" ORDER BY rowid LIMIT 100 OFFSET 100;
+        - Keyset pagination (preferred for large tables):
+            - SELECT * FROM "<table_id>" WHERE rowid > last_seen_rowid ORDER BY rowid LIMIT 100;
+    - Pandas, NumPy, and SciPy are available for small, intermediate, in-memory batches only (remember to add relevant import statements if needed).
+    - You can perform operations such as renaming or reordering columns, transforming column values, normalizing formats (e.g., "Month Date, Year" → "yyyy-mm-dd"), etc.
+    - You may create intermediate tables during processing (e.g., to store batches or results of sub-steps; don't forget to clean them up), but the final output must be materialized as a single table in the database using SQL (for example, `CREATE OR REPLACE TABLE "<assign_to>" AS SELECT ...`).
+    - Do NOT return large tables as Pandas DataFrames. Any Pandas DataFrame should only be used for small previews or intermediate batch processing.
     - Args: {{"code": "<Python code string>", "assign_to": "<ID of the resulting intermediate table>"}}
 {get_assumption_check_description() if config.ENABLE_ASSUMPTION_CHECK else ""}
 
@@ -105,15 +117,24 @@ def get_table_retrieve_description(config: Config) -> str:
 def get_assumption_check_description():
     return f"""\n- **{ActionNames.ASSUMPTION_CHECK.value}**
     - Executes Python code to explore, inspect, or test assumptions about the data.
-    - This tool is used ONLY to gather evidence, perform sanity checks, or confirm suspicions. There are no side effects.
+    - This tool is used ONLY to gather evidence, perform sanity checks, or confirm suspicions. It has no lasting side effects.
     - It MUST NOT be used to construct final outputs or pipeline tables.
-    - All tables are available via `tables[\"<ID>\"]` as Pandas DataFrames.
-    - The code must assign a SINGLE pandas DataFrame to a variable named `result`.
+    - Tables are stored in the workspace database and are NOT guaranteed to fit in memory.
+    - To access tables, use the provided database API:
+        - `db_api.execute_query(user_id, chat_id, "<SQL query>")`
+        - `db_api`, `chat_id`, and `user_id` are available in the environment.
+        - This returns a Pandas DataFrame containing the relational query result.
+        - NOTE: Table IDs may be accompanied by a dataset name (e.g., "Table x (dataset: y)"). In such cases, treat the dataset name as the schema and reference the table in SQL as SELECT * FROM "y.x".
+    - Prefer performing inspection and checks directly in SQL whenever possible (counts, filters, group-bys, aggregates, sampling, detecting nulls, checking ranges, distributions, uniqueness, etc.) instead of loading tables into Pandas.
+    - If Python processing is necessary, process data in small batches and never load full tables into memory.
     - Typical uses:
         - Checking whether a condition holds
         - Inspecting column value distributions or edge cases
         - Counting, filtering, sampling, or summarizing to confirm a belief
-    - The output is considered *ephemeral* and used only for reasoning.
+    - The final result of the inspection must be materialized into a temporary table named "materializer_assumption_check" using SQL (e.g., CREATE OR REPLACE TABLE "materializer_assumption_check" AS SELECT ...).
+    - The content of "materializer_assumption_check" should be small and preview-sized (for example, aggregated statistics, samples, or at most a few rows).
+    - The system will automatically read from "materializer_assumption_check", return at most the first 5 rows, and clean up the table after use.
+    - Do NOT create any other persistent tables.
     - Args: {{\"code\": \"<Python code string>\"}}"""
 
 

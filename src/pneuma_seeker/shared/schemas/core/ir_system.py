@@ -101,24 +101,27 @@ class Table(AbstractDocument):
 
     def __str__(self) -> str:
         table: DataFrame = self.content
+        table_id = self.doc_id
+        if "dataset_name" in self.metadata:
+            table_id += f" (dataset: {self.metadata['dataset_name']})"
         cols = " | ".join(
             f"{col} ({dtype})" for col, dtype in zip(table.columns, table.dtypes)
         )
 
         if "description" in self.metadata and "keywords_existence" in self.metadata:
-            header = f"Table {self.doc_id} ({self.metadata['description']}; include these keywords: {self.metadata['keywords_existence']}):\ncol: {cols}"
+            header = f"Table {table_id} ({self.metadata['description']}; include these keywords: {self.metadata['keywords_existence']}):\ncol: {cols}"
         elif "description" in self.metadata:
             header = (
-                f"Table {self.doc_id} ({self.metadata['description']}):\ncol: {cols}"
+                f"Table {table_id} ({self.metadata['description']}):\ncol: {cols}"
             )
         elif "keywords_existence" in self.metadata:
             header = (
-                f"Table {self.doc_id} "
+                f"Table {table_id} "
                 f"(include these keywords: {self.metadata['keywords_existence']}):\n"
                 f"col: {cols}"
             )
         else:
-            header = f"Table {self.doc_id}:\ncol: {cols}"
+            header = f"Table {table_id}:\ncol: {cols}"
 
         lines = [header]
 

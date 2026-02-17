@@ -375,7 +375,11 @@ class Conductor:
 
                     self.retrieved_tables = (
                         self.action_set.retrieve_multi_topic_documents(
-                            action_args["prompts"], RetrieverType.PNEUMA_RETRIEVER, 10, True, 5
+                            action_args["prompts"],
+                            RetrieverType.PNEUMA_RETRIEVER,
+                            10,
+                            True,
+                            5,
                         )
                     )
                 else:
@@ -395,7 +399,11 @@ class Conductor:
                         return error_msg, ActionExecutionStatus.ERROR
 
                     self.retrieved_tables = self.action_set.retrieve_documents(
-                        action_args["prompt"], RetrieverType.PNEUMA_RETRIEVER, 10, True, 5
+                        action_args["prompt"],
+                        RetrieverType.PNEUMA_RETRIEVER,
+                        10,
+                        True,
+                        5,
                     )
 
                 self.__log(
@@ -615,12 +623,10 @@ class Conductor:
                     self.__log(f"=> {error_msg}")
                     return error_msg, ActionExecutionStatus.ERROR
 
-                T_df: dict[str, DataFrame] = {}
-                for t_id, i in self.state.T.items():
-                    T_df[t_id] = i.content
-
                 try:
-                    execution_result = self.action_set.execute_code(T_df, self.state.S)
+                    execution_result = self.action_set.execute_code(
+                        self.state.S, "conductor_s_execution"
+                    )
                     self.__log(f"Script (S) execution result: {execution_result}")
 
                     self.state.is_S_executed = True
@@ -643,20 +649,16 @@ class Conductor:
                     self.__log(f"=> {error_msg}")
                     return error_msg, ActionExecutionStatus.ERROR
 
-                all_tables: dict[str, DataFrame] = {}
-                for table in self.retrieved_tables:
-                    all_tables[table.doc_id] = table.content
-                for table in self.external_tables:
-                    all_tables[table.doc_id] = table.content
-                if self.state.is_T_materialized:
-                    for table_id, table in self.state.T.items():
-                        all_tables[table_id] = table.content
-
                 try:
                     execution_result = self.action_set.execute_code(
-                        all_tables, action_args["code"]
+                        action_args["code"], "conductor_assumption_check"
                     )
                     self.__log(f"Assumption Check execution result: {execution_result}")
+                    self.db_api.execute_query(
+                        self.user_id,
+                        self.chat_id,
+                        "DROP TABLE IF EXISTS conductor_assumption_check;",
+                    )
                     return (
                         f"Executed Assumption Check, which resulted in this output: {execution_result}",
                         ActionExecutionStatus.SUCCESS,

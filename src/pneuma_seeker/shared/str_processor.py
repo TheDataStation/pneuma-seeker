@@ -1,5 +1,8 @@
 # src/pneuma_seeker/shared/str_processor.py
+import ast
 import re
+
+from sql_metadata import Parser
 
 
 def clean_column_table_name(name):
@@ -20,3 +23,40 @@ def clean_column_table_name(name):
     # Remove leading/trailing underscores
     name = name.strip("_")
     return name
+
+
+def extract_sql_strings(code: str) -> list[str]:
+    tree = ast.parse(code)
+    sqls = []
+
+    class SQLVisitor(ast.NodeVisitor):
+        def visit_Call(self, node):
+            if (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "execute_query"
+            ):
+                if len(node.args) >= 3 and isinstance(node.args[2], ast.Constant):
+                    if isinstance(node.args[2].value, str):
+                        sqls.append(node.args[2].value)
+            self.generic_visit(node)
+
+    SQLVisitor().visit(tree)
+    return sqls
+
+
+def extract_tables_from_sql(sql: str) -> set[str]:
+    parser = Parser(sql)
+    return set(parser.tables)
+
+
+def extract_table_ids_from_code(code: str) -> set[str]:
+    try:
+        sqls = extract_sql_strings(code)
+        tables: set[str] = set()
+
+        for sql in sqls:
+            tables |= extract_tables_from_sql(sql)
+
+        return tables
+    except Exception as e:
+        return set()

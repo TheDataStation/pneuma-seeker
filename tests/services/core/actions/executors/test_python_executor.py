@@ -1,5 +1,7 @@
 import os
+from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest.mock import MagicMock
 
@@ -11,6 +13,7 @@ sys.path.insert(
 
 import pandas as pd
 
+from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.actions.executors.python_executor import PythonExecutor
 from pneuma_seeker.shared.config import Config
 
@@ -19,53 +22,76 @@ class PythonExecutorTests(unittest.TestCase):
     """Unit tests for PythonExecutor."""
 
     def setUp(self) -> None:
+        self.user_id = "user_rollback"
+        self.chat_id = "chat_rollback"
         self.config = Config()
         self.logger = MagicMock()
-        self.db_api = MagicMock()
-        self.lm_api = MagicMock()
-        self.python_executor = PythonExecutor(
-            "user_id", "chat_id", self.config, self.logger, self.db_api, self.lm_api
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_api = DBAPI(
+            self.config,
+            self.logger,
+            str(Path(self.tmpdir) / "datasets"),
+            str(Path(self.tmpdir) / "workspaces"),
         )
 
-    def test_execute_code_happy_path_and_table_ids(self):
-        tables = {"tbl_1": pd.DataFrame({"a": [1, 2], "b": [3, 4]})}
-        code = "result = pd.DataFrame({'sum': [tables['tbl_1']['a'].sum()]})"
+        os.makedirs(self.db_api.pneuma_db.dataset_db_path, exist_ok=True)
+        os.makedirs(self.db_api.pneuma_db.workspace_db_path, exist_ok=True)
 
-        out = self.python_executor.execute({"tables": tables, "code": code})
+        self.lm_api = MagicMock()
+        self.python_executor = PythonExecutor(
+            self.user_id,
+            self.chat_id,
+            self.config,
+            self.logger,
+            self.db_api,
+            self.lm_api,
+        )
 
-        self.assertTrue(isinstance(out, pd.DataFrame))
+    def test_execute_code_creates_table_and_returns_df(self):
+        result_table_id = "result_tbl"
+        code = (
+            "value = int(np.sum([1, 2]))\n"
+            f"db_api.execute_query('{self.user_id}', '{self.chat_id}', "
+            f'f"CREATE TABLE {result_table_id} AS SELECT {{value}} AS total")'
+        )
+
+        out = self.python_executor.execute(
+            {"code": code, "result_table_id": result_table_id}
+        )
+
+        self.assertIsInstance(out, pd.DataFrame)
+        self.assertEqual(list(out.columns), ["total"])
         self.assertEqual(out.iloc[0, 0], 3)
 
-        used_table_ids = self.python_executor.extract_table_ids(code)
-        self.assertEqual(used_table_ids, ["tbl_1"])
-
-    def test_execute_code_exception_returns_exception_and_no_table_ids(self):
-        tables = {}
+    def test_execute_code_raises_on_exec_error(self):
         code = 'raise ValueError("boom")'
 
         with pytest.raises(ValueError, match="boom"):
-            self.python_executor.execute({"tables": tables, "code": code})
-        used_table_ids = self.python_executor.extract_table_ids(code)
-        self.assertEqual(used_table_ids, [])
+            self.python_executor.execute(
+                {"code": code, "result_table_id": "result_tbl"}
+            )
 
-    def test_execute_code_no_result_variable_raises(self):
-        tables = {}
-        code = "x = 42  # No result variable defined"
-
+    def test_execute_code_requires_code_string(self):
         with self.assertRaises(ValueError) as context:
-            self.python_executor.execute({"tables": tables, "code": code})
+            self.python_executor.execute({"code": 123, "result_table_id": "result"})
+
+        self.assertIn("Input 'code' must be a string.", str(context.exception))
+
+    def test_execute_code_requires_result_table_id_string(self):
+        with self.assertRaises(ValueError) as context:
+            self.python_executor.execute({"code": "pass", "result_table_id": 123})
 
         self.assertIn(
-            "Executed code did not set a 'result' variable.", str(context.exception)
+            "Input 'result_table_id' must be a string.", str(context.exception)
         )
 
-    def test_execute_code_result_not_dataframe_raises(self):
-        tables = {}
-        code = "result = 42  # result is not a DataFrame"
+    def test_execute_code_raises_when_result_table_missing(self):
+        with self.assertRaises(Exception) as context:
+            self.python_executor.execute(
+                {"code": "pass", "result_table_id": "missing_tbl"}
+            )
 
-        with self.assertRaises(ValueError) as context:
-            self.python_executor.execute({"tables": tables, "code": code})
-
-        self.assertIn(
-            "The 'result' variable must be a pandas DataFrame.", str(context.exception)
+        self.assertTrue(
+            "missing_tbl" in str(context.exception).lower()
+            or "not found" in str(context.exception).lower()
         )

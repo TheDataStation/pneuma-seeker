@@ -53,13 +53,20 @@ You (Conductor) maintain and update a shared state (T,S) that formalizes the use
 
   - **S**: A Python script that constrains, transforms, or manipulates the (materialized) tables in T to more specifically address the user's need.
     - *Format:*
-      - `S: str` (Python code operating on `T`)
+      - `S: str` (Python code operating on tables in `T`)
     - *Execution context:*
-      - Tables in `T` are available as `dict[str, pd.DataFrame]`; access with `tables[table_id]`.
-      - Allowed libraries: Pandas, NumPy, SciPy, DuckDB.
-      - The final result, which must be a pandas DataFrame, must be assigned to the `result` variable.
-      - The script may leave `result = T` (or a subset) if no further transformation is needed.
-      - ONLY reference tables defined in `T` and not retrieved or external tables.
+      - Tables in T exist as tables in the workspace database and are NOT guaranteed to fit in memory.
+      - You may ONLY reference tables defined in T. Do NOT retrieve or reference any other tables.
+      - To access tables, use the provided database API:
+        - `db_api.execute_query(user_id, chat_id, "<SQL query>")`
+        - `db_api`, `chat_id`, and `user_id` are available in the environment when S is executed.
+        - This returns a Pandas DataFrame containing the query result.
+      - Prefer performing transformations directly in SQL whenever possible instead of loading tables into Pandas.
+      - If Python processing is necessary, process data in small batches and never load full tables into memory.
+      - Allowed libraries: Pandas, NumPy, and SciPy.
+      - Do not create intermediate tables. The final result must be materialized into a single table named "conductor_s_execution" using SQL (e.g., CREATE OR REPLACE TABLE "conductor_s_execution" AS SELECT ...).
+      - The content of "conductor_s_execution" must be small and preview-sized (e.g., aggregated statistics, samples, or at most a few rows).
+      - The system will automatically read from "conductor_s_execution" and return at most the first 5 rows.
 
 # Division of Responsibilities
 
@@ -130,6 +137,11 @@ Both you (Conductor) and **materializer** share the same data layer. You define 
 - **External Tables**: User-uploaded tables if any. Already visible (do not call `{ActionNames.TABLE_RETRIEVE.value}`). These may be CSVs or extracted Excel sheets.
 {"- **Web Search Results**: Relevant information from the web.\n" if self.config.ENABLE_WEB_SEARCH else ""}
 
+# Guidelines on Table Relevance
+
+- {ActionNames.TABLE_RETRIEVE.value} is not perfect, so retrieved tables may be noisy or partially relevant. Leverage {ActionNames.ASSUMPTION_CHECK.value} to explore and confirm the relevance of retrieved tables. If a retrieved table is not relevant, do not use it in T or S. If it is partially relevant, you may still use it but be cautious about which columns to include in T and how to interpret them.
+- If the user requests for tables on some specific timeframe and you only retrieved tables on a subset of that timeframe, use {ActionNames.TABLE_ENUMERATION.value} to find other tables with similar names that may fill the gaps. If no more tables are available, you can still proceed with the available tables but be mindful of the missing data and its implications on the analysis.
+
 # Output
 
 Return **one JSON object** describing your planned actions for this step, e.g.:
@@ -195,16 +207,25 @@ Finds/raw-crawls a specific web page (URL) and returns the extracted text conten
 
     def get_assumption_check_description(self):
         return f"""\n- **{ActionNames.ASSUMPTION_CHECK.value}**
-  - Executes Python code to explore, inspect, or test assumptions about the retrieved or external tables.
-  - If T has been materialized, those tables are also available.
-  - This tool is used ONLY to gather evidence, perform sanity checks, or confirm suspicions. There are no side effects.
-  - All tables are available via `tables["<ID>"]` as Pandas DataFrames.
-  - The code must assign a SINGLE pandas DataFrame to a variable named `result`.
+  - Executes Python code to explore, inspect, or test assumptions or relevance of the retrieved or external tables.
+  - This tool is used ONLY to gather evidence, perform sanity checks, or confirm suspicions. It has no lasting side effects.
+  - It MUST NOT be used to construct final outputs or pipeline tables.
+  - Tables are stored in the workspace database and are NOT guaranteed to fit in memory.
+  - To access tables, use the provided database API:
+      - `db_api.execute_query(user_id, chat_id, "<SQL query>")`
+      - `db_api`, `chat_id`, and `user_id` are available in the environment.
+      - This returns a Pandas DataFrame containing the relational query result.
+      - NOTE: Table IDs may be accompanied by a dataset name (e.g., "Table x (dataset: y)"). In such cases, treat the dataset name as the schema and reference the table in SQL as SELECT * FROM "y.x".
+  - Prefer performing inspection and checks directly in SQL whenever possible instead of loading tables into Pandas.
+  - If Python processing is necessary, process data in small batches and never load full tables into memory.
   - Typical uses:
-      - Checking whether a condition holds
-      - Inspecting column value distributions or edge cases
-      - Counting, filtering, sampling, or summarizing to confirm a belief
-  - The output is considered *ephemeral* and used only for reasoning.
+    - Checking whether a condition holds
+    - Inspecting column value distributions or edge cases
+    - Counting, filtering, sampling, or summarizing to confirm a belief
+    - The final result of the inspection must be materialized into a temporary table named "conductor_assumption_check" using SQL (e.g., CREATE OR REPLACE TABLE "conductor_assumption_check" AS SELECT ...).
+  - The content of "conductor_assumption_check" should be small and preview-sized (for example, aggregated statistics, samples, or at most a few rows).
+  - The system will automatically read from "conductor_assumption_check", return at most the first 5 rows, and clean up the table after use.
+  - Do NOT create any other persistent tables.
   - Args: {{"code": "<Python code string>"}}"""
 
     def get_env_state_prompt(

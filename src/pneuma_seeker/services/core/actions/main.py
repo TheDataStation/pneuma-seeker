@@ -266,8 +266,8 @@ class ActionSet:
                     final_output.append(str(result))
             return final_output
 
-    def execute_code(self, tables: dict[str, DataFrame], code: str):
-        return self.python_executor.execute({"tables": tables, "code": code})
+    def execute_code(self, code: str, result_table_id: str) -> DataFrame:
+        return self.python_executor.execute({"code": code, "result_table_id": result_table_id})
 
     def extract_table_ids_from_code(self, code: str) -> list[str]:
         return self.python_executor.extract_table_ids(code)
