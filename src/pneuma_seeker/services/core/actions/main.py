@@ -1,7 +1,6 @@
 from logging import Logger
 from typing import Any
 
-import duckdb
 from pandas import DataFrame
 
 from pneuma_seeker.provenance.graph import ProvenanceGraph
@@ -226,45 +225,6 @@ class ActionSet:
                 "src_table_columns": src_table_columns,
             }
         )
-
-    def execute_sql(self, T: dict[str, AbstractDocument], Q: list[str]):
-        """
-        Executes the SQLs (sequentially) over the target schemas.
-        """
-        with duckdb.connect(database=":memory:") as con:
-            tables: dict[str, DataFrame] = {
-                T_id: T_doc.content for T_id, T_doc in T.items()
-            }
-
-            for table_name, df in tables.items():
-                con.register(table_name, df)
-
-            results: list[DataFrame] = []
-            for sql_idx, sql in enumerate(Q):
-                try:
-                    result = con.execute(sql).fetchdf()
-                    results.append(result)
-                except Exception as e:
-                    results = [
-                        DataFrame(
-                            columns=["error"],
-                            data=[
-                                [
-                                    f"Error encountered when executing this SQL: ```{sql}``` on the target schemas: {e}."
-                                ]
-                            ],
-                        )
-                    ]
-                    print(e)
-                    break
-
-            final_output: list[str] = []
-            for result in results:
-                if result.shape == (1, 1):
-                    final_output.append(str(result.iat[0, 0]))
-                else:
-                    final_output.append(str(result))
-            return final_output
 
     def execute_code(self, code: str, result_table_id: str) -> DataFrame:
         return self.python_executor.execute({"code": code, "result_table_id": result_table_id})
