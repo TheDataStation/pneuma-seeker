@@ -90,169 +90,182 @@ class PneumaRetriever(AbstractRetriever):
         """
         Retrieves a list of documents given a query.
         """
-        retrieval_results: list[AbstractDocument] = []
-        increased_k = k * 5
-        self.db_api.link_dataset_tables(
-            self.user_id, self.chat_id, self.config.DATA_SOURCES[0]
-        )
+        try:
+            retrieval_results: list[AbstractDocument] = []
+            increased_k = k * 5
+            self.db_api.link_dataset_tables(
+                self.user_id, self.chat_id, self.config.DATA_SOURCES[0]
+            )
 
-        client = chromadb.PersistentClient(
-            os.path.join(self.index_path, f"vector-index-{self.config.DATA_SOURCES[0]}")
-        )
-        collection = client.get_collection("benchmark")
-        retriever = bm25s.BM25.load(
-            os.path.join(
-                self.index_path, f"fulltext-index-{self.config.DATA_SOURCES[0]}"
-            ),
-            load_corpus=True,
-        )
-
-        dictionary_id_bm25 = dict()
-        if retriever.corpus is not None:
-            if len(retriever.corpus) < increased_k:
-                print(
-                    f"Reducing increased_k from {increased_k} to {len(retriever.corpus)}"
-                )
-                increased_k = len(retriever.corpus)
-            dictionary_id_bm25 = {
-                datum["metadata"]["table"]: datum_idx
-                for datum_idx, datum in enumerate(retriever.corpus)
-            }
-
-        question_embedding = self.language_model_api.embed_model.encode([query])[
-            0
-        ].tolist()
-        query_tokens = bm25s.tokenize(query, stemmer=self.stemmer, show_progress=False)
-
-        results, scores = retriever.retrieve(
-            query_tokens, k=increased_k, show_progress=False
-        )
-        bm25_res = (results, scores)
-        vec_res = collection.query(
-            query_embeddings=[question_embedding], n_results=increased_k
-        )
-        all_nodes = self.hybrid_retriever.retrieve(
-            retriever,
-            collection,
-            bm25_res,
-            vec_res,
-            increased_k,
-            query,
-            0.5,
-            query_tokens,
-            question_embedding,
-            dictionary_id_bm25,
-        )
-
-        seen_tables: list[str] = []
-        final_rank: list[tuple[str, float]] = []
-        table_keywords: dict[str, set[str]] = {}
-        if self.config.TABLE_RETRIEVE_ENABLE_ENTITIES_RELEVANCE_BOOSTER:
-            messages = [
-                LLMMessage(
-                    role=Role.SYSTEM.value,
-                    content=self.__get_entity_extraction_sys_prompt(),
-                ),
-                LLMMessage(role=Role.USER.value, content=query),
-            ]
-            entities = parse_json(
-                "".join(
-                    self.language_model_api.chat(messages, LLMOption(json_mode=True))
+            client = chromadb.PersistentClient(
+                os.path.join(
+                    self.index_path, f"vector-index-{self.config.DATA_SOURCES[0]}"
                 )
             )
-            if "entities" in entities and isinstance(entities["entities"], list):
-                keywords = entities["entities"]
-                if len(keywords) > 0:
-                    final_rank, table_keywords = self.__keyword_relevance_by_table(
-                        keywords
+            collection = client.get_collection("benchmark")
+            retriever = bm25s.BM25.load(
+                os.path.join(
+                    self.index_path, f"fulltext-index-{self.config.DATA_SOURCES[0]}"
+                ),
+                load_corpus=True,
+            )
+
+            dictionary_id_bm25 = dict()
+            if retriever.corpus is not None:
+                if len(retriever.corpus) < increased_k:
+                    print(
+                        f"Reducing increased_k from {increased_k} to {len(retriever.corpus)}"
                     )
+                    increased_k = len(retriever.corpus)
+                dictionary_id_bm25 = {
+                    datum["metadata"]["table"]: datum_idx
+                    for datum_idx, datum in enumerate(retriever.corpus)
+                }
 
-        for table, _, _ in all_nodes[:k]:
-            table_raw = table.split("_SEP_")[0]
-            table_name = clean_column_table_name(Path(table_raw).stem)
-
-            if table_name not in seen_tables:
-                seen_tables.append(table_name)
-            else:
-                continue
-
-            query_table = f"""
-            SELECT * FROM {self.config.DATA_SOURCES[0]}."{table_name}"
-            """
-            if sample_only:
-                if sample_size is None or sample_size <= 0:
-                    sample_size = 5
-                query_table += f" LIMIT {sample_size}"
-            actual_table = self.db_api.execute_query(
-                self.user_id, self.chat_id, query_table
+            question_embedding = self.language_model_api.embed_model.encode([query])[
+                0
+            ].tolist()
+            query_tokens = bm25s.tokenize(
+                query, stemmer=self.stemmer, show_progress=False
             )
-            table_metadata: dict[str, str] = {
-                "description": self.db_api.get_table_description(
-                    self.config.DATA_SOURCES[0], table_name
-                ),
-                "dataset_name": self.config.DATA_SOURCES[0],
-            }
 
-            actual_table.rename(columns=clean_column_table_name, inplace=True)
-            retrieval_results.append(
-                Table(
-                    doc_id=table_name,
-                    retriever_type=RetrieverType.PNEUMA_RETRIEVER,
-                    content=actual_table,
-                    metadata=table_metadata,
-                    path=f'{self.config.DATA_SOURCES[0]}."{table_name}"',
+            results, scores = retriever.retrieve(
+                query_tokens, k=increased_k, show_progress=False
+            )
+            bm25_res = (results, scores)
+            vec_res = collection.query(
+                query_embeddings=[question_embedding], n_results=increased_k
+            )
+            all_nodes = self.hybrid_retriever.retrieve(
+                retriever,
+                collection,
+                bm25_res,
+                vec_res,
+                increased_k,
+                query,
+                0.5,
+                query_tokens,
+                question_embedding,
+                dictionary_id_bm25,
+            )
+
+            seen_tables: list[str] = []
+            final_rank: list[tuple[str, float]] = []
+            table_keywords: dict[str, set[str]] = {}
+            if self.config.TABLE_RETRIEVE_ENABLE_ENTITIES_RELEVANCE_BOOSTER:
+                messages = [
+                    LLMMessage(
+                        role=Role.SYSTEM.value,
+                        content=self.__get_entity_extraction_sys_prompt(),
+                    ),
+                    LLMMessage(role=Role.USER.value, content=query),
+                ]
+                entities = parse_json(
+                    "".join(
+                        self.language_model_api.chat(
+                            messages, LLMOption(json_mode=True)
+                        )
+                    )
                 )
-            )
+                print(f"Extracted entities for relevance boosting: {entities}")
+                if "entities" in entities and isinstance(entities["entities"], list):
+                    keywords = entities["entities"]
+                    if len(keywords) > 0:
+                        final_rank, table_keywords = self.__keyword_relevance_by_table(
+                            keywords
+                        )
 
-        if (
-            self.config.TABLE_RETRIEVE_ENABLE_ENTITIES_RELEVANCE_BOOSTER
-            and len(final_rank) > 0
-        ):  # Future-TODO: Improve scoring mechanism
-            for i in final_rank:
-                table_id = i[0]
-                if table_id in seen_tables:
-                    # Include the keyword existence info
-                    for doc in retrieval_results:
-                        if doc.doc_id == table_id:
-                            doc.metadata["keywords_existence"] = ", ".join(
-                                sorted(table_keywords.get(table_id, []))
-                            )
+            for table, _, _ in all_nodes[:k]:
+                table_raw = table.split("_SEP_")[0]
+                table_name = clean_column_table_name(Path(table_raw).stem)
+
+                if table_name not in seen_tables:
+                    seen_tables.append(table_name)
+                else:
                     continue
-                if len(retrieval_results) >= k:
-                    break
 
-                seen_tables.append(table_id)
-                table_description = self.db_api.get_table_description(
-                    self.config.DATA_SOURCES[0], table_id
-                )
-
-                booster_query = f'SELECT * FROM {self.config.DATA_SOURCES[0]}."{table_id}"'
+                query_table = f"""
+                SELECT * FROM {self.config.DATA_SOURCES[0]}."{table_name}"
+                """
                 if sample_only:
                     if sample_size is None or sample_size <= 0:
                         sample_size = 5
-                    booster_query += f" LIMIT {sample_size}"
-                booster_table = self.db_api.execute_query(
-                    self.user_id,
-                    self.chat_id,
-                    booster_query,
+                    query_table += f" LIMIT {sample_size}"
+                actual_table = self.db_api.execute_query(
+                    self.user_id, self.chat_id, query_table
                 )
+                table_metadata: dict[str, str] = {
+                    "description": self.db_api.get_table_description(
+                        self.config.DATA_SOURCES[0], table_name
+                    ),
+                    "dataset_name": self.config.DATA_SOURCES[0],
+                }
+
+                actual_table.rename(columns=clean_column_table_name, inplace=True)
                 retrieval_results.append(
                     Table(
-                        doc_id=table_id,
+                        doc_id=table_name,
                         retriever_type=RetrieverType.PNEUMA_RETRIEVER,
-                        content=booster_table,
-                        metadata={
-                            "dataset_name": self.config.DATA_SOURCES[0],
-                            "description": table_description,
-                            "keywords_existence": ", ".join(
-                                sorted(table_keywords.get(table_id, []))
-                            ),
-                        },
-                        path=f'{self.config.DATA_SOURCES[0]}."{table_id}"',
+                        content=actual_table,
+                        metadata=table_metadata,
+                        path=f'{self.config.DATA_SOURCES[0]}."{table_name}"',
                     )
                 )
 
-        return retrieval_results
+            if (
+                self.config.TABLE_RETRIEVE_ENABLE_ENTITIES_RELEVANCE_BOOSTER
+                and len(final_rank) > 0
+            ):  # Future-TODO: Improve scoring mechanism
+                for i in final_rank:
+                    table_id = i[0]
+                    if table_id in seen_tables:
+                        # Include the keyword existence info
+                        for doc in retrieval_results:
+                            if doc.doc_id == table_id:
+                                doc.metadata["keywords_existence"] = ", ".join(
+                                    sorted(table_keywords.get(table_id, []))
+                                )
+                        continue
+                    if len(retrieval_results) >= k:
+                        break
+
+                    seen_tables.append(table_id)
+                    table_description = self.db_api.get_table_description(
+                        self.config.DATA_SOURCES[0], table_id
+                    )
+
+                    booster_query = (
+                        f'SELECT * FROM {self.config.DATA_SOURCES[0]}."{table_id}"'
+                    )
+                    if sample_only:
+                        if sample_size is None or sample_size <= 0:
+                            sample_size = 5
+                        booster_query += f" LIMIT {sample_size}"
+                    booster_table = self.db_api.execute_query(
+                        self.user_id,
+                        self.chat_id,
+                        booster_query,
+                    )
+                    retrieval_results.append(
+                        Table(
+                            doc_id=table_id,
+                            retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+                            content=booster_table,
+                            metadata={
+                                "dataset_name": self.config.DATA_SOURCES[0],
+                                "description": table_description,
+                                "keywords_existence": ", ".join(
+                                    sorted(table_keywords.get(table_id, []))
+                                ),
+                            },
+                            path=f'{self.config.DATA_SOURCES[0]}."{table_id}"',
+                        )
+                    )
+
+            return retrieval_results
+        except Exception as e:
+            print(f"Error during retrieval: {e}")
+            raise e
 
     def __get_entity_extraction_sys_prompt(self) -> str:
         return f"""You are an information extraction system.
@@ -354,7 +367,7 @@ Your task is to analyze a natural-language query and extract **explicitly mentio
         for _, row in table_columns.iterrows():
             table = row["table_name"]
             column = row["column_name"]
-            fq_table = f"{self.config.DATA_SOURCES[0]}.{table}"
+            fq_table = f"{self.__quote_ident(self.config.DATA_SOURCES[0])}.{self.__quote_ident(table)}"
 
             for keyword, regex in keyword_regexes.items():
                 _ensure(table, regex)
@@ -375,7 +388,9 @@ Your task is to analyze a natural-language query and extract **explicitly mentio
 
                 cnt = cast(
                     int,
-                    self.db_api.execute_query(self.user_id, self.chat_id, query).iat[0, 0],
+                    self.db_api.execute_query(self.user_id, self.chat_id, query).iat[
+                        0, 0
+                    ],
                 )
 
                 if cnt > 0:
@@ -443,6 +458,9 @@ Your task is to analyze a natural-language query and extract **explicitly mentio
 
         final_rank = sorted(final_scores.items(), key=lambda x: (-x[1], x[0]))
         return final_rank, table_keyword_hits
+
+    def __quote_ident(self, x: str) -> str:
+        return '"' + x.replace('"', '""') + '"'
 
     def __keyword_to_single_char_regex(self, keyword: str) -> str:
         """

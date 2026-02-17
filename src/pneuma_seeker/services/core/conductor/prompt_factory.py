@@ -59,6 +59,7 @@ You (Conductor) maintain and update a shared state (T,S) that formalizes the use
       - You may ONLY reference tables defined in T using their IDs (e.g., "Table x" -> "x").
       - To access tables, use the provided database API:
         - `db_api.execute_query(user_id, chat_id, "<SQL query>")`
+        - `db_api.register_temporary_df(user_id, chat_id, df, "<table_name>")` can be used to register a small temporary Pandas DataFrame in the workspace for SQL queries.
         - `db_api`, `chat_id`, and `user_id` are available as variables in the environment when S is executed.
         - This returns a Pandas DataFrame containing the query result.
       - Prefer performing transformations directly in standard SQL whenever possible instead of loading tables into Pandas.
@@ -213,6 +214,7 @@ Finds/raw-crawls a specific web page (URL) and returns the extracted text conten
   - Tables are stored in the DuckDB-based workspace database and are NOT guaranteed to fit in memory.
   - To access tables, use the provided database API:
       - `db_api.execute_query(user_id, chat_id, "<SQL query>")`
+      - `db_api.register_temporary_df(user_id, chat_id, df, "<table_name>")` can be used to register a small temporary Pandas DataFrame in the workspace for SQL queries.
       - `db_api`, `chat_id`, and `user_id` are available as variables in the environment.
       - This returns a Pandas DataFrame containing the relational query result.
       - NOTE: Solely for the purpose of referencing tables in SQL queries, if a retrieved table has an ID like "Table x (dataset: y)", treat "y" as the schema and reference the table in SQL as SELECT * FROM y."x".      

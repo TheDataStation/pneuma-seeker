@@ -398,6 +398,15 @@ class PneumaDB:
     # ------------------------------------------------------------------
     # Session Persistence
     # ------------------------------------------------------------------
+    def register_temporary_df(self, user_id: str, chat_id: str, df: DataFrame, table_name: str):
+        """Registers a temporary DataFrame in the workspace DB connection."""
+        con = self.get_ws_db_connection(user_id, chat_id)
+        try:
+            con.register(table_name, df)
+        except Exception as e:
+            self.__log(f"Failed to register temporary DataFrame: {e}")
+            raise e
+
     def persist_df(
         self,
         user_id: str,

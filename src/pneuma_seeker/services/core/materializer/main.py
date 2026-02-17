@@ -117,7 +117,7 @@ class Materializer:
                 ),
             )
         ]
-        
+
         current_step = 0
         last_env_state_idx: int | None = None
         while (
@@ -521,7 +521,10 @@ class Materializer:
                     relevant_columns = retrieved_table_info.get("columns", [])
                     target_table_id = target_table_id.strip()
 
-                    if table_id_to_project.split(".")[-1].strip('"') not in all_table_doc_ids:
+                    if (
+                        table_id_to_project.split(".")[-1].strip('"')
+                        not in all_table_doc_ids
+                    ):
                         error_msg = (
                             "Invalid table ID to select. Ensure the table exists."
                         )
@@ -547,7 +550,11 @@ class Materializer:
                         )
                         return
 
-                    matches = [i for i in all_tables if i.doc_id == table_id_to_project.split(".")[-1].strip('"')]
+                    matches = [
+                        i
+                        for i in all_tables
+                        if i.doc_id == table_id_to_project.split(".")[-1].strip('"')
+                    ]
                     if not matches:
                         error_msg = f"Table {table_id_to_project.split('.')[-1].strip('"')!r} not found in the available tables."
                         self.__log(f"==> {error_msg}")
@@ -996,16 +1003,23 @@ class Materializer:
                     used_table_retrievers: list[RetrieverType] = []
                     parent_nodes: list[ProvenanceNode] = []
                     for used_table_id in used_table_ids:
-                        used_table_retrievers.append(
-                            id_docs[used_table_id].retriever_type
-                        )
+                        try:
+                            used_table_id = used_table_id.split(".")[-1].strip('"')
+                            used_table_retrievers.append(
+                                id_docs[used_table_id].retriever_type
+                            )
 
-                        used_table_doc = id_docs[used_table_id]
-                        parent_node = self.prov_graph.get_node_by_id(
-                            used_table_doc.last_node_id or ""
-                        )
-                        if parent_node is not None:
-                            parent_nodes.append(parent_node)
+                            used_table_doc = id_docs[used_table_id]
+                            parent_node = self.prov_graph.get_node_by_id(
+                                used_table_doc.last_node_id or ""
+                            )
+                            if parent_node is not None:
+                                parent_nodes.append(parent_node)
+                        except Exception as e:
+                            self.__log(
+                                f"Warning: Failed to extract retriever type or provenance node for used table ID {used_table_id}: {e}"
+                            )
+                            continue
 
                     code_nl_summary = f"Executes Python code to produce a new table named {assign_to} by performing operations on the following tables: {', '.join(f'`{tid}`' for tid in used_table_ids)}. The code uses these tables as inputs and produces a new table as output."
                     new_node = ProvenanceNode(

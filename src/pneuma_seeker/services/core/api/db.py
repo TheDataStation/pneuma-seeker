@@ -71,6 +71,10 @@ class DBAPI:
     # ------------------------------------------------------------------
     # Chat Session Persistence
     # ------------------------------------------------------------------
+    def register_temporary_df(self, user_id: str, chat_id: str, df: DataFrame, table_name: str):
+        """Registers a temporary DataFrame in the workspace DB connection."""
+        self.pneuma_db.register_temporary_df(user_id, chat_id, df, table_name)
+
     def persist_df(
         self,
         user_id: str,

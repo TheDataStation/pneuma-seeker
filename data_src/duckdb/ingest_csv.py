@@ -3,12 +3,17 @@ import re
 from pathlib import Path
 
 import duckdb
+from pandas import read_csv
 from tqdm import tqdm
 
 
-def clean_column_table_name(name: str) -> str:
+def clean_column_table_name(name):
     """Cleans and normalizes column/table names."""
     name = name.lower()
+    # Semantic replacements
+    name = name.replace("$", "usd")
+    name = name.replace("%", "percentage")
+    name = name.replace("#", "num")
     # Replace spaces and hyphens with underscores
     name = name.replace("-", "_").replace(" ", "_")
     # Replace "(" and ")" with underscores
@@ -35,7 +40,7 @@ def dedupe_columns(cols):
     return result
 
 
-DATASET_NAME = "buysite"
+DATASET_NAME = "legal"
 DATASET_PATH = f"../{DATASET_NAME}/dataset"
 OVERWRITE_DB = True
 
@@ -54,24 +59,16 @@ else:
             if not table_file_name.lower().endswith(".csv"):
                 continue
 
+            print(f"Ingesting {table_file_name}...")
+
             file_path = (Path(DATASET_PATH) / table_file_name).as_posix()
             table_stem = Path(table_file_name).stem
             cleaned_table_name = clean_column_table_name(table_stem)
 
             # Read header only to get original column names (fast)
             try:
-                rel = dataset_con.execute(
-                    f"""
-                    SELECT *
-                    FROM read_csv_auto(
-                        '{file_path}',
-                        HEADER=TRUE,
-                        SAMPLE_SIZE=1
-                    )
-                    LIMIT 0
-                    """
-                )
-                original_cols = [desc[0] for desc in rel.description]
+                rel = read_csv(file_path, nrows=1)
+                original_cols = list(rel.columns)
             except Exception:
                 # Fallback: let DuckDB auto-detect and ingest (still fine)
                 original_cols = None
