@@ -269,9 +269,6 @@ class ActionSet:
     def execute_code(self, code: str, result_table_id: str) -> DataFrame:
         return self.python_executor.execute({"code": code, "result_table_id": result_table_id})
 
-    def extract_table_ids_from_code(self, code: str) -> list[str]:
-        return self.python_executor.extract_table_ids(code)
-
     def join_semantic(
         self,
         left_table_id: str,
