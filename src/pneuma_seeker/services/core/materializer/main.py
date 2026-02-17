@@ -1217,7 +1217,7 @@ class Materializer:
                 self.db_api.execute_query(
                     self.user_id,
                     self.chat_id,
-                    f"DROP TABLE IF EXIST '{doc_id}';",
+                    f'DROP TABLE IF EXISTS "{doc_id}";',
                 )
             except Exception as e:
                 self.__log(

@@ -316,6 +316,69 @@ class MaterializerTests(unittest.TestCase):
             "\n\n".join(prov_graph_code_lines_1),
         )
 
+    def test_rematerialize_cleans_previous_intermediate_tables(self):
+        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompt":"find tables"}}}}'
+        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"table_1","columns":["a","b"]}}}}}}'
+        plan3 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompt":"find other tables"}}}}'
+        plan4 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t2":{{"id":"table_2","columns":["a","b"]}}}}}}'
+
+        self.lm_api.llm._responses = [  # type: ignore
+            f'{{"plan": [{plan1}, {plan2}]}}',
+            f'{{"plan": [{plan3}, {plan4}]}}',
+        ]
+
+        table_df_1 = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+        table_df_2 = pd.DataFrame({"a": [5, 6], "b": [7, 8]})
+        os.makedirs(Path(self.tmpdir) / "test_ds", exist_ok=True)
+        table_df_1.to_csv(Path(self.tmpdir) / "test_ds" / "table_1.csv", index=False)
+        table_df_2.to_csv(Path(self.tmpdir) / "test_ds" / "table_2.csv", index=False)
+        self.db_api.ingest_dataset("test_ds", str(Path(self.tmpdir) / "test_ds"))
+
+        table_doc_1 = Table(
+            doc_id="table_1",
+            retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+            content=table_df_1,
+            metadata={},
+        )
+        table_doc_2 = Table(
+            doc_id="table_2",
+            retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+            content=table_df_2,
+            metadata={},
+        )
+
+        self.action_set.retrieve_documents = MagicMock(
+            side_effect=[[table_doc_1], [table_doc_2]]
+        )
+
+        baseline_tables = set(
+            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")
+            ["name"]
+            .tolist()
+        )
+
+        T1 = {"t1": pd.DataFrame(columns=["a", "b"])}
+        result_1 = self.materializer.materialize_T(T=T1, column_descriptions={}, S="")
+        self.assertIn("t1", result_1[-1])
+        tables_after_first = set(
+            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")
+            ["name"]
+            .tolist()
+        )
+        self.assertIn("t1", tables_after_first)
+
+        T2 = {"t2": pd.DataFrame(columns=["a", "b"])}
+        result_2 = self.materializer.materialize_T(T=T2, column_descriptions={}, S="")
+        self.assertIn("t2", result_2[-1])
+        tables_after_second = set(
+            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")
+            ["name"]
+            .tolist()
+        )
+        self.assertIn("t2", tables_after_second)
+        self.assertNotIn("t1", tables_after_second)
+        self.assertEqual(tables_after_second - baseline_tables, {"t2"})
+
 
 if __name__ == "__main__":
     unittest.main()
