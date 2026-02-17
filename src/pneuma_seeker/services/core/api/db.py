@@ -71,21 +71,19 @@ class DBAPI:
     # ------------------------------------------------------------------
     # Chat Session Persistence
     # ------------------------------------------------------------------
-    def persist_document(
+    def persist_df(
         self,
         user_id: str,
         chat_id: str,
-        document: AbstractDocument,
-        document_type: str,
+        df: DataFrame,
+        table_name: str,
         overwrite_content: bool,
     ):
         """
-        Persists a document in the chat session.
-        The document is linked to the latest conductor state if it exists, otherwise it's orphaned.
+        Persists a DataFrame as a table in the workspace DB connection.
+        If the table already exists, it will be replaced.
         """
-        self.pneuma_db.persist_document(
-            user_id, chat_id, document, document_type, overwrite_content
-        )
+        self.pneuma_db.persist_df(user_id, chat_id, df, table_name, overwrite_content)
 
     def persist_session(
         self,

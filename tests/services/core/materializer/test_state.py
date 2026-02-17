@@ -2,6 +2,7 @@
 import os
 import sys
 import unittest
+from unittest.mock import MagicMock
 
 sys.path.insert(
     0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../src"))
@@ -15,7 +16,7 @@ from pneuma_seeker.services.core.materializer.state import MaterializerState
 
 class MaterializerStateTests(unittest.TestCase):
     def setUp(self):
-        self.state = MaterializerState()
+        self.state = MaterializerState("user_id", "chat_id", MagicMock())
 
     def test_initial_state(self):
         self.assertEqual(self.state.retrieved_tables, [])

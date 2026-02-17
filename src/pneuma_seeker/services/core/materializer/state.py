@@ -1,12 +1,15 @@
 # src/pneuma_seeker/core/materializer/state.py
-
-
 from pandas import DataFrame
+
+from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.shared.schemas.core.ir_system import AbstractDocument
 
 
 class MaterializerState:
-    def __init__(self) -> None:
+    def __init__(self, user_id: str, chat_id: str, db_api: DBAPI) -> None:
+        self.user_id = user_id
+        self.chat_id = chat_id
+        self.db_api = db_api
         self.T: dict[str, DataFrame] = {}
         self.column_descriptions: dict[str, dict[str, str]] = {}
         self.S: str = ""

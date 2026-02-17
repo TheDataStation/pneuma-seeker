@@ -485,8 +485,8 @@ class TestQueryExecution(unittest.TestCase):
         self.assertIsInstance(result, pd.DataFrame)
 
 
-class TestPersistDocument(unittest.TestCase):
-    """Tests for persist_document helper."""
+class TestPersistDf(unittest.TestCase):
+    """Tests for persist_df helper."""
 
     def setUp(self):
         self.config = Config()
@@ -505,102 +505,15 @@ class TestPersistDocument(unittest.TestCase):
         self.db.close_all_connections()
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_persist_document_without_state(self):
-        """Documents should persist even if no conductor_state exists yet."""
-        doc = Text(
-            doc_id="doc_no_state",
-            retriever_type=RetrieverType.WEB_SEARCH,
-            content="Result content",
-            metadata={"url": "https://example.com", "title": "Example"},
-        )
-
-        self.db.persist_document(
-            self.user_id,
-            self.chat_id,
-            doc,
-            DocumentType.WEB_SEARCH_RESULT.value,
-            overwrite_content=False,
-        )
-
-        con = self.db.get_ws_db_connection(self.user_id, self.chat_id)
-        doc_count = con.execute("SELECT COUNT(*) FROM documents;").fetchone()
-        meta_count = con.execute("SELECT COUNT(*) FROM document_metadata;").fetchone()
-        role_count = con.execute(
-            "SELECT COUNT(*) FROM state_document_roles;"
-        ).fetchone()
-
-        assert doc_count is not None
-        assert meta_count is not None
-        assert role_count is not None
-
-        self.assertEqual(doc_count[0], 1)
-        self.assertEqual(meta_count[0], 2)
-        self.assertEqual(role_count[0], 0)
-
-    def test_persist_document_links_latest_state(self):
-        """Documents should link to the latest conductor_state when it exists."""
-        self.db.persist_session(
-            self.user_id,
-            self.chat_id,
-            "U1",
-            "A1",
-            ConductorState(),
-            ProvenanceGraph(self.logger),
-            [],
-            [],
-        )
-
-        doc = Text(
-            doc_id="doc_with_state",
-            retriever_type=RetrieverType.WEB_SEARCH,
-            content="Result content",
-            metadata={"url": "https://example.com"},
-        )
-
-        self.db.persist_document(
-            self.user_id,
-            self.chat_id,
-            doc,
-            DocumentType.WEB_SEARCH_RESULT.value,
-            overwrite_content=False,
-        )
-
-        con = self.db.get_ws_db_connection(self.user_id, self.chat_id)
-        latest_state_id = con.execute(
-            "SELECT state_id FROM conductor_state ORDER BY creation_timestamp DESC LIMIT 1;"
-        ).fetchone()
-        assert latest_state_id is not None
-        latest_state_id = latest_state_id[0]
-
-        role_row = con.execute(
-            """
-            SELECT state_id, role
-            FROM state_document_roles
-            WHERE doc_id = ?
-            """,
-            (doc.doc_id,),
-        ).fetchone()
-
-        self.assertIsNotNone(role_row)
-        if role_row:
-            self.assertEqual(str(role_row[0]), str(latest_state_id))
-            self.assertEqual(role_row[1], DocumentType.WEB_SEARCH_RESULT.value)
-
-    def test_persist_document_persists_external_table_dataframe(self):
-        """External tables should be persisted as workspace DB tables."""
+    def test_persist_df_creates_table(self):
+        """DataFrames should be persisted as workspace DB tables."""
         df = pd.DataFrame({"id": [1, 2], "name": ["A", "B"]})
-        doc = Table(
-            doc_id="external_table",
-            retriever_type=RetrieverType.USER,
-            content=df,
-            metadata={},
-        )
 
-        self.db.persist_document(
+        self.db.persist_df(
             self.user_id,
             self.chat_id,
-            doc,
-            DocumentType.EXTERNAL_TABLE.value,
+            df,
+            "external_table",
             overwrite_content=False,
         )
 
@@ -613,60 +526,25 @@ class TestPersistDocument(unittest.TestCase):
         self.assertEqual(len(result), 2)
         self.assertEqual(result.iloc[0]["name"], "A")
 
-    def test_persist_document_does_not_persist_dataframe_for_other_types(self):
-        """Non-external/intermediate tables should not create workspace DB tables."""
-        df = pd.DataFrame({"id": [1], "name": ["Only"]})
-        doc = Table(
-            doc_id="non_persisted_table",
-            retriever_type=RetrieverType.PNEUMA_RETRIEVER,
-            content=df,
-            metadata={},
-        )
-
-        self.db.persist_document(
-            self.user_id,
-            self.chat_id,
-            doc,
-            DocumentType.RETRIEVED_TABLE.value,
-            overwrite_content=False,
-        )
-
-        con = self.db.get_ws_db_connection(self.user_id, self.chat_id)
-        tables = con.execute("SHOW TABLES;").fetchdf()
-        table_names = tables["name"].tolist()
-        self.assertNotIn("non_persisted_table", table_names)
-
-    def test_persist_document_external_table_does_not_overwrite_existing(self):
-        """External tables should not be overwritten when overwrite_content=False."""
+    def test_persist_df_does_not_overwrite_when_false(self):
+        """Tables should not be overwritten when overwrite_content=False."""
         df_v1 = pd.DataFrame({"id": [1, 2], "name": ["A", "B"]})
-        doc_v1 = Table(
-            doc_id="external_no_overwrite",
-            retriever_type=RetrieverType.USER,
-            content=df_v1,
-            metadata={},
-        )
 
-        self.db.persist_document(
+        self.db.persist_df(
             self.user_id,
             self.chat_id,
-            doc_v1,
-            DocumentType.EXTERNAL_TABLE.value,
+            df_v1,
+            "external_no_overwrite",
             overwrite_content=False,
         )
 
         df_v2 = pd.DataFrame({"id": [1, 2], "name": ["Z", "Y"]})
-        doc_v2 = Table(
-            doc_id="external_no_overwrite",
-            retriever_type=RetrieverType.USER,
-            content=df_v2,
-            metadata={},
-        )
 
-        self.db.persist_document(
+        self.db.persist_df(
             self.user_id,
             self.chat_id,
-            doc_v2,
-            DocumentType.EXTERNAL_TABLE.value,
+            df_v2,
+            "external_no_overwrite",
             overwrite_content=False,
         )
 
@@ -677,78 +555,25 @@ class TestPersistDocument(unittest.TestCase):
         self.assertEqual(len(result), 2)
         self.assertEqual(result.iloc[0]["name"], "A")
 
-    def test_persist_document_intermediate_table_does_not_overwrite_existing(self):
-        """Intermediate tables should not be overwritten when overwrite_content=False."""
-        df_v1 = pd.DataFrame({"id": [1], "value": ["first"]})
-        doc_v1 = Table(
-            doc_id="intermediate_no_overwrite",
-            retriever_type=RetrieverType.USER,
-            content=df_v1,
-            metadata={},
-        )
-
-        self.db.persist_document(
-            self.user_id,
-            self.chat_id,
-            doc_v1,
-            DocumentType.INTERMEDIATE_TABLE.value,
-            overwrite_content=False,
-        )
-
-        df_v2 = pd.DataFrame({"id": [1], "value": ["second"]})
-        doc_v2 = Table(
-            doc_id="intermediate_no_overwrite",
-            retriever_type=RetrieverType.USER,
-            content=df_v2,
-            metadata={},
-        )
-
-        self.db.persist_document(
-            self.user_id,
-            self.chat_id,
-            doc_v2,
-            DocumentType.INTERMEDIATE_TABLE.value,
-            overwrite_content=False,
-        )
-
-        con = self.db.get_ws_db_connection(self.user_id, self.chat_id)
-        result = con.execute(
-            'SELECT * FROM "intermediate_no_overwrite" ORDER BY id;'
-        ).fetchdf()
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result.iloc[0]["value"], "first")
-
-    def test_persist_document_external_table_with_overwrite_true(self):
-        """External tables should be overwritten when overwrite_content=True."""
+    def test_persist_df_overwrites_when_true(self):
+        """Tables should be overwritten when overwrite_content=True."""
         df_v1 = pd.DataFrame({"id": [1, 2], "name": ["A", "B"]})
-        doc_v1 = Table(
-            doc_id="external_overwrite",
-            retriever_type=RetrieverType.USER,
-            content=df_v1,
-            metadata={},
-        )
 
-        self.db.persist_document(
+        self.db.persist_df(
             self.user_id,
             self.chat_id,
-            doc_v1,
-            DocumentType.EXTERNAL_TABLE.value,
+            df_v1,
+            "external_overwrite",
             overwrite_content=True,
         )
 
         df_v2 = pd.DataFrame({"id": [1, 2], "name": ["Z", "Y"]})
-        doc_v2 = Table(
-            doc_id="external_overwrite",
-            retriever_type=RetrieverType.USER,
-            content=df_v2,
-            metadata={},
-        )
 
-        self.db.persist_document(
+        self.db.persist_df(
             self.user_id,
             self.chat_id,
-            doc_v2,
-            DocumentType.EXTERNAL_TABLE.value,
+            df_v2,
+            "external_overwrite",
             overwrite_content=True,
         )
 
@@ -758,102 +583,6 @@ class TestPersistDocument(unittest.TestCase):
         ).fetchdf()
         self.assertEqual(len(result), 2)
         self.assertEqual(result.iloc[0]["name"], "Z")
-
-    def test_persist_document_intermediate_table_with_overwrite_true(self):
-        """Intermediate tables should be overwritten when overwrite_content=True."""
-        df_v1 = pd.DataFrame({"id": [1], "value": ["first"]})
-        doc_v1 = Table(
-            doc_id="intermediate_overwrite",
-            retriever_type=RetrieverType.USER,
-            content=df_v1,
-            metadata={},
-        )
-
-        self.db.persist_document(
-            self.user_id,
-            self.chat_id,
-            doc_v1,
-            DocumentType.INTERMEDIATE_TABLE.value,
-            overwrite_content=True,
-        )
-
-        df_v2 = pd.DataFrame({"id": [1], "value": ["second"]})
-        doc_v2 = Table(
-            doc_id="intermediate_overwrite",
-            retriever_type=RetrieverType.USER,
-            content=df_v2,
-            metadata={},
-        )
-
-        self.db.persist_document(
-            self.user_id,
-            self.chat_id,
-            doc_v2,
-            DocumentType.INTERMEDIATE_TABLE.value,
-            overwrite_content=True,
-        )
-
-        con = self.db.get_ws_db_connection(self.user_id, self.chat_id)
-        result = con.execute(
-            'SELECT * FROM "intermediate_overwrite" ORDER BY id;'
-        ).fetchdf()
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result.iloc[0]["value"], "second")
-
-    def test_persist_document_preserves_path_attribute(self):
-        """Document path attribute should be persisted and retrieved."""
-        doc = Text(
-            doc_id="doc_with_path",
-            retriever_type=RetrieverType.WEB_SEARCH,
-            content="Result content",
-            metadata={"url": "https://example.com"},
-            path="/custom/path/to/document",
-        )
-
-        self.db.persist_document(
-            self.user_id,
-            self.chat_id,
-            doc,
-            DocumentType.WEB_SEARCH_RESULT.value,
-            overwrite_content=False,
-        )
-
-        con = self.db.get_ws_db_connection(self.user_id, self.chat_id)
-        doc_row = con.execute(
-            "SELECT path FROM documents WHERE doc_id = ?",
-            (doc.doc_id,),
-        ).fetchone()
-
-        assert doc_row is not None
-        self.assertEqual(doc_row[0], "/custom/path/to/document")
-
-    def test_persist_document_table_with_path(self):
-        """Table documents should preserve path attribute."""
-        df = pd.DataFrame({"id": [1, 2], "value": ["a", "b"]})
-        doc = Table(
-            doc_id="table_with_path",
-            retriever_type=RetrieverType.USER,
-            content=df,
-            metadata={},
-            path="/tables/dataset/results",
-        )
-
-        self.db.persist_document(
-            self.user_id,
-            self.chat_id,
-            doc,
-            DocumentType.EXTERNAL_TABLE.value,
-            overwrite_content=False,
-        )
-
-        con = self.db.get_ws_db_connection(self.user_id, self.chat_id)
-        doc_row = con.execute(
-            "SELECT path FROM documents WHERE doc_id = ?",
-            (doc.doc_id,),
-        ).fetchone()
-
-        assert doc_row is not None
-        self.assertEqual(doc_row[0], "/tables/dataset/results")
 
 
 class TestSessionPersistence(unittest.TestCase):

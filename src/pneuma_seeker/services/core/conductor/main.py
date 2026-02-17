@@ -105,7 +105,7 @@ class Conductor:
         """Processes user input and yields responses."""
         chat_start_time = time()
         self.__log(f"Processing user input: {user_input}")
-        self.reset_conductor()
+        self.__reset_conductor()
         self.external_tables = self.table_reader.process_external_tables(
             external_table_paths
         )
@@ -129,11 +129,11 @@ class Conductor:
                 self.prov_graph.add_node(new_node, True)
                 doc.last_node_id = new_node.id
 
-                self.db_api.persist_document(
+                self.db_api.persist_df(
                     self.user_id,
                     self.chat_id,
-                    doc,
-                    DocumentType.EXTERNAL_TABLE.value,
+                    cast(DataFrame, doc.content),
+                    doc.doc_id,
                     True,
                 )
 
@@ -528,11 +528,11 @@ class Conductor:
                                 metadata={},
                                 path=schema_id,
                             )
-                            self.db_api.persist_document(
+                            self.db_api.persist_df(
                                 self.user_id,
                                 self.chat_id,
-                                T_docs[schema_id],
-                                DocumentType.TARGET_TABLE.value,
+                                T_docs[schema_id].content,
+                                T_docs[schema_id].doc_id,
                                 True,
                             )
                         self.state.T = T_docs
@@ -593,16 +593,6 @@ class Conductor:
                     self.external_tables,
                 )
                 self.state.is_T_materialized = True
-
-                for _, T_doc in self.state.T.items():
-                    self.db_api.persist_document(
-                        self.user_id,
-                        self.chat_id,
-                        T_doc,
-                        DocumentType.TARGET_TABLE.value,
-                        True,
-                    )
-
                 success_msg = "Successfully materialized T."
                 self.__log(success_msg)
                 return success_msg, ActionExecutionStatus.SUCCESS
@@ -717,7 +707,7 @@ class Conductor:
             materialized_T[T_id].content = T_df
         return materialized_T
 
-    def reset_conductor(self):
+    def __reset_conductor(self):
         self.user_facing_response = ""
         self.is_user_facing_response = False
         self.actions = []

@@ -61,9 +61,10 @@ class Materializer:
         )
 
         self.prompt_factory = MaterializerPromptFactory(self.config)
-        self.state = MaterializerState()
+        self.state = MaterializerState(self.user_id, self.chat_id, self.db_api)
         self.actions: list[str] = []
         self.llm_messages: list[LLMMessage] = []
+        self.last_intermediate_table_ids: set[str] = set()
 
     def materialize_T(
         self,
@@ -199,6 +200,9 @@ class Materializer:
                 self.__execute_action(action_name, action_args)
 
         self.__log("Materialization completed successfully!")
+        self.last_intermediate_table_ids = set(
+            i.doc_id for i in self.state.intermediate_tables
+        )
         final_result: dict[str, DataFrame] = {}
         for intermediate_table_doc in self.state.intermediate_tables:
             if intermediate_table_doc.doc_id in self.state.T.keys():
@@ -1207,6 +1211,20 @@ class Materializer:
         self.actions = []
         self.llm_messages = []
         self.join_paths = None
+
+        for doc_id in self.last_intermediate_table_ids:
+            try:
+                self.db_api.execute_query(
+                    self.user_id,
+                    self.chat_id,
+                    f"DROP TABLE IF EXIST '{doc_id}';",
+                )
+            except Exception as e:
+                self.__log(
+                    f"Warning: failed to delete intermediate table {doc_id} from the database: {e}"
+                )
+                continue
+        self.last_intermediate_table_ids = set()
         self.__log("Materializer reset complete.")
 
     def __log(self, text: str):

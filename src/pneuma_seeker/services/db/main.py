@@ -398,71 +398,28 @@ class PneumaDB:
     # ------------------------------------------------------------------
     # Session Persistence
     # ------------------------------------------------------------------
-    def persist_document(
+    def persist_df(
         self,
         user_id: str,
         chat_id: str,
-        document: AbstractDocument,
-        document_type: str,
-        overwrite_content: bool,
-    ):
-        """
-        Persists a single document with its metadata and document_type.
-        This is a helper for persisting documents outside of the full session persistence flow.
-        """
-        con = self.get_ws_db_connection(user_id, chat_id)
-        try:
-            con.begin()
-            # Get the latest state_id to associate the document with
-            row = con.execute(
-                """
-                SELECT state_id
-                FROM conductor_state
-                ORDER BY creation_timestamp DESC
-                LIMIT 1
-                """
-            ).fetchone()
-            if row:
-                state_id = row[0]  # Already a UUID object from DuckDB
-            else:
-                state_id = None  # No state yet, document will be orphaned
-
-            if document_type in {
-                DocumentType.TARGET_TABLE.value,
-                DocumentType.INTERMEDIATE_TABLE.value,
-                DocumentType.EXTERNAL_TABLE.value,
-            }:
-                self.__log(
-                    "Persist the DataFrame content of the document as a table in the workspace DB..."
-                )
-                self.__persist_df(
-                    document.content,
-                    document.doc_id,
-                    con,
-                    overwrite_content,
-                )
-            self.__insert_document(con, state_id, document, document_type)
-            con.commit()
-        except Exception as e:
-            con.rollback()
-            self.__log(f"Failed to persist document: {e}")
-
-    def __persist_df(
-        self,
         df: DataFrame,
         table_name: str,
-        con: duckdb.DuckDBPyConnection,
         overwrite_content: bool,
     ):
         """Persists a DataFrame as a table in the workspace DB (skip if exists)."""
+        con = self.get_ws_db_connection(user_id, chat_id)
         try:
+            con.begin()
             con.register("df", df)
             if overwrite_content:
                 con.execute(f'DROP TABLE IF EXISTS "{table_name}"')
             con.execute(
                 f'CREATE TABLE IF NOT EXISTS "{table_name}" AS SELECT * FROM df'
             )
+            con.commit()
+            con.checkpoint()
         except Exception as e:
+            con.rollback()
             self.__log(f"Failed to persist DataFrame: {e}")
         finally:
             try:
