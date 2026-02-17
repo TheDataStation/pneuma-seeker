@@ -39,6 +39,9 @@ class Config:
             getenv("PERSIST_CHAT_SESSION", "true").lower() == "true"
         )
         self.DATA_SOURCES = ["archeology"]
+        self.ENABLE_MEMORY_PROFILING = (
+            getenv("ENABLE_MEMORY_PROFILING", "false").lower() == "true"
+        )
 
         # Action Settings
         ## Retrieval Action Settings
