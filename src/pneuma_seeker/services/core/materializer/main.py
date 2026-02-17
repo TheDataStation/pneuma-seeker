@@ -149,7 +149,7 @@ class Materializer:
 
             llm_response = "".join(
                 self.language_model_api.chat(
-                    self.llm_messages, LLMOption(json_mode=True)
+                    self.llm_messages, LLMOption(json_mode=True, max_new_tokens=2500)
                 )
             )
             self.llm_messages.append(
@@ -432,15 +432,65 @@ class Materializer:
                 self.prov_graph.add_node(new_node, True)
                 self.state.web_crawl_result.last_node_id = new_node.id
             case ActionNames.TABLE_ENUMERATION.value:
-                pattern = action_args.get("pattern", "")
-                extra_tables: list[AbstractDocument] = (
-                    self.action_set.retrieve_documents(
+                if self.config.ENABLE_MULTI_TOPIC_TABLE_RETRIEVE:
+                    patterns = action_args.get("patterns", [])
+                    if not isinstance(patterns, list) or not all(
+                        isinstance(p, str) for p in patterns
+                    ):
+                        error_msg = "The 'patterns' argument must be a list of strings."
+                        self.__log(f"==> {error_msg}")
+                        self.llm_messages.append(
+                            LLMMessage(
+                                role=Role.USER.value,
+                                content=error_msg,
+                            )
+                        )
+                        return
+                    if len(patterns) == 0:
+                        error_msg = "The 'patterns' list cannot be empty."
+                        self.__log(f"==> {error_msg}")
+                        self.llm_messages.append(
+                            LLMMessage(
+                                role=Role.USER.value,
+                                content=error_msg,
+                            )
+                        )
+                        return
+                    extra_tables: list[AbstractDocument] = (
+                        self.action_set.retrieve_multi_topic_documents(
+                            patterns, RetrieverType.ENUMERATOR, 20, True, 5
+                        )
+                    )
+                    pattern_desc = str(patterns)
+                else:
+                    pattern = action_args.get("pattern")
+                    if not isinstance(pattern, str):
+                        error_msg = "The 'pattern' argument must be a string."
+                        self.__log(f"==> {error_msg}")
+                        self.llm_messages.append(
+                            LLMMessage(
+                                role=Role.USER.value,
+                                content=error_msg,
+                            )
+                        )
+                        return
+                    if len(pattern.strip()) == 0:
+                        error_msg = "The 'pattern' argument cannot be empty."
+                        self.__log(f"==> {error_msg}")
+                        self.llm_messages.append(
+                            LLMMessage(
+                                role=Role.USER.value,
+                                content=error_msg,
+                            )
+                        )
+                        return
+                    extra_tables = self.action_set.retrieve_documents(
                         pattern, RetrieverType.ENUMERATOR, 20, True, 5
                     )
-                )
+                    pattern_desc = pattern
 
                 if len(extra_tables) > 0:
-                    success_msg = f'Successfully retrieved all tables that match the pattern {pattern}. You can use them to materialize T, even if you have not called {ActionNames.TABLE_RETRIEVE.value} before, as these tables have been included to "retrieved internal tables".'
+                    success_msg = f'Successfully retrieved all tables that match the pattern(s) {pattern_desc}. You can use them to materialize T, even if you have not called {ActionNames.TABLE_RETRIEVE.value} before, as these tables have been included to "retrieved internal tables".'
                     self.__log(f"==> {success_msg}")
                     self.llm_messages.append(
                         LLMMessage(
@@ -455,7 +505,7 @@ class Materializer:
                     new_node = ProvenanceNode(
                         source_retriever=RetrieverType.ENUMERATOR,
                         python_code=read_code,
-                        description=f"Enumerates all tables whose names match this regular expression (RegEx) pattern:\n{pattern}.",
+                        description=f"Enumerates all tables whose names match this regular expression (RegEx) pattern:\n{pattern_desc}.",
                     )
                     self.prov_graph.add_node(new_node, True)
 

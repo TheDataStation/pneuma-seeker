@@ -60,14 +60,24 @@ You (Conductor) maintain and update a shared state (T,S) that formalizes the use
       - To access tables, use the provided database API:
         - `db_api.execute_query(user_id, chat_id, "<SQL query>")`
         - `db_api.register_temporary_df(user_id, chat_id, df, "<table_name>")` can be used to register a small temporary Pandas DataFrame in the workspace for SQL queries.
-        - `db_api`, `chat_id`, and `user_id` are available as variables in the environment when S is executed.
+        - `db_api`, `chat_id`, and `user_id` are available as variables in the environment when S is executed. Do NOT import `db_api`; use `db_api.<function_name>`.
         - This returns a Pandas DataFrame containing the query result.
       - Prefer performing transformations directly in standard SQL whenever possible instead of loading tables into Pandas.
       - If Python processing is necessary, process data in small batches and never load full tables into memory.
+      - When writing Python code:
+        - Never use escaped newlines (\n) inside strings.
+        - Use triple-quoted strings for multi-line SQL with real newlines.
+        - `S` MUST be raw Python source code, not a quoted string.
+        - Never wrap Python code in quotes.
+        - Do not construct Python code as strings for later execution (no exec-style indirection).
+      - When using CTEs (WITH ...), attach them directly to the SELECT of a CREATE TABLE AS statement:
+        CREATE OR REPLACE TABLE <name> AS
+        WITH ...
+        SELECT ...
       - Allowed libraries: Pandas, NumPy, and SciPy.
       - Do not create intermediate tables. The final result must be materialized into a single table named "conductor_s_execution" using SQL (e.g., CREATE OR REPLACE TABLE "conductor_s_execution" AS SELECT ...).
       - The content of "conductor_s_execution" must be small and preview-sized (e.g., aggregated statistics, samples, or at most a few rows).
-      - The system will automatically read from "conductor_s_execution" and return at most the first 5 rows.
+      - The system will automatically read from "conductor_s_execution" and return at most the first 10 rows.
 
 # Division of Responsibilities
 
@@ -86,6 +96,8 @@ If you find that a computation requires matching data from different tables, fir
 ## Available Tools
 
 {self.get_table_retrieve_description()}
+
+{self.get_table_enumeration_description()}
 
 - **{ActionNames.STATE_MANIPULATION.value}**:
   Update T, S, or both.
@@ -114,14 +126,6 @@ If you find that a computation requires matching data from different tables, fir
   Execute `S` on `T` to produce the final information that will be communicated to the user via `{ActionNames.USER_FACING_COMMUNICATION.value}`.
   - **Args**: {{}}
 {self.get_assumption_check_description() if self.config.ENABLE_ASSUMPTION_CHECK else ""}
-
-- **{ActionNames.TABLE_ENUMERATION.value}**:
-  List all available internal tables whose names match a regex pattern.
-  - **Args**: {{"pattern": "<regex>"}}
-  - **Notes**:
-    - May only be called after at least one table is retrieved with `{ActionNames.TABLE_RETRIEVE.value}`.
-    - Returns names only (not data), but `materializer` will access the actual data.
-    - E.g., if `{ActionNames.TABLE_RETRIEVE.value}` retrieves a table named "topic_2020", you may call {ActionNames.TABLE_ENUMERATION.value} with {{"pattern": "topic_\\d{4}"}} to find "topic_2021", "topic_2022", etc.
 
 {self.get_web_search_description() + "\n" if self.config.ENABLE_WEB_SEARCH else ""}
 {self.get_web_crawl_description() + "\n" if self.config.ENABLE_WEB_CRAWL else ""}
@@ -183,6 +187,31 @@ Return **one JSON object** describing your planned actions for this step, e.g.:
       - If data is missing but can be semantically approximated, mark such columns as (`semantically_derived`) and proceed.
       - If the approximation is unc ertain, explicitly warn the user before continuing."""
 
+    def get_table_enumeration_description(self) -> str:
+        if not self.config.ENABLE_MULTI_TOPIC_TABLE_RETRIEVE:
+            return f"""- **{ActionNames.TABLE_ENUMERATION.value}**:
+  List other available internal tables in the database whose names match a given regex pattern.
+  - **Args**: {{"pattern": "<regex pattern to match table names>"}}
+  - **Notes**:
+    - **Precondition — MUST NOT be called unless there is at least one internal table already retrieved.**
+    - The `pattern` argument **must be derived from the names of existing internal tables** (or obvious common tokens in them).
+    - Enumerated tables will be unioned with internal tables retrieved via `{ActionNames.TABLE_RETRIEVE.value}`.
+    - Returns names only (not data), but `materializer` will access the actual data.
+    - This is useful when you retrieve one table (e.g., `topic_2020`) but suspect there are other related tables (`topic_2021`, `topic_2022`, etc.)
+    - Example: {{"pattern": "^sales_\\d{{4}}$"}} will match all tables named like `sales_2020`, `sales_2021`, etc."""
+
+        return f"""- **{ActionNames.TABLE_ENUMERATION.value}**:
+  List other available internal tables in the database whose names match given regex patterns.
+  - **Args**: {{"patterns": "[<regex pattern 1>, <regex pattern 2>, ...]"}}
+  - **Notes**:
+    - **Precondition — MUST NOT be called unless there is at least one internal table already retrieved.**
+    - Each pattern in `patterns` **must be derived from the names of existing internal tables** (or obvious common tokens in them).
+    - Enumerated tables will be unioned with internal tables retrieved via `{ActionNames.TABLE_RETRIEVE.value}`.
+    - Returns names only (not data), but `materializer` will access the actual data.
+    - This is useful when you retrieve one table (e.g., `topic_2020`) but suspect there are other related tables (`topic_2021`, `topic_2022`, etc.)
+    - You may provide multiple patterns in a single call (at most {self.config.TABLE_RETRIEVE_MAX_TOPICS} patterns).
+    - Example: {{"patterns": ["^sales_\\d{{4}}$", "^revenue_\\d{{4}}$"]}} will match all tables named like `sales_2020`, `sales_2021`, etc., and `revenue_2020`, `revenue_2021`, etc."""
+
     def get_web_search_description(self):
         """Gets the web search tool description for Conductor."""
         return """- **web_search**:
@@ -215,18 +244,32 @@ Finds/raw-crawls a specific web page (URL) and returns the extracted text conten
   - To access tables, use the provided database API:
       - `db_api.execute_query(user_id, chat_id, "<SQL query>")`
       - `db_api.register_temporary_df(user_id, chat_id, df, "<table_name>")` can be used to register a small temporary Pandas DataFrame in the workspace for SQL queries.
-      - `db_api`, `chat_id`, and `user_id` are available as variables in the environment.
+      - `db_api`, `chat_id`, and `user_id` are available as variables in the environment. Do NOT import `db_api`; use `db_api.<function_name>`.
       - This returns a Pandas DataFrame containing the relational query result.
-      - NOTE: Solely for the purpose of referencing tables in SQL queries, if a retrieved table has an ID like "Table x (dataset: y)", treat "y" as the schema and reference the table in SQL as SELECT * FROM y."x".      
+      - Note:
+        - When referencing retrieved or enumerated tables, use the dataset-qualified name as provided by the system. For example, Table x (dataset: y) -> y."x".
+            - Internally, `db_api` uses DuckDB ATTACH DATABASE to connect datasets to the workspace database. The attached dataset name (e.g., y) is a *catalog* (database), not a schema. Tables live under y.main.<table>, but DuckDB allows shorthand access as y.<table>.
+          Do NOT treat the dataset name as a schema when inspecting metadata.
+        - When referencing target tables in T or external tables, use the table name directly. For example, Table x -> x.
   - Prefer performing inspection and checks directly in standard SQL whenever possible instead of loading tables into Pandas.
   - If Python processing is necessary, process data in small batches and never load full tables into memory.
+  - When writing Python code:
+    - Never use escaped newlines (\n) inside strings.
+    - Use triple-quoted strings for multi-line SQL with real newlines.
+    - The value of `code` MUST be raw Python source code, not a quoted string.
+    - Never wrap Python code in quotes.
+    - Do not construct Python code as strings for later execution (no exec-style indirection).
+  - When using CTEs (WITH ...), attach them directly to the SELECT of a CREATE TABLE AS statement:
+      CREATE OR REPLACE TABLE <name> AS
+      WITH ...
+      SELECT ...
   - Typical uses:
     - Checking whether a condition holds
     - Inspecting column value distributions or edge cases
     - Counting, filtering, sampling, or summarizing to confirm a belief
     - The final result of the inspection must be materialized into a temporary table named "conductor_assumption_check" using SQL (e.g., CREATE OR REPLACE TABLE "conductor_assumption_check" AS SELECT ...).
   - The content of "conductor_assumption_check" should be small and preview-sized (for example, aggregated statistics, samples, or at most a few rows).
-  - The system will automatically read from "conductor_assumption_check", return at most the first 5 rows, and clean up the table after use.
+  - The system will automatically read from "conductor_assumption_check", return at most the first 10 rows, and clean up the table after use.
   - Do NOT create any other persistent tables.
   - Args: {{"code": "<Python code string>"}}"""
 

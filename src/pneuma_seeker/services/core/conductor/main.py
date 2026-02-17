@@ -492,11 +492,56 @@ class Conductor:
                 self.__log(f"Table Enumerator request with params: {action_args}")
 
                 if not isinstance(action_args, dict):
-                    error_msg = "`args` must be an object with a `pattern` property"
+                    error_msg = "=> `args` must be an object with a `pattern` property"
                     self.__log(f"=> {error_msg}")
                     return error_msg, ActionExecutionStatus.ERROR
+
+                if self.config.ENABLE_MULTI_TOPIC_TABLE_RETRIEVE:
+                    if "patterns" not in action_args:
+                        error_msg = "=> `args` must have a `patterns` property"
+                        self.__log(f"=> {error_msg}")
+                        return error_msg, ActionExecutionStatus.ERROR
+
+                    if not isinstance(action_args["patterns"], list) or not all(
+                        isinstance(p, str) for p in action_args["patterns"]
+                    ):
+                        error_msg = "=> `patterns` must be a list of strings"
+                        self.__log(f"=> {error_msg}")
+                        return error_msg, ActionExecutionStatus.ERROR
+
+                    if not all(len(p.strip()) > 0 for p in action_args["patterns"]):
+                        error_msg = "=> `patterns` must be a list of non-empty strings"
+                        self.__log(f"=> {error_msg}")
+                        return error_msg, ActionExecutionStatus.ERROR
+
+                    self.enumerated_tables = (
+                        self.action_set.retrieve_multi_topic_documents(
+                            action_args["patterns"],
+                            RetrieverType.ENUMERATOR,
+                            20,
+                            True,
+                            5,
+                        )
+                    )
+                    success_msg = f"Enumerated table IDs based on these patterns: {action_args['patterns']}. If there are any matches, the IDs will be reflected in `OTHER TABLE IDS WITH SIMILAR NAMING PATTERNS`."
+                    self.__log(success_msg)
+                    return (
+                        success_msg,
+                        ActionExecutionStatus.SUCCESS,
+                    )
+
                 if "pattern" not in action_args:
-                    error_msg = "`args` must have a `pattern` property"
+                    error_msg = "=> `args` must have a `pattern` property"
+                    self.__log(f"=> {error_msg}")
+                    return error_msg, ActionExecutionStatus.ERROR
+
+                if not isinstance(action_args["pattern"], str):
+                    error_msg = "=> `pattern` must be a string"
+                    self.__log(f"=> {error_msg}")
+                    return error_msg, ActionExecutionStatus.ERROR
+
+                if len(action_args["pattern"].strip()) == 0:
+                    error_msg = "=> `pattern` must be a non-empty string"
                     self.__log(f"=> {error_msg}")
                     return error_msg, ActionExecutionStatus.ERROR
 

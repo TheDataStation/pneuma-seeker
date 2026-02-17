@@ -70,6 +70,7 @@ When forming a sequence of actions for a step, you must follow this **reactive p
 
 - If an action has an `assign_to` argument, set the argument to the correct target table IDs or intermediate table IDs exactly (case-sensitive).
 {f"- Use {ActionNames.ASSUMPTION_CHECK.value} to validate assumptions (e.g., about the existence of values) in the tables prior to determining how best to integrate them.\n" if self.config.ENABLE_ASSUMPTION_CHECK else ""}
+- If you need to integrate (e.g., join or union) tables of certain names or patterns, the pre-provided tables may not be comprehensive. Call {ActionNames.TABLE_ENUMERATION.value} to discover all matching tables.
 
 ## Column Handling Guidelines
 

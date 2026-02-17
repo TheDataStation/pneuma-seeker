@@ -949,23 +949,18 @@ class PneumaDB:
                     retriever_type == RetrieverType.MATERIALIZER
                     or retriever_type == RetrieverType.CONDUCTOR
                 ):
-                    content = read_csv(
-                        os.path.join(
-                            self.target_tables_path,
-                            user_id,
-                            chat_id,
-                            f"{doc_row['doc_id']}.csv",
-                        )
+                    select_query = (
+                        f"""SELECT * FROM "{doc_row['doc_id']}";"""
                     )
                 else:
                     select_query = (
                         f"""SELECT * FROM "{dataset_name}"."{doc_row['doc_id']}";"""
                     )
-                    content = self.execute_query(
-                        user_id,
-                        chat_id,
-                        select_query,
-                    )
+                content = self.execute_query(
+                    user_id,
+                    chat_id,
+                    select_query,
+                )
                 document = Table(
                     doc_id=doc_row["doc_id"],
                     retriever_type=retriever_type,
