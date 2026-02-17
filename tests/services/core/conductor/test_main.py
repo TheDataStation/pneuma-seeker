@@ -261,6 +261,54 @@ class ConductorTests(unittest.TestCase):
         self.assertFalse(state.is_T_materialized)
         self.assertFalse(state.is_S_executed)
 
+    def test_state_manipulation_redefines_T_cleans_previous_tables(self):
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
+            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"T set"}}}}
+        ]}}"""
+        ]
+
+        responses = list(
+            self.conductor.chat(
+                user_input="set T",
+                interaction_history=[],
+                external_table_paths=[],
+            )
+        )
+        self.assertIn("T set", responses[-1])
+
+        tables_after_first = set(
+            self.conductor.db_api.execute_query(
+                self.conductor.user_id, self.conductor.chat_id, "SHOW TABLES;"
+            )["name"].tolist()
+        )
+        self.assertIn("t1", tables_after_first)
+
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
+            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t2":["a","b"]}},"column_descriptions":{{"t2":{{"a":"col a"}}}}}}}},
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"T reset"}}}}
+        ]}}"""
+        ]
+
+        responses = list(
+            self.conductor.chat(
+                user_input="set T again",
+                interaction_history=[],
+                external_table_paths=[],
+            )
+        )
+        self.assertIn("T reset", responses[-1])
+
+        tables_after_second = set(
+            self.conductor.db_api.execute_query(
+                self.conductor.user_id, self.conductor.chat_id, "SHOW TABLES;"
+            )["name"].tolist()
+        )
+        self.assertIn("t2", tables_after_second)
+        self.assertNotIn("t1", tables_after_second)
+
     def test_materializer_and_executor(self):
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [

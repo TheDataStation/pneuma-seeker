@@ -517,6 +517,13 @@ class Conductor:
                 is_T_modified = False
                 if T is not None and len(T) > 0:
                     if column_descriptions is not None:
+                        if self.state.T is not None and len(self.state.T) > 0:
+                            for schema_id in self.state.T.keys():
+                                self.db_api.execute_query(
+                                    self.user_id,
+                                    self.chat_id,
+                                    f'DROP TABLE IF EXISTS "{schema_id}";',
+                                )
                         T_docs: dict[str, AbstractDocument] = dict()
                         for schema_id in T:
                             target_schema_df = DataFrame(columns=T[schema_id])
