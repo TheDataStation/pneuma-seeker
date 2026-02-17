@@ -23,9 +23,9 @@ def get_materializer_actions(
     - Tables are stored in the workspace database and are NOT guaranteed to fit in memory.
     - To access tables, use the provided database API:
         - `db_api.execute_query(user_id, chat_id, "<SQL query>")`
-        - `db_api`, `chat_id`, and `user_id` are available in the environment.
+        - `db_api`, `chat_id`, and `user_id` are available as variables in the environment.
         - This returns a Pandas DataFrame containing the relational query result.
-        - NOTE: Table IDs may be accompanied by a dataset name (e.g., "Table x (dataset: y)"). In such cases, treat the dataset name as the schema and reference the table in SQL as SELECT * FROM "y.x".
+        - NOTE: Solely for the purpose of referencing tables in SQL queries, if a retrieved table has an ID like "Table x (dataset: y)", treat "y" as the schema and reference the table in SQL as SELECT * FROM y."x".
     - Prefer performing transformations directly in SQL whenever possible (filtering, projection, joins, aggregation, casting, renaming columns, value normalization, date parsing, etc.) instead of loading tables into Pandas.
     - If Python processing is necessary, process data in batches and never load full tables into memory. For example:
         - Offset pagination:
@@ -122,9 +122,9 @@ def get_assumption_check_description():
     - Tables are stored in the workspace database and are NOT guaranteed to fit in memory.
     - To access tables, use the provided database API:
         - `db_api.execute_query(user_id, chat_id, "<SQL query>")`
-        - `db_api`, `chat_id`, and `user_id` are available in the environment.
+        - `db_api`, `chat_id`, and `user_id` are available as variables in the environment.
         - This returns a Pandas DataFrame containing the relational query result.
-        - NOTE: Table IDs may be accompanied by a dataset name (e.g., "Table x (dataset: y)"). In such cases, treat the dataset name as the schema and reference the table in SQL as SELECT * FROM "y.x".
+        - NOTE: Solely for the purpose of referencing tables in SQL queries, if a retrieved table has an ID like "Table x (dataset: y)", treat "y" as the schema and reference the table in SQL as SELECT * FROM y."x".
     - Prefer performing inspection and checks directly in SQL whenever possible (counts, filters, group-bys, aggregates, sampling, detecting nulls, checking ranges, distributions, uniqueness, etc.) instead of loading tables into Pandas.
     - If Python processing is necessary, process data in small batches and never load full tables into memory.
     - Typical uses:

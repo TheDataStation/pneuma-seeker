@@ -56,10 +56,10 @@ You (Conductor) maintain and update a shared state (T,S) that formalizes the use
       - `S: str` (Python code operating on tables in `T`)
     - *Execution context:*
       - Tables in T exist as tables in the workspace database and are NOT guaranteed to fit in memory.
-      - You may ONLY reference tables defined in T. Do NOT retrieve or reference any other tables.
+      - You may ONLY reference tables defined in T using their IDs (e.g., "Table x" -> "x").
       - To access tables, use the provided database API:
         - `db_api.execute_query(user_id, chat_id, "<SQL query>")`
-        - `db_api`, `chat_id`, and `user_id` are available in the environment when S is executed.
+        - `db_api`, `chat_id`, and `user_id` are available as variables in the environment when S is executed.
         - This returns a Pandas DataFrame containing the query result.
       - Prefer performing transformations directly in SQL whenever possible instead of loading tables into Pandas.
       - If Python processing is necessary, process data in small batches and never load full tables into memory.
@@ -213,9 +213,9 @@ Finds/raw-crawls a specific web page (URL) and returns the extracted text conten
   - Tables are stored in the workspace database and are NOT guaranteed to fit in memory.
   - To access tables, use the provided database API:
       - `db_api.execute_query(user_id, chat_id, "<SQL query>")`
-      - `db_api`, `chat_id`, and `user_id` are available in the environment.
+      - `db_api`, `chat_id`, and `user_id` are available as variables in the environment.
       - This returns a Pandas DataFrame containing the relational query result.
-      - NOTE: Table IDs may be accompanied by a dataset name (e.g., "Table x (dataset: y)"). In such cases, treat the dataset name as the schema and reference the table in SQL as SELECT * FROM "y.x".
+      - NOTE: Solely for the purpose of referencing tables in SQL queries, if a retrieved table has an ID like "Table x (dataset: y)", treat "y" as the schema and reference the table in SQL as SELECT * FROM y."x".      
   - Prefer performing inspection and checks directly in SQL whenever possible instead of loading tables into Pandas.
   - If Python processing is necessary, process data in small batches and never load full tables into memory.
   - Typical uses:
@@ -267,6 +267,41 @@ RETRIEVED TABLES:
 
 CURRENT USER INPUT:
 {user_input}
+
+Decide your next plan and output a JSON object of one or more actions.
+""".strip()
+
+    def get_skeleton_env_state_prompt(
+        self,
+        current_step: int,
+        enumerated_table_ids: list[AbstractDocument],
+        external_tables: list[AbstractDocument],
+        web_search_result: AbstractDocument | None = None,
+        web_crawl_result: AbstractDocument | None = None,
+    ) -> str:
+        """Gets the environment state prompt for Conductor."""
+        return f"""
+STEP {current_step} (OUT OF MAXIMUM {self.config.MAX_CONDUCTOR_STEPS} STEPS)
+
+SHARED STATE (T,S):
+...
+
+RECENT ACTIONS:
+...
+
+RECENT USER INTERACTIONS:
+...
+
+RETRIEVED TABLES:
+...
+{"\n- POTENTIAL JOIN PATHS BETWEEN RETRIEVED TABLES:..." if self.config.ENABLE_JOIN_PATH_EXTRACTION else ""}
+{"\nOTHER TABLE IDS WITH SIMILAR NAMING PATTERNS (FOR REFERENCE):\n..." if len(enumerated_table_ids) > 0 else ""}
+{"\nEXTERNAL TABLES (UPLOADED BY USER):\n...\n" if len(external_tables) > 0 else ""}
+{"\nWEB SEARCH RESULT (IF ANY):\n...\n" if self.config.ENABLE_WEB_SEARCH and web_search_result else ""}
+{"\nWEB CRAWL RESULT (IF ANY):\n..." if self.config.ENABLE_WEB_CRAWL and web_crawl_result else ""}
+
+CURRENT USER INPUT:
+...
 
 Decide your next plan and output a JSON object of one or more actions.
 """.strip()

@@ -13,9 +13,7 @@ from unittest.mock import MagicMock
 
 from fastapi.responses import HTMLResponse
 
-sys.path.insert(
-    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src"))
-)
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 from fastapi.testclient import TestClient
 
@@ -53,8 +51,8 @@ class ServerEndpointTests(unittest.TestCase):
                 yield "Hello from assistant"
                 yield "DONE"
 
-            chat_interface.chat.side_effect = (
-                lambda messages, files: default_gen(messages, files)
+            chat_interface.chat.side_effect = lambda messages, files: default_gen(
+                messages, files
             )
         else:
             chat_interface.chat.side_effect = lambda messages, files: (
@@ -153,12 +151,12 @@ class ServerEndpointTests(unittest.TestCase):
             self.assertIn("prov_steps", context)
             # It should include HTML converted from markdown (bold -> <strong>) or at least the markdown content
             self.assertTrue("md" in context["prov_steps"][0])
-            return HTMLResponse(content="\n".join(context["prov_steps"]), status_code=200)
+            return HTMLResponse(
+                content="\n".join(context["prov_steps"]), status_code=200
+            )
 
         # Replace the templates object with a minimal object exposing TemplateResponse
-        main.templates = types.SimpleNamespace(
-            TemplateResponse=fake_template_response
-        )
+        main.templates = types.SimpleNamespace(TemplateResponse=fake_template_response)
 
         try:
             payload = {
@@ -176,18 +174,23 @@ class ServerEndpointTests(unittest.TestCase):
             main.templates = original_templates
 
     def test_all_tables_downloads_zip(self):
-        # Create a temp TABLES_DIR structure with user/chat and a csv file
-        tmp_dir = tempfile.mkdtemp()
-        original_tables_dir = main.TABLES_DIR
-        main.TABLES_DIR = Path(tmp_dir)
-        try:
-            user_dir = main.TABLES_DIR / "u_test"
-            chat_dir = user_dir / "c_test"
-            chat_dir.mkdir(parents=True)
-            csv_path = chat_dir / "table1.csv"
-            csv_path.write_text("col1,col2\n1,2\n")
+        class DummyDF:
+            def to_csv(self, buffer, index=False):
+                buffer.write("col1,col2\n1,2\n")
 
-            r = self.client.get(f"/all_tables/u_test/c_test")
+        conductor = MagicMock()
+        conductor.state = MagicMock()
+        conductor.state.T = {"table1": object()}
+        conductor.db_api = MagicMock()
+        conductor.db_api.execute_query.return_value = DummyDF()
+
+        chat_interface = MagicMock()
+        chat_interface.conductor = conductor
+
+        original_get = main.session_manager.get_chat_session
+        main.session_manager.get_chat_session = lambda user_id, chat_id: chat_interface
+        try:
+            r = self.client.get("/all_tables/u_test/c_test")
             self.assertEqual(r.status_code, 200)
             self.assertIn("application/zip", r.headers.get("content-type", ""))
             # Verify returned bytes form a valid zip with the csv inside
@@ -196,8 +199,7 @@ class ServerEndpointTests(unittest.TestCase):
             names = z.namelist()
             self.assertIn("table1.csv", names)
         finally:
-            main.TABLES_DIR = original_tables_dir
-            shutil.rmtree(tmp_dir)
+            main.session_manager.get_chat_session = original_get
 
     def test_chat_endpoint_streams_messages_and_calls_persist(self):
         messages = [{"role": "user", "content": "hi"}]
@@ -234,7 +236,7 @@ class ServerEndpointTests(unittest.TestCase):
                 with open(path, "wb") as f:
                     f.write(b"%PDF-1.4\n%dummy pdf\n")
 
-        sys.modules["weasyprint"] = types.SimpleNamespace(HTML=DummyHTML) # type: ignore
+        sys.modules["weasyprint"] = types.SimpleNamespace(HTML=DummyHTML)  # type: ignore
 
         try:
             body = {
@@ -246,7 +248,9 @@ class ServerEndpointTests(unittest.TestCase):
             self.assertEqual(r.status_code, 200)
             self.assertEqual(r.headers.get("content-type"), "application/pdf")
             self.assertTrue(r.content.startswith(b"%PDF"))
-            self.assertIn("attachment; filename=", r.headers.get("content-disposition", ""))
+            self.assertIn(
+                "attachment; filename=", r.headers.get("content-disposition", "")
+            )
         finally:
             if original_weasy is not None:
                 sys.modules["weasyprint"] = original_weasy
@@ -254,28 +258,37 @@ class ServerEndpointTests(unittest.TestCase):
                 del sys.modules["weasyprint"]
 
     def test_all_tables_error_cases(self):
-        tmp_dir = tempfile.mkdtemp()
-        original_tables_dir = main.TABLES_DIR
-        main.TABLES_DIR = Path(tmp_dir)
+        # no target tables
+        conductor_empty = MagicMock()
+        conductor_empty.state = MagicMock()
+        conductor_empty.state.T = {}
+        conductor_empty.db_api = MagicMock()
+
+        chat_empty = MagicMock()
+        chat_empty.conductor = conductor_empty
+
+        # db error
+        conductor_error = MagicMock()
+        conductor_error.state = MagicMock()
+        conductor_error.state.T = {"t1": object()}
+        conductor_error.db_api = MagicMock()
+        conductor_error.db_api.execute_query.side_effect = RuntimeError("fail")
+
+        chat_error = MagicMock()
+        chat_error.conductor = conductor_error
+
+        original_get = main.session_manager.get_chat_session
         try:
-            # user missing
-            r = self.client.get("/all_tables/no_user/no_chat")
-            self.assertEqual(r.status_code, 404)
-
-            # user exists but chat missing
-            user_dir = main.TABLES_DIR / "u1"
-            user_dir.mkdir(parents=True)
-            r = self.client.get("/all_tables/u1/no_chat")
-            self.assertEqual(r.status_code, 404)
-
-            # chat exists but no CSVs
-            chat_dir = user_dir / "c1"
-            chat_dir.mkdir()
+            main.session_manager.get_chat_session = lambda user_id, chat_id: chat_empty
             r = self.client.get("/all_tables/u1/c1")
             self.assertEqual(r.status_code, 404)
+
+            main.session_manager.get_chat_session = lambda user_id, chat_id: chat_error
+            client_no_raise = TestClient(main.app, raise_server_exceptions=False)
+            r2 = client_no_raise.get("/all_tables/u1/c1")
+            self.assertEqual(r2.status_code, 500)
         finally:
-            main.TABLES_DIR = original_tables_dir
-            shutil.rmtree(tmp_dir)
+            main.session_manager.get_chat_session = original_get
 
     def test_combined_html_when_not_materialized_uses_default_explanation(self):
         state = MagicMock()
@@ -297,7 +310,9 @@ class ServerEndpointTests(unittest.TestCase):
         def fake_template_response(template_name, context):
             self.assertIn("prov_steps", context)
             self.assertIn("not materialized", context["prov_steps"][-1])
-            return HTMLResponse(content="\n".join(context["prov_steps"]), status_code=200)
+            return HTMLResponse(
+                content="\n".join(context["prov_steps"]), status_code=200
+            )
 
         main.templates = types.SimpleNamespace(TemplateResponse=fake_template_response)
 
@@ -349,7 +364,12 @@ class ServerEndpointTests(unittest.TestCase):
         original_get = main.session_manager.get_chat_session
         main.session_manager.get_chat_session = lambda user_id, chat_id: mock_chat
         try:
-            payload = {"user_id": "u1", "chat_id": "c1", "messages": [{"role": "user", "content": "hi"}], "files": ["f1"]}
+            payload = {
+                "user_id": "u1",
+                "chat_id": "c1",
+                "messages": [{"role": "user", "content": "hi"}],
+                "files": ["f1"],
+            }
             r = self.client.post("/chat", json=payload)
             self.assertEqual(r.status_code, 200)
             self.assertIn("application/x-ndjson", r.headers.get("content-type", ""))
@@ -375,7 +395,9 @@ class ServerEndpointTests(unittest.TestCase):
         original_get = main.session_manager.get_chat_session
         main.session_manager.get_chat_session = lambda user_id, chat_id: mock_chat
         try:
-            r = self.client.post("/chat", json={"user_id": "u1", "chat_id": "c1", "messages": []})
+            r = self.client.post(
+                "/chat", json={"user_id": "u1", "chat_id": "c1", "messages": []}
+            )
             # Even if chat raised, the endpoint should return 200 with no content or a handled error from background task.
             self.assertEqual(r.status_code, 200)
             # ensure persist_session method exists and can be called
@@ -399,7 +421,9 @@ class ServerEndpointTests(unittest.TestCase):
         try:
             r = self.client.get("/materializer_code/u1/c1")
             self.assertEqual(r.status_code, 200)
-            self.assertIn("attachment; filename=", r.headers.get("content-disposition", ""))
+            self.assertIn(
+                "attachment; filename=", r.headers.get("content-disposition", "")
+            )
             self.assertEqual(r.content, b"")
 
             # error case: use a TestClient that does not re-raise server exceptions
@@ -417,6 +441,7 @@ class ServerEndpointTests(unittest.TestCase):
         obj = json.loads(payload.strip())
         self.assertEqual(obj["sender"], "log")
         self.assertEqual(obj["text"], "hello")
+
 
 if __name__ == "__main__":
     unittest.main()

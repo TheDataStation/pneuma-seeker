@@ -51,6 +51,8 @@ class PythonExecutor(Action, Executable):
             "np": np,
             "scipy": scipy,
             "db_api": self.db_api,
+            "user_id": self.user_id,
+            "chat_id": self.chat_id,
         }
         exec(code, env)
 

@@ -122,13 +122,20 @@ async def execute_code(user_id: str, chat_id: str):
     """
     conductor = session_manager.get_chat_session(user_id, chat_id).conductor
     try:
-        execution_result = conductor.action_set.execute_code(
-            {
-                doc_id: doc.content
-                for doc_id, doc in conductor.state.T.items()
-            },
-            conductor.state.S,
-        )
+        try:
+            execution_result = conductor.db_api.execute_query(
+                user_id,
+                chat_id,
+                f"SELECT * FROM conductor_s_execution LIMIT {config.TABLE_MAX_ROWS_DISPLAY};",
+            )
+            if len(execution_result) == 0:
+                execution_result = conductor.action_set.execute_code(
+                    conductor.state.S, "conductor_s_execution"
+                )
+        except:
+            execution_result = conductor.action_set.execute_code(
+                conductor.state.S, "conductor_s_execution"
+            )
         return serialize_dataframe(execution_result, config.TABLE_MAX_ROWS_DISPLAY)
     except Exception as e:
         logger.error(f"Error during code execution: {e}")
@@ -190,9 +197,7 @@ async def download_chat_pdf(data: dict):
 @app.post("/combined/html/{user_id}/{chat_id}", response_class=HTMLResponse)
 async def read_combined_html(request: Request, user_id: str, chat_id: str, data: dict):
     conductor = session_manager.get_chat_session(user_id, chat_id).conductor
-    state = conductor.state.get_current_state_instance(
-        config.TABLE_MAX_ROWS_DISPLAY
-    )
+    state = conductor.state.get_current_state_instance(config.TABLE_MAX_ROWS_DISPLAY)
 
     prov_steps: list[str] = ["<strong>T</strong> is not materialized yet."]
     if conductor.state.is_T_materialized:
@@ -310,29 +315,32 @@ def download_all_tables(user_id: str, chat_id: str):
     Download all tables (CSV files) for a given user and chat as a ZIP file.
     Example: /tables/u123/c45/all
     """
-    user_dir = TABLES_DIR / user_id
-    chat_dir = user_dir / chat_id
 
-    # Check existence of user and chat directories
-    if not user_dir.exists():
-        raise HTTPException(status_code=404, detail=f"User '{user_id}' not found")
+    conductor = session_manager.get_chat_session(user_id, chat_id).conductor
+    target_table_ids = list(conductor.state.T.keys()) if conductor.state.T else []
 
-    if not chat_dir.exists():
-        raise HTTPException(
-            status_code=404, detail=f"Chat '{chat_id}' not found for user '{user_id}'"
-        )
-
-    # Gather all CSV files
-    csv_files = list(chat_dir.glob("*.csv"))
-    if not csv_files:
-        raise HTTPException(status_code=404, detail="No tables found for this chat")
+    if not target_table_ids:
+        raise HTTPException(status_code=404, detail="No target tables found")
 
     # Create a ZIP file in memory (no temp file needed)
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
-        for csv_path in csv_files:
-            # The arcname ensures zip has clean folder structure (just filenames)
-            zipf.write(csv_path, arcname=csv_path.name)
+        for table_id in target_table_ids:
+            try:
+                df = conductor.db_api.execute_query(
+                    user_id,
+                    chat_id,
+                    f"SELECT * FROM {table_id};",
+                )
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to load table '{table_id}': {exc}",
+                )
+
+            csv_buffer = io.StringIO()
+            df.to_csv(csv_buffer, index=False)
+            zipf.writestr(f"{table_id}.csv", csv_buffer.getvalue())
 
     zip_buffer.seek(0)
 

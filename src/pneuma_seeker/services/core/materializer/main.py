@@ -92,6 +92,10 @@ class Materializer:
         self.state.column_descriptions = column_descriptions
         self.state.S = S
 
+        self.db_api.link_dataset_tables(
+            self.user_id, self.chat_id, self.config.DATA_SOURCES[0]
+        )
+
         if len(prefetched_tables) > 0:
             self.state.retrieved_tables = prefetched_tables
         if len(external_tables) > 0:
@@ -503,6 +507,9 @@ class Materializer:
                     table_id_to_project = str(
                         retrieved_table_info.get("id", "")
                     ).strip()
+                    table_id_to_project = table_id_to_project.split(".")[
+                        -1
+                    ]  # in case of dataset_name.table_name, only keep table_name
                     if table_id_to_project.startswith("Table "):
                         table_id_to_project = table_id_to_project[6:].strip()
                     relevant_columns = retrieved_table_info.get("columns", [])
@@ -631,8 +638,12 @@ class Materializer:
                 )
                 instruction: str | None = action_args.get("instruction")
 
-                if table_id is None or table_id not in [i.doc_id for i in all_tables]:
-                    error_msg = "table_id is not valid (not part of retrieved tables or the state's intermediate tables)."
+                if table_id is None or table_id not in [
+                    i.doc_id for i in self.state.intermediate_tables
+                ]:
+                    error_msg = (
+                        "table_id is not valid (not part of intermediate tables)."
+                    )
                     self.__log(f"==> {error_msg}")
                     self.llm_messages.append(
                         LLMMessage(
@@ -662,9 +673,9 @@ class Materializer:
                     )
                     return
 
-                conditioned_table_doc = [i for i in all_tables if i.doc_id == table_id][
-                    0
-                ]
+                conditioned_table_doc = [
+                    i for i in self.state.intermediate_tables if i.doc_id == table_id
+                ][0]
                 if conditioned_table_doc.retriever_type != RetrieverType.MATERIALIZER:
                     error_msg = "Semantic column generation is only supported for intermediate tables generated within the materialization process."
                     self.__log(f"==> {error_msg}")
