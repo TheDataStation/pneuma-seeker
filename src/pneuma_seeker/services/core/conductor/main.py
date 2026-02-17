@@ -21,7 +21,6 @@ from pneuma_seeker.shared.schemas.core.ir_system import (
     RetrieverType,
     Table,
 )
-from pneuma_seeker.shared.schemas.db.document_type import DocumentType
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.schemas.language_model.option import LLMOption
 from pneuma_seeker.shared.schemas.language_model.role import Role
