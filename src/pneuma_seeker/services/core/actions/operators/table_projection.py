@@ -35,14 +35,6 @@ class TableProjection(Action, Applicable):
         if len(src_table_columns) == 0:
             raise ValueError("src_table_columns must contain at least one column.")
 
-        db_tables = self.db_api.execute_query(
-            self.user_id, self.chat_id, "SHOW TABLES;"
-        )["name"].tolist()
-        if src_table_id not in db_tables:
-            src_table_id = f'{self.config.DATA_SOURCES[0]}."{src_table_id}"'
-        else:
-            src_table_id = f'"{src_table_id}"'
-
         self.db_api.link_dataset_tables(
             self.user_id, self.chat_id, self.config.DATA_SOURCES[0]
         )

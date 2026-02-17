@@ -130,3 +130,14 @@ This is step {step_count} out of a maximum of {self.config.MAX_MATERIALIZER_STEP
 
 Decide your next plan and output a JSON object of one or more actions.
 """.strip()
+
+    def get_skeleton_context_prompt(
+        self,
+        step_count: int,
+    ) -> str:
+        """Generates the context prompt for each iteration of the Materializer."""
+        return f"""
+This is step {step_count} out of a maximum of {self.config.MAX_MATERIALIZER_STEPS} steps to materialize the target tables (T).
+... (truncated for brevity)
+Decide your next plan and output a JSON object of one or more actions.
+""".strip()

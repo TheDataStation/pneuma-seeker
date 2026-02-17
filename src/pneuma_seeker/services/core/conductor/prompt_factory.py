@@ -55,13 +55,13 @@ You (Conductor) maintain and update a shared state (T,S) that formalizes the use
     - *Format:*
       - `S: str` (Python code operating on tables in `T`)
     - *Execution context:*
-      - Tables in T exist as tables in the workspace database and are NOT guaranteed to fit in memory.
+      - Tables in T exist as tables in the DuckDB-based workspace database and are NOT guaranteed to fit in memory.
       - You may ONLY reference tables defined in T using their IDs (e.g., "Table x" -> "x").
       - To access tables, use the provided database API:
         - `db_api.execute_query(user_id, chat_id, "<SQL query>")`
         - `db_api`, `chat_id`, and `user_id` are available as variables in the environment when S is executed.
         - This returns a Pandas DataFrame containing the query result.
-      - Prefer performing transformations directly in SQL whenever possible instead of loading tables into Pandas.
+      - Prefer performing transformations directly in standard SQL whenever possible instead of loading tables into Pandas.
       - If Python processing is necessary, process data in small batches and never load full tables into memory.
       - Allowed libraries: Pandas, NumPy, and SciPy.
       - Do not create intermediate tables. The final result must be materialized into a single table named "conductor_s_execution" using SQL (e.g., CREATE OR REPLACE TABLE "conductor_s_execution" AS SELECT ...).
@@ -210,13 +210,13 @@ Finds/raw-crawls a specific web page (URL) and returns the extracted text conten
   - Executes Python code to explore, inspect, or test assumptions or relevance of the retrieved or external tables.
   - This tool is used ONLY to gather evidence, perform sanity checks, or confirm suspicions. It has no lasting side effects.
   - It MUST NOT be used to construct final outputs or pipeline tables.
-  - Tables are stored in the workspace database and are NOT guaranteed to fit in memory.
+  - Tables are stored in the DuckDB-based workspace database and are NOT guaranteed to fit in memory.
   - To access tables, use the provided database API:
       - `db_api.execute_query(user_id, chat_id, "<SQL query>")`
       - `db_api`, `chat_id`, and `user_id` are available as variables in the environment.
       - This returns a Pandas DataFrame containing the relational query result.
       - NOTE: Solely for the purpose of referencing tables in SQL queries, if a retrieved table has an ID like "Table x (dataset: y)", treat "y" as the schema and reference the table in SQL as SELECT * FROM y."x".      
-  - Prefer performing inspection and checks directly in SQL whenever possible instead of loading tables into Pandas.
+  - Prefer performing inspection and checks directly in standard SQL whenever possible instead of loading tables into Pandas.
   - If Python processing is necessary, process data in small batches and never load full tables into memory.
   - Typical uses:
     - Checking whether a condition holds
@@ -274,35 +274,11 @@ Decide your next plan and output a JSON object of one or more actions.
     def get_skeleton_env_state_prompt(
         self,
         current_step: int,
-        enumerated_table_ids: list[AbstractDocument],
-        external_tables: list[AbstractDocument],
-        web_search_result: AbstractDocument | None = None,
-        web_crawl_result: AbstractDocument | None = None,
     ) -> str:
         """Gets the environment state prompt for Conductor."""
         return f"""
 STEP {current_step} (OUT OF MAXIMUM {self.config.MAX_CONDUCTOR_STEPS} STEPS)
-
-SHARED STATE (T,S):
-...
-
-RECENT ACTIONS:
-...
-
-RECENT USER INTERACTIONS:
-...
-
-RETRIEVED TABLES:
-...
-{"\n- POTENTIAL JOIN PATHS BETWEEN RETRIEVED TABLES:..." if self.config.ENABLE_JOIN_PATH_EXTRACTION else ""}
-{"\nOTHER TABLE IDS WITH SIMILAR NAMING PATTERNS (FOR REFERENCE):\n..." if len(enumerated_table_ids) > 0 else ""}
-{"\nEXTERNAL TABLES (UPLOADED BY USER):\n...\n" if len(external_tables) > 0 else ""}
-{"\nWEB SEARCH RESULT (IF ANY):\n...\n" if self.config.ENABLE_WEB_SEARCH and web_search_result else ""}
-{"\nWEB CRAWL RESULT (IF ANY):\n..." if self.config.ENABLE_WEB_CRAWL and web_crawl_result else ""}
-
-CURRENT USER INPUT:
-...
-
+... (truncated for brevity)
 Decide your next plan and output a JSON object of one or more actions.
 """.strip()
 

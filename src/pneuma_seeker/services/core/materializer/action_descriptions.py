@@ -20,13 +20,13 @@ def get_materializer_actions(
 
 - **{ActionNames.PYTHON_EXECUTOR.value}**
     - Executes Python code to transform and/or combine data.
-    - Tables are stored in the workspace database and are NOT guaranteed to fit in memory.
+    - Tables are stored in the DuckDB-based workspace database and are NOT guaranteed to fit in memory.
     - To access tables, use the provided database API:
         - `db_api.execute_query(user_id, chat_id, "<SQL query>")`
         - `db_api`, `chat_id`, and `user_id` are available as variables in the environment.
         - This returns a Pandas DataFrame containing the relational query result.
         - NOTE: Solely for the purpose of referencing tables in SQL queries, if a retrieved table has an ID like "Table x (dataset: y)", treat "y" as the schema and reference the table in SQL as SELECT * FROM y."x".
-    - Prefer performing transformations directly in SQL whenever possible (filtering, projection, joins, aggregation, casting, renaming columns, value normalization, date parsing, etc.) instead of loading tables into Pandas.
+    - Prefer performing transformations directly in standard SQL whenever possible (filtering, projection, joins, aggregation, casting, renaming columns, value normalization, date parsing, etc.) instead of loading tables into Pandas.
     - If Python processing is necessary, process data in batches and never load full tables into memory. For example:
         - Offset pagination:
             - SELECT * FROM "<table_id>" ORDER BY rowid LIMIT 100 OFFSET 0;
@@ -49,6 +49,7 @@ def get_materializer_actions(
                     }}
                 }}
             }}
+    - Note: If the source table is an internal table that was retrieved (i.e., the table has an ID like "Table x (dataset: y)"), reference it by "y.\"x\"" in the `id` field.
     - Example use case: If table A has columns that match some columns of target table B, you can select it directly instead of creating Python code.
 
 - **{ActionNames.SEMANTIC_JOIN.value}**
@@ -119,13 +120,13 @@ def get_assumption_check_description():
     - Executes Python code to explore, inspect, or test assumptions about the data.
     - This tool is used ONLY to gather evidence, perform sanity checks, or confirm suspicions. It has no lasting side effects.
     - It MUST NOT be used to construct final outputs or pipeline tables.
-    - Tables are stored in the workspace database and are NOT guaranteed to fit in memory.
+    - Tables are stored in the DuckDB-based workspace database and are NOT guaranteed to fit in memory.
     - To access tables, use the provided database API:
         - `db_api.execute_query(user_id, chat_id, "<SQL query>")`
         - `db_api`, `chat_id`, and `user_id` are available as variables in the environment.
         - This returns a Pandas DataFrame containing the relational query result.
         - NOTE: Solely for the purpose of referencing tables in SQL queries, if a retrieved table has an ID like "Table x (dataset: y)", treat "y" as the schema and reference the table in SQL as SELECT * FROM y."x".
-    - Prefer performing inspection and checks directly in SQL whenever possible (counts, filters, group-bys, aggregates, sampling, detecting nulls, checking ranges, distributions, uniqueness, etc.) instead of loading tables into Pandas.
+    - Prefer performing inspection and checks directly in standard SQL whenever possible (counts, filters, group-bys, aggregates, sampling, detecting nulls, checking ranges, distributions, uniqueness, etc.) instead of loading tables into Pandas.
     - If Python processing is necessary, process data in small batches and never load full tables into memory.
     - Typical uses:
         - Checking whether a condition holds

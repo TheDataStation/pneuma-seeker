@@ -76,7 +76,7 @@ class MaterializerTests(unittest.TestCase):
     def test_table_retrieve_and_table_projection_materializes_T(self):
         # LLM will ask to call table_retrieve then table_projection to materialize t1
         plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompt":"find tables"}}}}'
-        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"table_1","columns":["a","b"]}}}}}}'
+        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":["a","b"]}}}}}}'
         self.lm_api.llm._responses = [f"""{{"plan": [{plan1}, {plan2}]}}"""]  # type: ignore
 
         table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
@@ -105,7 +105,9 @@ class MaterializerTests(unittest.TestCase):
         prov_graph_code_lines = [
             self.materializer.prov_graph.ROOT_NODE_CODE,
             self.action_set.generate_pandas_read_csv_code(table_doc),
-            self.action_set.generate_table_select_code("t1", "table_1", ["a", "b"]),
+            self.action_set.generate_table_select_code(
+                "t1", "test_ds.table_1", ["a", "b"]
+            ),
         ]
         self.assertEqual(
             "\n\n".join(prov_graph_code_lines),
@@ -118,7 +120,7 @@ class MaterializerTests(unittest.TestCase):
         plan2 = (
             f'{{"action":"{ActionNames.WEB_SEARCH.value}","args":{{"prompt":"query"}}}}'
         )
-        plan3 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"table_1","columns":["a","b"]}}}}}}'
+        plan3 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":["a","b"]}}}}}}'
         self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}, {plan3}]}}']  # type: ignore
 
         table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
@@ -164,13 +166,17 @@ class MaterializerTests(unittest.TestCase):
             self.materializer.prov_graph.ROOT_NODE_CODE,
             self.action_set.generate_pandas_read_csv_code(table_doc),
             self.action_set.generate_view_textual_document_code(web_text),
-            self.action_set.generate_table_select_code("t1", "table_1", ["a", "b"]),
+            self.action_set.generate_table_select_code(
+                "t1", "test_ds.table_1", ["a", "b"]
+            ),
         ]
         prov_graph_code_lines_2 = [
             self.materializer.prov_graph.ROOT_NODE_CODE,
             self.action_set.generate_view_textual_document_code(web_text),
             self.action_set.generate_pandas_read_csv_code(table_doc),
-            self.action_set.generate_table_select_code("t1", "table_1", ["a", "b"]),
+            self.action_set.generate_table_select_code(
+                "t1", "test_ds.table_1", ["a", "b"]
+            ),
         ]
         self.assertIn(
             self.materializer.prov_graph.get_graph_code(),
@@ -184,7 +190,7 @@ class MaterializerTests(unittest.TestCase):
         # LLM will call table_retrieve, web_crawl, then table_projection to finish
         plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompt":"find tables"}}}}'
         plan2 = f'{{"action":"{ActionNames.WEB_CRAWL.value}","args":{{"url":"http://example.com"}}}}'
-        plan3 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"table_1","columns":["a","b"]}}}}}}'
+        plan3 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":["a","b"]}}}}}}'
         self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}, {plan3}]}}']  # type: ignore
 
         table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
@@ -230,13 +236,17 @@ class MaterializerTests(unittest.TestCase):
             self.materializer.prov_graph.ROOT_NODE_CODE,
             self.action_set.generate_pandas_read_csv_code(table_doc),
             self.action_set.generate_view_textual_document_code(web_text),
-            self.action_set.generate_table_select_code("t1", "table_1", ["a", "b"]),
+            self.action_set.generate_table_select_code(
+                "t1", "test_ds.table_1", ["a", "b"]
+            ),
         ]
         prov_graph_code_lines_2 = [
             self.materializer.prov_graph.ROOT_NODE_CODE,
             self.action_set.generate_view_textual_document_code(web_text),
             self.action_set.generate_pandas_read_csv_code(table_doc),
-            self.action_set.generate_table_select_code("t1", "table_1", ["a", "b"]),
+            self.action_set.generate_table_select_code(
+                "t1", "test_ds.table_1", ["a", "b"]
+            ),
         ]
         self.assertIn(
             self.materializer.prov_graph.get_graph_code(),
@@ -249,7 +259,7 @@ class MaterializerTests(unittest.TestCase):
     def test_semantic_column_generator_adds_column(self):
         # LLM will call table_retrieve, table_projection, then semantic_column_generator
         plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompt":"find tables"}}}}'
-        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"table_1","columns":["a","b"]}}}}}}'
+        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":["a","b"]}}}}}}'
         plan3 = f'{{"action":"{ActionNames.SEMANTIC_COLUMN_GENERATION.value}","args":{{"table_id":"t1","new_column_name":"newcol","relevant_columns":["b"],"instruction":"make new"}}}}'
 
         # Mock the LLM responses using llm._responses (the internal list used by the LLM mock)
@@ -300,7 +310,9 @@ class MaterializerTests(unittest.TestCase):
         prov_graph_code_lines_1 = [
             self.materializer.prov_graph.ROOT_NODE_CODE,
             self.action_set.generate_pandas_read_csv_code(table_doc),
-            self.action_set.generate_table_select_code("t1", "table_1", ["a", "b"]),
+            self.action_set.generate_table_select_code(
+                "t1", "test_ds.table_1", ["a", "b"]
+            ),
             self.action_set.generate_semantic_col_generator_code(
                 ["b"],
                 t1_doc,
@@ -318,9 +330,9 @@ class MaterializerTests(unittest.TestCase):
 
     def test_rematerialize_cleans_previous_intermediate_tables(self):
         plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompt":"find tables"}}}}'
-        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"table_1","columns":["a","b"]}}}}}}'
+        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":["a","b"]}}}}}}'
         plan3 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompt":"find other tables"}}}}'
-        plan4 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t2":{{"id":"table_2","columns":["a","b"]}}}}}}'
+        plan4 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t2":{{"id":"test_ds.table_2","columns":["a","b"]}}}}}}'
 
         self.lm_api.llm._responses = [  # type: ignore
             f'{{"plan": [{plan1}, {plan2}]}}',

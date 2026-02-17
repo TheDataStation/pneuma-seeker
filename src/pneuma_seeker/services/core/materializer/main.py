@@ -117,15 +117,17 @@ class Materializer:
                 ),
             )
         ]
-        step_count = 0
+        
+        current_step = 0
+        last_env_state_idx: int | None = None
         while (
             not self.__check_completion(self.state.T)
-            and step_count < self.config.MAX_MATERIALIZER_STEPS
+            and current_step < self.config.MAX_MATERIALIZER_STEPS
         ):
             self.__log(
-                f"=> [Step {step_count}/{self.config.MAX_MATERIALIZER_STEPS}] Planning materialization actions..."
+                f"=> [Step {current_step}/{self.config.MAX_MATERIALIZER_STEPS}] Planning materialization actions..."
             )
-            step_count += 1
+            current_step += 1
 
             self.llm_messages.append(
                 LLMMessage(
@@ -134,7 +136,7 @@ class Materializer:
                         self.state.retrieved_tables,
                         list(self.state.intermediate_tables),
                         self.actions[-5:],  # only include last 5 actions for brevity
-                        step_count,
+                        current_step,
                         client_note,
                         self.state.external_tables,
                         self.state.web_search_result,
@@ -143,6 +145,7 @@ class Materializer:
                     ),
                 )
             )
+            last_env_state_idx = len(self.llm_messages) - 1
 
             llm_response = "".join(
                 self.language_model_api.chat(
@@ -155,6 +158,12 @@ class Materializer:
                     content=llm_response,
                 )
             )
+            if last_env_state_idx is not None:
+                self.llm_messages[last_env_state_idx]["content"] = (
+                    self.prompt_factory.get_skeleton_context_prompt(
+                        current_step,
+                    )
+                )
 
             try:
                 self.__log("==> Parsing the response...")
@@ -194,7 +203,7 @@ class Materializer:
                         content=error_msg,
                     )
                 )
-                step_count -= 1
+                current_step -= 1
                 continue
 
             self.__log(f"==> Executing the planned actions: {plan}...")
@@ -507,15 +516,12 @@ class Materializer:
                     table_id_to_project = str(
                         retrieved_table_info.get("id", "")
                     ).strip()
-                    table_id_to_project = table_id_to_project.split(".")[
-                        -1
-                    ]  # in case of dataset_name.table_name, only keep table_name
                     if table_id_to_project.startswith("Table "):
                         table_id_to_project = table_id_to_project[6:].strip()
                     relevant_columns = retrieved_table_info.get("columns", [])
                     target_table_id = target_table_id.strip()
 
-                    if table_id_to_project not in all_table_doc_ids:
+                    if table_id_to_project.split(".")[-1] not in all_table_doc_ids:
                         error_msg = (
                             "Invalid table ID to select. Ensure the table exists."
                         )
@@ -541,9 +547,9 @@ class Materializer:
                         )
                         return
 
-                    matches = [i for i in all_tables if i.doc_id == table_id_to_project]
+                    matches = [i for i in all_tables if i.doc_id == table_id_to_project.split(".")[-1]]
                     if not matches:
-                        error_msg = f"Table {table_id_to_project!r} not found in the available tables."
+                        error_msg = f"Table {table_id_to_project.split('.')[-1]!r} not found in the available tables."
                         self.__log(f"==> {error_msg}")
                         self.llm_messages.append(
                             LLMMessage(

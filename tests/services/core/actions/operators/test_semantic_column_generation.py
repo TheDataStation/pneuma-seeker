@@ -55,7 +55,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         )
         self.table_projection.apply(
             {
-                "src_table_id": "table",
+                "src_table_id": "test_ds.table",
                 "target_table_id": "table",
                 "src_table_columns": ["a"],
             }
@@ -100,7 +100,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         )
         self.table_projection.apply(
             {
-                "src_table_id": "table",
+                "src_table_id": "test_ds.table",
                 "target_table_id": "table",
                 "src_table_columns": ["a"],
             }
@@ -128,7 +128,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         )
         self.table_projection.apply(
             {
-                "src_table_id": "table",
+                "src_table_id": "test_ds.table",
                 "target_table_id": "table",
                 "src_table_columns": ["name", "age"],
             }
@@ -216,7 +216,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         )
         self.table_projection.apply(
             {
-                "src_table_id": "table",
+                "src_table_id": "test_ds.table",
                 "target_table_id": "table",
                 "src_table_columns": ["city", "country"],
             }
@@ -246,7 +246,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         )
         self.table_projection.apply(
             {
-                "src_table_id": "table",
+                "src_table_id": "test_ds.table",
                 "target_table_id": "table",
                 "src_table_columns": ["name", "age"],
             }
@@ -278,7 +278,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         )
         self.table_projection.apply(
             {
-                "src_table_id": "table",
+                "src_table_id": "test_ds.table",
                 "target_table_id": "table",
                 "src_table_columns": ["first_name", "last_name"],
             }
@@ -307,7 +307,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         )
         self.table_projection.apply(
             {
-                "src_table_id": "table",
+                "src_table_id": "test_ds.table",
                 "target_table_id": "table",
                 "src_table_columns": ["product", "quantity", "price"],
             }
@@ -336,7 +336,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         )
         self.table_projection.apply(
             {
-                "src_table_id": "table",
+                "src_table_id": "test_ds.table",
                 "target_table_id": "table",
                 "src_table_columns": ["a"],
             }
@@ -367,7 +367,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         )
         self.table_projection.apply(
             {
-                "src_table_id": "table",
+                "src_table_id": "test_ds.table",
                 "target_table_id": "table",
                 "src_table_columns": ["col1", "col2"],
             }

@@ -71,32 +71,12 @@ class TableProjectionTests(unittest.TestCase):
             self.config.DATA_SOURCES[0], str(Path(self.temp_dir) / "test_ds")
         )
 
-        # cols_sql = ", ".join(f'"{c}"' for c in columns)
-        # if rows:
-        #     values_sql = ",\n                ".join(
-        #         f"({', '.join(map(str, row))})" for row in rows
-        #     )
-        #     create_sql = f"""
-        #     CREATE OR REPLACE TABLE "{table_name}" AS
-        #     SELECT * FROM (VALUES
-        #         {values_sql}
-        #     ) AS t({cols_sql});
-        #     """
-        # else:
-        #     null_row = ", ".join("NULL" for _ in columns)
-        #     create_sql = f"""
-        #     CREATE OR REPLACE TABLE "{table_name}" AS
-        #     SELECT * FROM (VALUES ({null_row})) AS t({cols_sql}) LIMIT 0;
-        #     """
-
-        # self.db_api.execute_query(self.user_id, self.chat_id, create_sql)
-
     def test_apply_projects_columns_and_returns_sample(self):
         self._create_src_table("src_table")
 
         result = self.table_projection.apply(
             {
-                "src_table_id": "src_table",
+                "src_table_id": "test_ds.src_table",
                 "target_table_id": "target_table",
                 "src_table_columns": ["c", "a"],
             }
@@ -124,7 +104,7 @@ class TableProjectionTests(unittest.TestCase):
 
         result = self.table_projection.apply(
             {
-                "src_table_id": "src_table",
+                "src_table_id": "test_ds.src_table",
                 "target_table_id": "target_table",
                 "src_table_columns": ["b"],
             }
@@ -153,7 +133,7 @@ class TableProjectionTests(unittest.TestCase):
         with self.assertRaises(ValueError) as context:
             self.table_projection.apply(
                 {
-                    "src_table_id": "src_table",
+                    "src_table_id": "test_ds.src_table",
                     "target_table_id": 123,
                     "src_table_columns": ["a"],
                 }
@@ -166,7 +146,7 @@ class TableProjectionTests(unittest.TestCase):
         with self.assertRaises(ValueError) as context:
             self.table_projection.apply(
                 {
-                    "src_table_id": "src_table",
+                    "src_table_id": "test_ds.src_table",
                     "target_table_id": "target_table",
                     "src_table_columns": "a",
                 }
@@ -180,7 +160,7 @@ class TableProjectionTests(unittest.TestCase):
         with self.assertRaises(ValueError) as context:
             self.table_projection.apply(
                 {
-                    "src_table_id": "src_table",
+                    "src_table_id": "test_ds.src_table",
                     "target_table_id": "target_table",
                     "src_table_columns": [1, 2],
                 }
@@ -194,7 +174,7 @@ class TableProjectionTests(unittest.TestCase):
         with self.assertRaises(ValueError) as context:
             self.table_projection.apply(
                 {
-                    "src_table_id": "src_table",
+                    "src_table_id": "test_ds.src_table",
                     "target_table_id": "target_table",
                     "src_table_columns": [],
                 }
@@ -210,7 +190,7 @@ class TableProjectionTests(unittest.TestCase):
         with pytest.raises(Exception):
             self.table_projection.apply(
                 {
-                    "src_table_id": "src_table",
+                    "src_table_id": "test_ds.src_table",
                     "target_table_id": "target_table",
                     "src_table_columns": ["missing"],
                 }
@@ -235,7 +215,7 @@ class TableProjectionTests(unittest.TestCase):
 
         result = self.table_projection.apply(
             {
-                "src_table_id": "src_table",
+                "src_table_id": "test_ds.src_table",
                 "target_table_id": "target_table",
                 "src_table_columns": ["x_y", "col_name"],
             }
@@ -253,7 +233,7 @@ class TableProjectionTests(unittest.TestCase):
 
         result = self.table_projection.apply(
             {
-                "src_table_id": "src_table",
+                "src_table_id": "test_ds.src_table",
                 "target_table_id": "target_table",
                 "src_table_columns": ["b"],
             }
@@ -271,7 +251,7 @@ class TableProjectionTests(unittest.TestCase):
 
         result = self.table_projection.apply(
             {
-                "src_table_id": "src_table",
+                "src_table_id": "test_ds.src_table",
                 "target_table_id": "target_table",
                 "src_table_columns": ["a"],
             }

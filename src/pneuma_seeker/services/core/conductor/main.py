@@ -142,9 +142,11 @@ class Conductor:
                 content=self.prompt_factory.get_sys_prompt(),
             )
         ]
+
         current_step = 0
         previous_step_input_tokens = 0
         previous_step_output_tokens = 0
+        last_env_state_idx: int | None = None
         while (
             not self.is_user_facing_response
             and current_step < self.config.MAX_CONDUCTOR_STEPS
@@ -156,7 +158,7 @@ class Conductor:
             )
             self.llm_messages.append(
                 LLMMessage(
-                    role=Role.USER.value,
+                    role=Role.SYSTEM.value,
                     content=self.prompt_factory.get_env_state_prompt(
                         current_step,
                         self.state,
@@ -172,17 +174,24 @@ class Conductor:
                     ),
                 )
             )
+            last_env_state_idx = len(self.llm_messages) - 1
 
             full_response = "".join(
                 self.language_model_api.chat(
                     self.llm_messages,
-                    LLMOption(json_mode=True, stream=True, temperature=0, top_p=0.1),
+                    LLMOption(json_mode=True, stream=True, top_p=0.1),
                 )
             )
             self.__log(f"=> Model responded with a plan: {full_response}")
             self.llm_messages.append(
                 LLMMessage(role=Role.ASSISTANT.value, content=full_response)
             )
+            if last_env_state_idx is not None:
+                self.llm_messages[last_env_state_idx]["content"] = (
+                    self.prompt_factory.get_skeleton_env_state_prompt(
+                        current_step,
+                    )
+                )
 
             try:
                 self.__log("==> Parsing plan...")
