@@ -521,7 +521,7 @@ class Materializer:
                     relevant_columns = retrieved_table_info.get("columns", [])
                     target_table_id = target_table_id.strip()
 
-                    if table_id_to_project.split(".")[-1] not in all_table_doc_ids:
+                    if table_id_to_project.split(".")[-1].strip('"') not in all_table_doc_ids:
                         error_msg = (
                             "Invalid table ID to select. Ensure the table exists."
                         )
@@ -547,9 +547,9 @@ class Materializer:
                         )
                         return
 
-                    matches = [i for i in all_tables if i.doc_id == table_id_to_project.split(".")[-1]]
+                    matches = [i for i in all_tables if i.doc_id == table_id_to_project.split(".")[-1].strip('"')]
                     if not matches:
-                        error_msg = f"Table {table_id_to_project.split('.')[-1]!r} not found in the available tables."
+                        error_msg = f"Table {table_id_to_project.split('.')[-1].strip('"')!r} not found in the available tables."
                         self.__log(f"==> {error_msg}")
                         self.llm_messages.append(
                             LLMMessage(
