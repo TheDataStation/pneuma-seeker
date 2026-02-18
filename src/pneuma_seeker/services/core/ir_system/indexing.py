@@ -10,7 +10,9 @@ sys.path.append(
 
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
-from pneuma_seeker.services.core.ir_system.main import IRSystem
+from pneuma_seeker.services.core.ir_system.retriever.impl.pneuma_retriever import (
+    PneumaRetriever,
+)
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import setup_logger
 from pneuma_seeker.shared.schemas.core.ir_system import (
@@ -18,6 +20,7 @@ from pneuma_seeker.shared.schemas.core.ir_system import (
     RetrieverType,
     Table,
     TableContext,
+    Text,
 )
 
 # KramaBench
@@ -53,8 +56,48 @@ LARGE_BUYSITE_DATASET = [
 ]
 
 
-def index_dataset(dataset_name: str, metadata_available=False):
+def index_dataset(
+    dataset_name: str,
+    metadata_available=False,
+    schema_summaries: pd.DataFrame | None = None,
+):
     DATASET_DIR = f"../../../../../data_src/{dataset_name}/dataset"
+
+    schema_summary_docs: list[Text] = []
+    if schema_summaries is not None:
+        required_cols = {"table_name", "summary"}
+        missing = required_cols - set(schema_summaries.columns)
+        if missing:
+            raise ValueError(
+                f"schema_summaries is missing required columns: {sorted(missing)}"
+            )
+
+        # Align with PneumaRetriever: one schema-summary document per table,
+        # concatenating all per-column narrations using " | ".
+        group_cols = ["table_name"]
+        if "column_name" in schema_summaries.columns:
+            schema_summaries = schema_summaries.sort_values(
+                by=["table_name", "column_name"], kind="stable"
+            )
+        else:
+            schema_summaries = schema_summaries.sort_values(
+                by=["table_name"], kind="stable"
+            )
+
+        grouped = schema_summaries.groupby(group_cols, sort=False)
+        for table_name, group in tqdm(grouped, desc="Loading schema summaries..."):
+            combined_summary = " | ".join(group["summary"].astype(str).tolist())
+            schema_summary_docs.append(
+                Text(
+                    doc_id=f"{DATASET_DIR}/{table_name}_schema_summary",
+                    retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+                    content=combined_summary,
+                    metadata={
+                        "table_name": f"{DATASET_DIR}/{table_name}",
+                    },
+                )
+            )
+
     documents: list[AbstractDocument] = []
     dataset = os.listdir(DATASET_DIR)
     for table_name in tqdm(dataset, desc="Loading dataset..."):
@@ -97,15 +140,29 @@ def index_dataset(dataset_name: str, metadata_available=False):
                 )
             )
 
-    ir_sys = IRSystem(
+    ir_sys = PneumaRetriever(
         "user_id",
         "chat_id",
         config,
-        logger,
         DBAPI(config, logger),
         LanguageModelAPI(config, logger),
     )
-    ir_sys.index_documents(RetrieverType.PNEUMA_RETRIEVER, documents)
+
+    if schema_summaries is not None:
+        print(
+            f"Indexing {len(documents)} documents with {len(schema_summary_docs)} existing schema summaries..."
+        )
+        ir_sys.index_with_existing_schema_summaries(
+            documents,
+            existing_schema_summaries=(
+                schema_summary_docs if schema_summaries is not None else None
+            ),
+        )
+    else:
+        print(
+            f"Indexing {len(documents)} documents without existing schema summaries..."
+        )
+        ir_sys.index(documents)
 
 
 if INDEXING_ARCHEOLOGY:
