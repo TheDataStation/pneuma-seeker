@@ -11,7 +11,6 @@ from typing import Optional, cast
 
 import bm25s
 import chromadb_deterministic as chromadb
-import duckdb
 import pandas as pd
 import Stemmer
 from bm25s.tokenization import convert_tokenized_to_string_list
@@ -518,6 +517,54 @@ Your task is to analyze a natural-language query and extract **explicitly mentio
             end = time.time()
             print(f"[FULL-TEXT INDEX] Indexing time: {end-start} seconds")
 
+    def index_with_existing_schema_summaries(
+        self,
+        documents: list[AbstractDocument],
+        existing_schema_summaries: list[Text] | None = None,
+    ):
+        """
+        Indexes a list of documents to the retriever. Assume the documents are
+        from a certain dataset only.
+        """
+        if len(documents) > 0:
+            dataset = documents[0].metadata["dataset_name"]
+            table_context = [i for i in documents if isinstance(i, TableContext)]
+            tables = [i for i in documents if isinstance(i, Table)]
+
+            if existing_schema_summaries is not None:
+                schema_summaries = existing_schema_summaries
+            else:
+                schema_summaries: list[Text] = self.__get_schema_summaries(
+                    tables, table_context
+                )
+            sample_rows: list[Text] = self.__get_sample_rows(tables)
+
+            schema_summaries = self.__split_schema_summaries(schema_summaries)
+            sample_rows = self.__merge_sample_rows(sample_rows)
+            table_context = self.__merge_table_context(table_context)
+
+            print(f"[VECTOR INDEX] Indexing dataset: {dataset}")
+            start = time.time()
+            client = chromadb.PersistentClient(
+                os.path.join(self.index_path, f"vector-index-{dataset}")
+            )
+            self.__indexing_vector(client, schema_summaries, sample_rows, table_context)
+            end = time.time()
+            print(f"[VECTOR INDEX] Indexing time: {end-start} seconds")
+
+            print(f"[FULL-TEXT INDEX] Indexing dataset: {dataset}")
+            start = time.time()
+            stemmer = Stemmer.Stemmer("english")
+            self.__indexing_full_text(
+                stemmer,
+                schema_summaries,
+                sample_rows,
+                table_context,
+                dataset,
+            )
+            end = time.time()
+            print(f"[FULL-TEXT INDEX] Indexing time: {end-start} seconds")
+
     def __indexing_vector(
         self,
         client: ClientAPI,
@@ -588,7 +635,7 @@ Your task is to analyze a natural-language query and extract **explicitly mentio
                     documents.append(context.content)
                     ids.append(f"{table}_SEP_contexts-{context_idx}")
 
-        for i in range(0, len(documents), 30000):
+        for i in tqdm(range(0, len(documents), 30000)):
             embeddings = self.language_model_api.encode(
                 documents[i : i + 30000], EmbeddingModelOption(batch_size=100)
             )
