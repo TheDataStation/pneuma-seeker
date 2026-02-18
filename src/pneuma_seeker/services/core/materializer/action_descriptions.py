@@ -45,6 +45,9 @@ def get_materializer_actions(
     - You can perform operations such as renaming or reordering columns, transforming column values, normalizing formats (e.g., "Month Date, Year" → "yyyy-mm-dd"), etc.
     - You may create intermediate tables during processing (e.g., to store batches or results of sub-steps; don't forget to clean them up), but the final output must be materialized as a single table in the database using SQL (for example, `CREATE OR REPLACE TABLE "<assign_to>" AS SELECT ...`).
     - Do NOT return large tables as Pandas DataFrames. Any Pandas DataFrame should only be used for small previews or intermediate batch processing.
+    - If your code creates the final output table using SQL (e.g., `CREATE OR REPLACE TABLE "<assign_to>" AS ...`), do **NOT** call `db_api.register_temporary_df(..., "<assign_to>")` with a preview DataFrame.
+        - DuckDB's registration can shadow the persistent table with the same name, which would silently truncate downstream queries.
+        - If you need a preview, query `SELECT * FROM "<assign_to>" LIMIT 10` and (optionally) register it under a different temporary name like `"<assign_to>__preview"`.
     - Args: {{"code": "<Python code string>", "assign_to": "<ID of the resulting intermediate table>"}}
 {get_assumption_check_description() if config.ENABLE_ASSUMPTION_CHECK else ""}
 
@@ -165,6 +168,10 @@ def get_assumption_check_description():
               Do NOT treat the dataset name as a schema when inspecting metadata.
             - When referencing intermediate or external tables created in the workspace, use the table name directly. For example, Table x -> x.
     - Prefer performing inspection and checks directly in standard SQL whenever possible (counts, filters, group-bys, aggregates, sampling, detecting nulls, checking ranges, distributions, uniqueness, etc.) instead of loading tables into Pandas.
+    - **Common pitfalls to avoid (important for reliability):**
+        - Do not rely only on column-name substring matching. If a companion dictionary/variable-description table exists, query it directly for semantic clues and return candidate columns even if none of the column names match a simple regex.
+        - When combining evidence from multiple sources (e.g., PRAGMA column list + dictionary rows), do not structure the result as a LEFT JOIN from a potentially empty base set. Prefer a UNION of candidate column names from both sources so you do not accidentally return an empty result.
+        - Avoid reserved SQL keywords (e.g., "desc") as CTE names or aliases.
     - If Python processing is necessary, process data in small batches and never load full tables into memory.
     - When writing Python code:
         - Never use escaped newlines (\n) inside strings.

@@ -214,6 +214,7 @@ class Conductor:
 
                 plan = cast(list[dict[str, Any]], plan)
                 executor_part_of_plan = False
+                materializer_part_of_plan = False
                 user_facing_communication_part_of_plan = False
                 for action_plan in plan:
                     assert isinstance(action_plan, dict)
@@ -238,11 +239,15 @@ class Conductor:
                         == ActionNames.USER_FACING_COMMUNICATION.value
                     ):
                         user_facing_communication_part_of_plan = True
-
+                    if (
+                        action_plan.get("action")
+                        == ActionNames.MATERIALIZER.value
+                    ):
+                        materializer_part_of_plan = True
                 # Ensure there is no user-facing communication in the same plan as code execution (simply remove the user-facing part)
-                if executor_part_of_plan and user_facing_communication_part_of_plan:
+                if (executor_part_of_plan or materializer_part_of_plan) and user_facing_communication_part_of_plan:
                     self.__log(
-                        "==> Removing user-facing communication from plan due to presence of code execution."
+                        "==> Removing user-facing communication from plan due to presence of code execution or materialization."
                     )
                     plan = [
                         action_plan

@@ -398,14 +398,47 @@ class PneumaDB:
     # ------------------------------------------------------------------
     # Session Persistence
     # ------------------------------------------------------------------
-    def register_temporary_df(self, user_id: str, chat_id: str, df: DataFrame, table_name: str):
-        """Registers a temporary DataFrame in the workspace DB connection."""
+    def register_temporary_df(
+        self, user_id: str, chat_id: str, df: DataFrame, table_name: str
+    ):
+        """Registers a temporary DataFrame in the workspace DB connection.
+
+        Note: DuckDB's `con.register(name, df)` creates a view-like relation that can
+        shadow an existing persistent table with the same name. To prevent subtle
+        correctness issues (e.g., accidentally replacing a materialized target table
+        with a small preview DF), we refuse to register a DF under a name that
+        already exists as a BASE TABLE in the workspace schema.
+        """
+
         con = self.get_ws_db_connection(user_id, chat_id)
+
+        existing = con.execute(
+            """
+            SELECT table_type
+            FROM information_schema.tables
+            WHERE table_schema = 'main' AND table_name = ?
+            """,
+            (table_name,),
+        ).fetchall()
+
+        if any(row[0] == "BASE TABLE" for row in existing):
+            raise ValueError(
+                f"Refusing to register temporary DataFrame as '{table_name}' because a persistent table with that name already exists. "
+                "Use a different temporary name (e.g., '<name>__preview' or 'tmp_<name>')."
+            )
+
         try:
+            # If a temporary view with this name already exists (e.g., from a prior
+            # register call), try to unregister it and re-register.
+            if existing:
+                try:
+                    con.unregister(table_name)
+                except Exception:
+                    pass
             con.register(table_name, df)
         except Exception as e:
             self.__log(f"Failed to register temporary DataFrame: {e}")
-            raise e
+            raise
 
     def persist_df(
         self,
