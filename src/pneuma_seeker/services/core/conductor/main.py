@@ -176,12 +176,18 @@ class Conductor:
             )
             last_env_state_idx = len(self.llm_messages) - 1
 
-            full_response = "".join(
-                self.language_model_api.chat(
-                    self.llm_messages,
-                    LLMOption(json_mode=True, stream=True, top_p=0.1),
+            try:
+                full_response = "".join(
+                    self.language_model_api.chat(
+                        self.llm_messages,
+                        LLMOption(json_mode=True, stream=True, top_p=0.1),
+                    )
                 )
-            )
+            except Exception as exc:
+                error_msg = f"An unexpected error occurred while generating the plan: {exc}."
+                self.__log(error_msg)
+                yield f"LOG: {error_msg}"
+                raise exc
             self.__log(f"=> Model responded with a plan: {full_response}")
             self.llm_messages.append(
                 LLMMessage(role=Role.ASSISTANT.value, content=full_response)
