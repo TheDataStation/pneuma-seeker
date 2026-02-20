@@ -5,8 +5,8 @@
         "answer": 8577.5298,
         "answer_type": "numeric_exact",
         "data_sources": [
-            "climateMeasurements.xlsx",
-            "radiocarbon_database_regional.xlsx"
+            "climateMeasurements.csv",
+            "radiocarbon_database_regional.csv"
         ]
     },
     {
@@ -15,8 +15,8 @@
         "answer": 38.42,
         "answer_type": "numeric_exact",
         "data_sources": [
-            "climateMeasurements.xlsx",
-            "radiocarbon_database_regional.xlsx"
+            "climateMeasurements.csv",
+            "radiocarbon_database_regional.csv"
         ]
     },
     {
@@ -34,7 +34,7 @@
         "answer": 207878.8774,
         "answer_type": "numeric_exact",
         "data_sources": [
-            "climateMeasurements.xlsx"
+            "climateMeasurements.csv"
         ]
     },
     {
@@ -43,8 +43,8 @@
         "answer": 66158.3691,
         "answer_type": "numeric_exact",
         "data_sources": [
-            "climateMeasurements.xlsx",
-            "radiocarbon_database_regional.xlsx"
+            "climateMeasurements.csv",
+            "radiocarbon_database_regional.csv"
         ]
     },
     {
