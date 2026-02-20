@@ -14,7 +14,7 @@
         "answer": 2111635,
         "answer_type": "numeric_exact",
         "data_sources": [
-            "2024_CSN_Data_Contributors.csv"
+            "2024_CSN_FTC_Data_Contributors.csv"
         ]
     },
     {
@@ -50,7 +50,7 @@
         "answer": "True",
         "answer_type": "string_exact",
         "data_sources": [
-            "State MSA Fraud and Other data/Florida.csv",
+            "state_msa_fraud_and_other_data_Florida.csv",
             "2024_CSN_Metropolitan_Areas_Fraud_and_Other_Reports.csv"
         ]
     },
@@ -118,7 +118,7 @@
         ],
         "answer_type": "list_exact",
         "data_sources": [
-            "State MSA Identity Theft data/*.csv",
+            "state_msa_identity_theft_data_*.csv",
             "new_england_states.csv"
         ]
     },
@@ -128,7 +128,7 @@
         "answer": 243377,
         "answer_type": "numeric_exact",
         "data_sources": [
-            "State MSA Identity Theft data/*.csv"
+            "state_msa_identity_theft_data_*.csv"
         ]
     },
     {
@@ -137,7 +137,7 @@
         "answer": "Delaware",
         "answer_type": "string_exact",
         "data_sources": [
-            "State MSA Identity Theft data/*.csv"
+            "state_msa_identity_theft_data_*.csv"
         ]
     },
     {
@@ -194,7 +194,7 @@
         "answer": 0.0555,
         "answer_type": "numeric_exact",
         "data_sources": [
-            "2024_CSN_Report_Type.csv",
+            "2024_CSN_Report_Types.csv",
             "2024_CSN_Identity_Theft_Reports_by_Type.csv"
         ]
     },
@@ -216,7 +216,7 @@
         "data_sources": [
             "2024_CSN_State_Rankings_Identity_Theft_Reports.csv",
             "2024_CSN_State_Rankings_Fraud_and_Other_Reports.csv",
-            "State MSA Identity Theft data/*.csv"
+            "state_msa_identity_theft_data_*.csv"
         ]
     },
     {
@@ -225,7 +225,7 @@
         "answer": "U.S. Space Force",
         "answer_type": "string_approximate",
         "data_sources": [
-            "2024_CSN_Fraud, Identity Theft, and Other Reports by Military Consumers.csv"
+            "2024_CSN_Fraud, Identity Theft, and Other Reports by Military Branch.csv"
         ]
     },
     {
@@ -259,7 +259,7 @@
         "answer": "Yes",
         "answer_type": "string_exact",
         "data_sources": [
-            "2024_CSN_Reports_by_Military_Consumers.csv",
+            "2024_CSN_Top_10_Fraud_Categories_by_Military_Consumers.csv",
             "2024_CSN_Report_Categories.csv"
         ]
     },
@@ -269,7 +269,7 @@
         "answer": "Washington-Arlington-Alexandria, DC-VA-MD-WV Metropolitan Statistical Area",
         "answer_type": "string_exact",
         "data_sources": [
-            "State MSA Fraud and Other Data/*.csv"
+            "state_msa_fraud_and_other_data_*.csv"
         ]
     },
     {
@@ -278,8 +278,8 @@
         "answer": "No",
         "answer_type": "string_exact",
         "data_sources": [
-            "State MSA Fraud and Other Data/*.csv",
-            "State MSA Identity Theft Data/*.csv"
+            "state_msa_fraud_and_other_data_*.csv",
+            "state_msa_identity_theft_data_*.csv"
         ]
     }
 ]

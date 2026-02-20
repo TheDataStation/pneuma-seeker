@@ -5,8 +5,8 @@
         "answer": 7.52,
         "answer_type": "numeric_exact",
         "data_sources": [
-            "STORM-AI/warmup/v2/Sat_Density/swarma-wu016-20140314_to_20140317.csv",
-            "STORM-AI/warmup/v2/Sat_Density/swarma-wu545-20180718_to_20180721.csv"
+            "swarma-wu016-20140314_to_20140317.csv",
+            "swarma-wu545-20180718_to_20180721.csv"
         ]
     },
     {
@@ -15,8 +15,8 @@
         "answer": 7.95e-13,
         "answer_type": "numeric_exact",
         "data_sources": [
-            "STORM-AI/warmup/v2/wu001_to_wu715-initial_states.csv",
-            "STORM-AI/warmup/v2/Sat_Density/swarma-*2015*.csv"
+            "wu001_to_wu715-initial_states.csv",
+            "swarma-*2015*.csv"
         ]
     },
     {
@@ -37,8 +37,8 @@
         ],
         "answer_type": "list_approximate",
         "data_sources": [
-            "space-track/58214_storm.csv",
-            "space-track/58214_quiet.csv"
+            "space-track_58214_storm.csv",
+            "space-track_58214_quiet.csv"
         ]
     },
     {
@@ -47,12 +47,12 @@
         "answer": 1.211e-13,
         "answer_type": "numeric_exact",
         "data_sources": [
-            "STORM-AI/warmup/v2/OMNI2/omni2-wu334-20161022_to_20161024.csv",
-            "STORM-AI/warmup/v2/GOES/goes-wu334-20161022_to_20161024.csv",
-            "STORM-AI/warmup/v2/Sat_Density/swarma-wu334-20161022_to_20161024.csv",
-            "STORM-AI/warmup/v2/OMNI2/omni2-wu335-20161025_to_20161029.csv",
-            "STORM-AI/warmup/v2/GOES/goes-wu335-20161025_to_20161029.csv",
-            "STORM-AI/warmup/v2/Sat_Density/swarma-wu335-20161025_to_20161029.csv"
+            "omni2-wu334-20161022_to_20161024.csv",
+            "goes-wu334-20161022_to_20161024.csv",
+            "swarma-wu334-20161022_to_20161024.csv",
+            "omni2-wu335-20161025_to_20161029.csv",
+            "goes-wu335-20161025_to_20161029.csv",
+            "swarma-wu335-20161025_to_20161029.csv"
         ]
     }
 ]
