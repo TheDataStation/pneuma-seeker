@@ -1,4 +1,4 @@
-![The Architecture of Pneuma-Seeker](etc/pneuma_seeker.png)
+![The Architecture of Pneuma-Seeker](pneuma_seeker.png)
 
 # Pneuma-Seeker
 
