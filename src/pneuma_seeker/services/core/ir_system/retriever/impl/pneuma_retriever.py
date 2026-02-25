@@ -20,6 +20,7 @@ from scipy.spatial.distance import cosine
 from tiktoken import encoding_for_model
 from torch import cuda
 from tqdm import tqdm
+import json
 
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
@@ -193,12 +194,41 @@ class PneumaRetriever(AbstractRetriever):
                 actual_table = self.db_api.execute_query(
                     self.user_id, self.chat_id, query_table
                 )
+
+                # Fetch authoritative column types from DuckDB (not pandas sample dtypes).
+                duckdb_col_types: dict[str, str] = {}
+                try:
+                    col_types_df = self.db_api.execute_query(
+                        self.user_id,
+                        self.chat_id,
+                        """
+                        SELECT column_name, data_type
+                        FROM information_schema.columns
+                                                WHERE table_name = ?
+                                                    AND (table_schema = ? OR table_catalog = ?)
+                        ORDER BY ordinal_position
+                        """.strip(),
+                                                (table_name, self.config.DATA_SOURCES[0], self.config.DATA_SOURCES[0]),
+                    )
+                    duckdb_col_types = {
+                        clean_column_table_name(str(col)): str(dtype)
+                        for col, dtype in zip(
+                            col_types_df["column_name"].tolist(),
+                            col_types_df["data_type"].tolist(),
+                        )
+                    }
+                except Exception:
+                    duckdb_col_types = {}
                 table_metadata: dict[str, str] = {
                     "description": self.db_api.get_table_description(
                         self.config.DATA_SOURCES[0], table_name
                     ),
                     "dataset_name": self.config.DATA_SOURCES[0],
                 }
+                if duckdb_col_types:
+                    table_metadata["column_types"] = json.dumps(
+                        duckdb_col_types, ensure_ascii=False
+                    )
 
                 actual_table.rename(columns=clean_column_table_name, inplace=True)
                 retrieval_results.append(
@@ -245,18 +275,48 @@ class PneumaRetriever(AbstractRetriever):
                         self.chat_id,
                         booster_query,
                     )
+
+                    duckdb_col_types: dict[str, str] = {}
+                    try:
+                        col_types_df = self.db_api.execute_query(
+                            self.user_id,
+                            self.chat_id,
+                            """
+                            SELECT column_name, data_type
+                            FROM information_schema.columns
+                                                        WHERE table_name = ?
+                                                            AND (table_schema = ? OR table_catalog = ?)
+                            ORDER BY ordinal_position
+                            """.strip(),
+                                                        (table_id, self.config.DATA_SOURCES[0], self.config.DATA_SOURCES[0]),
+                        )
+                        duckdb_col_types = {
+                            clean_column_table_name(str(col)): str(dtype)
+                            for col, dtype in zip(
+                                col_types_df["column_name"].tolist(),
+                                col_types_df["data_type"].tolist(),
+                            )
+                        }
+                    except Exception:
+                        duckdb_col_types = {}
+
+                    booster_metadata: dict[str, str] = {
+                        "dataset_name": self.config.DATA_SOURCES[0],
+                        "description": table_description,
+                        "keywords_existence": ", ".join(
+                            sorted(table_keywords.get(table_id, []))
+                        ),
+                    }
+                    if duckdb_col_types:
+                        booster_metadata["column_types"] = json.dumps(
+                            duckdb_col_types, ensure_ascii=False
+                        )
                     retrieval_results.append(
                         Table(
                             doc_id=table_id,
                             retriever_type=RetrieverType.PNEUMA_RETRIEVER,
                             content=booster_table,
-                            metadata={
-                                "dataset_name": self.config.DATA_SOURCES[0],
-                                "description": table_description,
-                                "keywords_existence": ", ".join(
-                                    sorted(table_keywords.get(table_id, []))
-                                ),
-                            },
+                            metadata=booster_metadata,
                             path=f'{self.config.DATA_SOURCES[0]}."{table_id}"',
                         )
                     )

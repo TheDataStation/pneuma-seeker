@@ -40,30 +40,6 @@ class IRSystemSchemaTests(unittest.TestCase):
         self.assertIn("Test content", result)
         self.assertIn("- ```", result)
 
-    def test_convert_retrieval_results_to_str_multiple_documents_normal_mode(self):
-        """Test converting multiple documents in normal mode."""
-        docs: list[AbstractDocument] = [
-            Text(
-                doc_id="doc1",
-                retriever_type=RetrieverType.DOCUMENT_DB,
-                content="Content 1",
-                metadata={"source": "test"},
-            ),
-            Text(
-                doc_id="doc2",
-                retriever_type=RetrieverType.DOCUMENT_DB,
-                content="Content 2",
-                metadata={"source": "test"},
-            ),
-        ]
-        result = convert_retrieval_results_to_str(docs, multi_topic_mode=False)
-        self.assertIn("doc1", result)
-        self.assertIn("doc2", result)
-        self.assertIn("Content 1", result)
-        self.assertIn("Content 2", result)
-        # Should have two document entries
-        self.assertEqual(result.count("- ```"), 2)
-
     def test_convert_retrieval_results_to_str_multi_topic_mode_single_topic(self):
         """Test converting documents with single topic in multi-topic mode."""
         docs: list[AbstractDocument] = [
@@ -80,7 +56,7 @@ class IRSystemSchemaTests(unittest.TestCase):
                 metadata={"source": "web", "topic": "python"},
             ),
         ]
-        result = convert_retrieval_results_to_str(docs, multi_topic_mode=True)
+        result = convert_retrieval_results_to_str(docs)
         self.assertIn("- Topic: python", result)
         self.assertIn("doc1", result)
         self.assertIn("doc2", result)
@@ -109,7 +85,7 @@ class IRSystemSchemaTests(unittest.TestCase):
                 metadata={"topic": "python"},
             ),
         ]
-        result = convert_retrieval_results_to_str(docs, multi_topic_mode=True)
+        result = convert_retrieval_results_to_str(docs)
         self.assertIn("- Topic: python", result)
         self.assertIn("- Topic: java", result)
         self.assertIn("doc1", result)
@@ -128,7 +104,7 @@ class IRSystemSchemaTests(unittest.TestCase):
                 metadata={"source": "test"},
             ),
         ]
-        result = convert_retrieval_results_to_str(docs, multi_topic_mode=True)
+        result = convert_retrieval_results_to_str(docs)
         self.assertIn("- Topic: unknown", result)
         self.assertIn("doc1", result)
 
@@ -193,7 +169,7 @@ class IRSystemSchemaTests(unittest.TestCase):
                 metadata={"topic": "web", "table_name": "t2", "dataset_name": "d2", "type": "desc"},
             ),
         ]
-        result = convert_retrieval_results_to_str(docs, multi_topic_mode=True)
+        result = convert_retrieval_results_to_str(docs)
         self.assertIn("- Topic: web", result)
         self.assertIn("- Topic: database", result)
         self.assertIn("text1", result)

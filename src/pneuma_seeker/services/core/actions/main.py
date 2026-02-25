@@ -14,7 +14,9 @@ from pneuma_seeker.provenance.provenance_helper import (
     generate_table_select_code,
     generate_view_textual_document_code,
 )
+from pneuma_seeker.services.core.actions.executors.query_executor import QueryExecutor
 from pneuma_seeker.services.core.actions.executors.python_executor import PythonExecutor
+from pneuma_seeker.services.core.actions.operators.equality_join import EqualityJoin
 from pneuma_seeker.services.core.actions.operators.semantic_column_generation import (
     SemanticColumnGeneration,
 )
@@ -25,6 +27,7 @@ from pneuma_seeker.services.core.actions.operators.semantic_join import (
 from pneuma_seeker.services.core.actions.operators.table_projection import (
     TableProjection,
 )
+from pneuma_seeker.services.core.actions.operators.table_union import TableUnion
 from pneuma_seeker.services.core.actions.retrievers.join_path_extraction import (
     JoinPathExtraction,
 )
@@ -119,6 +122,15 @@ class ActionSet:
             self.language_model_api,
         )
 
+        self.query_executor = QueryExecutor(
+            self.user_id,
+            self.chat_id,
+            self.config,
+            self.logger,
+            self.db_api,
+            self.language_model_api,
+        )
+
         self.semantic_join = SemanticJoin(
             self.user_id,
             self.chat_id,
@@ -143,6 +155,22 @@ class ActionSet:
             self.db_api,
             self.language_model_api,
         )
+        self.equality_join = EqualityJoin(
+            self.user_id,
+            self.chat_id,
+            self.config,
+            self.logger,
+            self.db_api,
+            self.language_model_api,
+        )
+        self.table_union = TableUnion(
+            self.user_id,
+            self.chat_id,
+            self.config,
+            self.logger,
+            self.db_api,
+            self.language_model_api,
+        )
 
         self.valid_conductor_actions = [
             ActionNames.USER_FACING_COMMUNICATION.value,
@@ -157,10 +185,13 @@ class ActionSet:
             ActionNames.SITUATIONAL_ANALYSIS.value,
             ActionNames.TABLE_RETRIEVE.value,
             ActionNames.TABLE_ENUMERATION.value,
+            ActionNames.QUERY_EXECUTOR.value,
             ActionNames.PYTHON_EXECUTOR.value,
             ActionNames.TABLE_PROJECTION.value,
             ActionNames.SEMANTIC_JOIN.value,
             ActionNames.SEMANTIC_COLUMN_GENERATION.value,
+            ActionNames.TABLE_UNION.value,
+            ActionNames.EQUALITY_JOIN.value,
         ]
         if self.config.ENABLE_WEB_SEARCH:
             self.valid_conductor_actions.append(ActionNames.WEB_SEARCH.value)
@@ -214,20 +245,62 @@ class ActionSet:
     def discover_join_paths(self, tables: list[AbstractDocument]) -> str:
         tables_df: dict[str, DataFrame] = {doc.doc_id: doc.content for doc in tables}
         return self.join_path_extraction.discover_join_paths(tables_df)
+    
+    def join_equality(
+        self,
+        left_table_id: str,
+        right_table_id: str,
+        left_table_column_keys: list[str],
+        right_table_column_keys: list[str],
+        result_table_id: str,
+    ) -> DataFrame:
+        return self.equality_join.apply(
+            {
+                "left_table_id": left_table_id,
+                "right_table_id": right_table_id,
+                "left_table_column_keys": left_table_column_keys,
+                "right_table_column_keys": right_table_column_keys,
+                "result_table_id": result_table_id,
+            }
+        )
+
+    def union_tables(
+        self,
+        table_ids: list[str],
+        result_table_id: str,
+        provenance_column_name: str,
+        provenance_regex: str,
+    ) -> DataFrame:
+        return self.table_union.apply(
+            {
+                "table_ids": table_ids,
+                "result_table_id": result_table_id,
+                "provenance_column_name": provenance_column_name,
+                "provenance_regex": provenance_regex,
+            }
+        )
 
     def project_table(
-        self, src_table_id: str, target_table_id: str, src_table_columns: list[str]
+        self,
+        src_table_id: str,
+        target_table_id: str,
+        column_mapping: dict[str, str],
     ) -> DataFrame:
         return self.table_projection.apply(
             {
                 "src_table_id": src_table_id,
                 "target_table_id": target_table_id,
-                "src_table_columns": src_table_columns,
+                "column_mapping": column_mapping,
             }
         )
 
     def execute_code(self, code: str, result_table_id: str) -> DataFrame:
         return self.python_executor.execute({"code": code, "result_table_id": result_table_id})
+
+    def execute_query(self, query: str, result_table_id: str) -> DataFrame:
+        return self.query_executor.execute(
+            {"query": query, "result_table_id": result_table_id}
+        )
 
     def join_semantic(
         self,

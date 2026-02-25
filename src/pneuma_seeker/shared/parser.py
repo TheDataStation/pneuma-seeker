@@ -14,14 +14,27 @@ def parse_json(json_string: str) -> dict:
     if not isinstance(json_string, str):
         raise ValueError("Input must be a string")
     json_string = json_string.strip()
-    json_string = json_string.strip()
     json_string = re.sub(r"^```(?:json)?\s*", "", json_string)
     json_string = re.sub(r"\s*```$", "", json_string)
     json_string = json_string.strip()
+
+    decoder = json.JSONDecoder()
     try:
-        return json.loads(json_string)
-    except json.JSONDecodeError as exc:
-        raise ValueError("Invalid JSON string") from exc
+        obj, _end = decoder.raw_decode(json_string)
+    except json.JSONDecodeError:
+        # Be tolerant of accidental prefix/suffix text by extracting the first JSON
+        # object/array-looking region.
+        match = re.search(r"[\[{]", json_string)
+        if not match:
+            raise ValueError("Invalid JSON string")
+        try:
+            obj, _end = decoder.raw_decode(json_string[match.start() :])
+        except json.JSONDecodeError as exc:
+            raise ValueError("Invalid JSON string") from exc
+
+    if not isinstance(obj, dict):
+        raise ValueError("Invalid JSON string")
+    return obj
 
 
 def parse_sql(sql_string: str) -> str:

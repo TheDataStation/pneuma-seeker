@@ -2,6 +2,8 @@ from abc import ABC
 from enum import Enum
 from typing import Any
 
+import json
+
 from pandas import DataFrame
 
 
@@ -104,16 +106,28 @@ class Table(AbstractDocument):
         table_id = self.doc_id
         if "dataset_name" in self.metadata:
             table_id += f" (dataset: {self.metadata['dataset_name']})"
+
+        duckdb_col_types: dict[str, str] = {}
+        col_types_raw = self.metadata.get("column_types")
+        if isinstance(col_types_raw, str) and col_types_raw.strip():
+            try:
+                parsed = json.loads(col_types_raw)
+                if isinstance(parsed, dict):
+                    duckdb_col_types = {
+                        str(k): str(v) for k, v in parsed.items() if v is not None
+                    }
+            except Exception:
+                duckdb_col_types = {}
+
         cols = " | ".join(
-            f"{col} ({dtype})" for col, dtype in zip(table.columns, table.dtypes)
+            f"{col} ({duckdb_col_types.get(col, dtype)})"
+            for col, dtype in zip(table.columns, table.dtypes)
         )
 
         if "description" in self.metadata and "keywords_existence" in self.metadata:
             header = f"Table {table_id} ({self.metadata['description']}; include these keywords: {self.metadata['keywords_existence']}):\ncol: {cols}"
         elif "description" in self.metadata:
-            header = (
-                f"Table {table_id} ({self.metadata['description']}):\ncol: {cols}"
-            )
+            header = f"Table {table_id} ({self.metadata['description']}):\ncol: {cols}"
         elif "keywords_existence" in self.metadata:
             header = (
                 f"Table {table_id} "
@@ -172,28 +186,22 @@ class Text(AbstractDocument):
         super().__init__(doc_id, retriever_type, content, metadata, path, last_node_id)
 
 
-def convert_retrieval_results_to_str(
-    retrieval_results: list[AbstractDocument], multi_topic_mode: bool = False
-):
+def convert_retrieval_results_to_str(retrieval_results: list[AbstractDocument]):
     representation = ""
     seen_docs: set[str] = set()
-    if multi_topic_mode:
-        topic_documents: dict[str, list[AbstractDocument]] = {}
-        for result in retrieval_results:
-            topic = result.metadata.get("topic", "unknown")
-            if topic not in topic_documents:
-                topic_documents[topic] = []
-            topic_documents[topic].append(result)
+    topic_documents: dict[str, list[AbstractDocument]] = {}
+    for result in retrieval_results:
+        topic = result.metadata.get("topic", "unknown")
+        if topic not in topic_documents:
+            topic_documents[topic] = []
+        topic_documents[topic].append(result)
 
-        for topic, docs in topic_documents.items():
-            representation += f"- Topic: {topic}\n"
-            for doc in docs:
-                if doc.doc_id in seen_docs:
-                    representation += f"  - Table {doc.doc_id}\n"
-                else:
-                    representation += f"  - ```{str(doc)}```\n"
-                    seen_docs.add(doc.doc_id)
-    else:
-        for result in retrieval_results:
-            representation += f"- ```{str(result)}```\n"
+    for topic, docs in topic_documents.items():
+        representation += f"- Topic: {topic}\n"
+        for doc in docs:
+            if doc.doc_id in seen_docs:
+                representation += f"  - Table {doc.doc_id}\n"
+            else:
+                representation += f"  - ```{str(doc)}```\n"
+                seen_docs.add(doc.doc_id)
     return representation.strip()

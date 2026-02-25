@@ -18,6 +18,10 @@ class ParserTests(unittest.TestCase):
         js = '```json\n{"a":1}```'
         self.assertEqual(parser.parse_json(js), {"a": 1})
 
+    def test_parse_json_with_prefix_suffix_text(self):
+        js = 'Sure. {"a": 1, "b": 2} Thanks.'
+        self.assertEqual(parser.parse_json(js), {"a": 1, "b": 2})
+
     def test_parse_json_invalid_type(self):
         with self.assertRaises(ValueError):
             parser.parse_json(123)  # type: ignore

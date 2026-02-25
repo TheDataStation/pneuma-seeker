@@ -1,3 +1,4 @@
+import re
 from typing import Any
 from pandas import DataFrame
 
@@ -11,7 +12,7 @@ class TableProjection(Action, Applicable):
         return ActionNames.TABLE_PROJECTION.value
 
     def get_description(self) -> str:
-        return "Projects a table to a subset of its columns. Expects a 'table' (DataFrame) and 'relevant_columns' (list of column names) as input, and returns a new DataFrame containing only the specified columns with sample rows."
+        return "Projects a DB-backed table (internal, external, or intermediate) to a subset of its columns (optionally renaming them), materializing the result as a new workspace table and returning a small preview."
 
     def get_input_schema(self) -> dict[str, str]:
         return {}
@@ -22,28 +23,81 @@ class TableProjection(Action, Applicable):
     def apply(self, input: dict[str, Any]) -> DataFrame:
         src_table_id = input.get("src_table_id")
         target_table_id = input.get("target_table_id")
-        src_table_columns = input.get("src_table_columns")
+        column_mapping = input.get("column_mapping")
 
         if not isinstance(src_table_id, str):
             raise ValueError("Input 'src_table_id' must be a string.")
         if not isinstance(target_table_id, str):
             raise ValueError("Input 'target_table_id' must be a string.")
-        if not isinstance(src_table_columns, list) or not all(
-            isinstance(col, str) for col in src_table_columns
-        ):
-            raise ValueError("Input 'src_table_columns' must be a list of strings.")
-        if len(src_table_columns) == 0:
-            raise ValueError("src_table_columns must contain at least one column.")
 
-        self.db_api.link_dataset_tables(
-            self.user_id, self.chat_id, self.config.DATA_SOURCES[0]
+        if not isinstance(column_mapping, dict):
+            raise ValueError(
+                "Input 'column_mapping' must be a dict[str, str] mapping output column names to source column names."
+            )
+        if len(column_mapping) == 0:
+            raise ValueError("column_mapping must contain at least one mapping.")
+        if not all(
+            isinstance(alias, str) and isinstance(source, str)
+            for alias, source in column_mapping.items()
+        ):
+            raise ValueError("Input 'column_mapping' must map strings to strings.")
+
+        column_mapping = dict(column_mapping)
+
+        src_table_ref = self.__validate_table_ref(src_table_id)
+        self.__link_datasets_for_table_ref(src_table_ref)
+
+        cols_sql = ", ".join(
+            f"{self.__quote_ident(source)} AS {self.__quote_ident(alias)}"
+            for alias, source in column_mapping.items()
         )
-        cols_sql = ", ".join(f'"{c}"' for c in src_table_columns)
         self.db_api.execute_query(
             self.user_id,
             self.chat_id,
-            f'CREATE OR REPLACE TABLE "{target_table_id}" AS SELECT {cols_sql} FROM {src_table_id};',
+            f'CREATE OR REPLACE TABLE {self.__quote_ident(target_table_id)} AS SELECT {cols_sql} FROM {src_table_ref};',
         )
         return self.db_api.execute_query(
-            self.user_id, self.chat_id, f'SELECT * FROM "{target_table_id}" LIMIT 5;'
+            self.user_id,
+            self.chat_id,
+            f"SELECT * FROM {self.__quote_ident(target_table_id)} LIMIT 5;",
         )
+
+    def __quote_ident(self, identifier: str) -> str:
+        escaped = identifier.replace('"', '""')
+        return f'"{escaped}"'
+
+    _IDENT_RE = r"[A-Za-z_][A-Za-z0-9_]*"
+    _QUOTED_IDENT_RE = r'"(?:[^"]|"")*"'
+    _TABLE_REF_RE = re.compile(
+        rf"^(?:{_IDENT_RE}|{_QUOTED_IDENT_RE})(?:\.(?:{_IDENT_RE}|{_QUOTED_IDENT_RE}))?$"
+    )
+
+    def __validate_table_ref(self, table_ref: str) -> str:
+        """Validate that a user-provided table reference is safe to embed in SQL.
+
+        Per the materializer prompt contract, callers must provide either:
+        - Workspace/intermediate table name (e.g. my_table)
+        - Dataset-qualified table ref (e.g. dataset.table or dataset.\"table\")
+        """
+
+        if not isinstance(table_ref, str):
+            raise ValueError("Table reference must be a string.")
+        stripped = table_ref.strip()
+        if not self._TABLE_REF_RE.fullmatch(stripped):
+            raise ValueError(
+                "Invalid table reference format. Use a bare table name or dataset-qualified form like dataset.table or dataset.\"table\"."
+            )
+        return stripped
+
+    def __link_datasets_for_table_ref(self, table_ref: str) -> None:
+        """If table_ref is dataset-qualified, ensure the dataset is attached."""
+
+        if "." not in table_ref:
+            return
+
+        dataset_part = table_ref.split(".", 1)[0].strip()
+        if dataset_part.startswith('"') and dataset_part.endswith('"'):
+            dataset_part = dataset_part[1:-1].replace('""', '"')
+
+        if self.config.DATA_SOURCES and dataset_part in self.config.DATA_SOURCES:
+            self.db_api.link_dataset_tables(self.user_id, self.chat_id, dataset_part)

@@ -48,17 +48,11 @@ class Config:
         self.ENABLE_WEB_SEARCH = getenv("ENABLE_WEB_SEARCH", "false").lower() == "true"
         self.ENABLE_WEB_CRAWL = getenv("ENABLE_WEB_CRAWL", "true").lower() == "true"
         self.WEB_CRAWL_MAX_CHARS = int(getenv("WEB_CRAWL_MAX_CHARS", "5000"))     
-        self.ENABLE_JOIN_PATH_EXTRACTION = (
-            getenv("ENABLE_JOIN_PATH_EXTRACTION", "true").lower() == "true"
-        )
         self.JOIN_PATH_EXTRACTION_ALPHA = float(
             getenv("JOIN_PATH_EXTRACTION_NAME_SIMILARITY_WEIGHT", "0.6")
         )
         self.JOIN_PATH_EXTRACTION_TOP_K = int(
             getenv("JOIN_PATH_EXTRACTION_TOP_K", "5")
-        )
-        self.ENABLE_MULTI_TOPIC_TABLE_RETRIEVE = (
-            getenv("ENABLE_MULTI_TOPIC_TABLE_RETRIEVE", "true").lower() == "true"
         )
         self.TABLE_RETRIEVE_MAX_TOPICS = int(getenv("TABLE_RETRIEVE_MAX_TOPICS", "3"))
         self.TABLE_RETRIEVE_ENABLE_ENTITIES_RELEVANCE_BOOSTER = (
@@ -66,6 +60,9 @@ class Config:
         )
 
         ## Semantic Action Settings
+        self.ENABLE_SEMANTIC_JOIN = getenv("ENABLE_SEMANTIC_JOIN", "false").lower() == "true"
+        self.ENABLE_SEMANTIC_COL_GEN = getenv("ENABLE_SEMANTIC_COL_GEN", "false").lower() == "true"
+
         self.SEMANTIC_JOIN_TOP_K = 1
         self.SEMANTIC_JOIN_BATCH_SIZE = max(
             1, int(getenv("SEMANTIC_JOIN_BATCH_SIZE", "30"))

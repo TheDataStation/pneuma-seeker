@@ -85,10 +85,8 @@ class ConfigTests(unittest.TestCase):
         self.assertIsInstance(cfg.ENABLE_WEB_SEARCH, bool)
         self.assertIsInstance(cfg.ENABLE_WEB_CRAWL, bool)
         self.assertIsInstance(cfg.WEB_CRAWL_MAX_CHARS, int)
-        self.assertIsInstance(cfg.ENABLE_JOIN_PATH_EXTRACTION, bool)
         self.assertIsInstance(cfg.JOIN_PATH_EXTRACTION_ALPHA, float)
         self.assertIsInstance(cfg.JOIN_PATH_EXTRACTION_TOP_K, int)
-        self.assertIsInstance(cfg.ENABLE_MULTI_TOPIC_TABLE_RETRIEVE, bool)
         self.assertIsInstance(cfg.TABLE_RETRIEVE_MAX_TOPICS, int)
         self.assertIsInstance(cfg.TABLE_RETRIEVE_ENABLE_ENTITIES_RELEVANCE_BOOSTER, bool)
         

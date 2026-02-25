@@ -78,7 +78,7 @@ class TableProjectionTests(unittest.TestCase):
             {
                 "src_table_id": "test_ds.src_table",
                 "target_table_id": "target_table",
-                "src_table_columns": ["c", "a"],
+                "column_mapping": {"c": "c", "a": "a"},
             }
         )
 
@@ -106,7 +106,7 @@ class TableProjectionTests(unittest.TestCase):
             {
                 "src_table_id": "test_ds.src_table",
                 "target_table_id": "target_table",
-                "src_table_columns": ["b"],
+                "column_mapping": {"b": "b"},
             }
         )
 
@@ -124,7 +124,7 @@ class TableProjectionTests(unittest.TestCase):
                 {
                     "src_table_id": None,
                     "target_table_id": "target_table",
-                    "src_table_columns": ["a"],
+                    "column_mapping": {"a": "a"},
                 }
             )
         self.assertIn("Input 'src_table_id' must be a string", str(context.exception))
@@ -135,7 +135,7 @@ class TableProjectionTests(unittest.TestCase):
                 {
                     "src_table_id": "test_ds.src_table",
                     "target_table_id": 123,
-                    "src_table_columns": ["a"],
+                    "column_mapping": {"a": "a"},
                 }
             )
         self.assertIn(
@@ -148,11 +148,11 @@ class TableProjectionTests(unittest.TestCase):
                 {
                     "src_table_id": "test_ds.src_table",
                     "target_table_id": "target_table",
-                    "src_table_columns": "a",
+                    "column_mapping": "a",
                 }
             )
         self.assertIn(
-            "Input 'src_table_columns' must be a list of strings",
+            "Input 'column_mapping' must be a dict[str, str]",
             str(context.exception),
         )
 
@@ -162,11 +162,11 @@ class TableProjectionTests(unittest.TestCase):
                 {
                     "src_table_id": "test_ds.src_table",
                     "target_table_id": "target_table",
-                    "src_table_columns": [1, 2],
+                    "column_mapping": {"a": 1},
                 }
             )
         self.assertIn(
-            "Input 'src_table_columns' must be a list of strings",
+            "Input 'column_mapping' must map strings to strings",
             str(context.exception),
         )
 
@@ -176,11 +176,11 @@ class TableProjectionTests(unittest.TestCase):
                 {
                     "src_table_id": "test_ds.src_table",
                     "target_table_id": "target_table",
-                    "src_table_columns": [],
+                    "column_mapping": {},
                 }
             )
         self.assertIn(
-            "src_table_columns must contain at least one column",
+            "column_mapping must contain at least one mapping",
             str(context.exception),
         )
 
@@ -192,7 +192,7 @@ class TableProjectionTests(unittest.TestCase):
                 {
                     "src_table_id": "test_ds.src_table",
                     "target_table_id": "target_table",
-                    "src_table_columns": ["missing"],
+                    "column_mapping": {"missing": "missing"},
                 }
             )
 
@@ -202,7 +202,7 @@ class TableProjectionTests(unittest.TestCase):
                 {
                     "src_table_id": "missing_table",
                     "target_table_id": "target_table",
-                    "src_table_columns": ["a"],
+                    "column_mapping": {"a": "a"},
                 }
             )
 
@@ -217,7 +217,7 @@ class TableProjectionTests(unittest.TestCase):
             {
                 "src_table_id": "test_ds.src_table",
                 "target_table_id": "target_table",
-                "src_table_columns": ["x_y", "col_name"],
+                "column_mapping": {"x_y": "x_y", "col_name": "col_name"},
             }
         )
 
@@ -235,7 +235,7 @@ class TableProjectionTests(unittest.TestCase):
             {
                 "src_table_id": "test_ds.src_table",
                 "target_table_id": "target_table",
-                "src_table_columns": ["b"],
+                "column_mapping": {"b": "b"},
             }
         )
 
@@ -253,9 +253,87 @@ class TableProjectionTests(unittest.TestCase):
             {
                 "src_table_id": "test_ds.src_table",
                 "target_table_id": "target_table",
-                "src_table_columns": ["a"],
+                "column_mapping": {"a": "a"},
             }
         )
 
         self.assertEqual(list(result.columns), ["a"])
         self.assertEqual(len(result), 5)
+
+    def test_apply_projects_with_alias_mapping_and_returns_sample(self):
+        self._create_src_table("src_table")
+
+        result = self.table_projection.apply(
+            {
+                "src_table_id": "test_ds.src_table",
+                "target_table_id": "target_table",
+                "column_mapping": {"c_alias": "c", "a_alias": "a"},
+            }
+        )
+
+        self.assertEqual(list(result.columns), ["c_alias", "a_alias"])
+        self.assertEqual(result.iloc[0]["c_alias"], 5)
+        self.assertEqual(result.iloc[1]["a_alias"], 2)
+
+        persisted = self.db_api.execute_query(
+            self.user_id,
+            self.chat_id,
+            'SELECT * FROM "target_table" ORDER BY "a_alias"',
+        )
+        self.assertEqual(list(persisted.columns), ["c_alias", "a_alias"])
+        self.assertEqual(persisted.iloc[0]["c_alias"], 5)
+
+    def test_apply_alias_mapping_missing_source_column_raises(self):
+        self._create_src_table("src_table")
+
+        with pytest.raises(Exception):
+            self.table_projection.apply(
+                {
+                    "src_table_id": "test_ds.src_table",
+                    "target_table_id": "target_table",
+                    "column_mapping": {"x": "missing"},
+                }
+            )
+
+    def test_apply_can_project_from_workspace_table(self):
+        self._create_src_table("src_table")
+
+        # First projection creates an intermediate/workspace table.
+        self.table_projection.apply(
+            {
+                "src_table_id": "test_ds.src_table",
+                "target_table_id": "intermediate_table",
+                "column_mapping": {"a": "a", "b": "b"},
+            }
+        )
+
+        # Second projection uses that workspace table as the source.
+        result = self.table_projection.apply(
+            {
+                "src_table_id": "intermediate_table",
+                "target_table_id": "target_table",
+                "column_mapping": {"b": "b"},
+            }
+        )
+
+        self.assertEqual(list(result.columns), ["b"])
+        persisted = self.db_api.execute_query(
+            self.user_id,
+            self.chat_id,
+            'SELECT * FROM "target_table" ORDER BY "b"',
+        )
+        self.assertEqual(list(persisted.columns), ["b"])
+        self.assertEqual(persisted.iloc[0]["b"], 3)
+
+    def test_apply_accepts_quoted_dataset_table_ref(self):
+        self._create_src_table("src_table")
+
+        result = self.table_projection.apply(
+            {
+                "src_table_id": 'test_ds."src_table"',
+                "target_table_id": "target_table",
+                "column_mapping": {"a": "a"},
+            }
+        )
+
+        self.assertEqual(list(result.columns), ["a"])

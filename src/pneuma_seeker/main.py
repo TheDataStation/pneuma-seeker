@@ -276,20 +276,41 @@ async def chat(request: Request):
         def run_chat_with_profiling():
             from psutil import Process
             from os import getpid
+            from gc import collect
+            from tracemalloc import start, stop, get_traced_memory
+            from time import time
 
             p = Process(getpid())
 
-            def mem():
-                return str(p.memory_info().rss / 1024 / 1024)
+            def rss_mb():
+                return p.memory_info().rss / 1024 / 1024
 
-            logger.info(f"[MEMORY PROFILING] run_chat start mem: {mem()} MB")
+            collect()
+            start()
+
+            baseline_rss = rss_mb()
+            t0 = time()
+
+            logger.info(f"[MEM] baseline RSS: {baseline_rss:.2f} MB")
+
+            peak_rss = baseline_rss
 
             try:
                 for msg in chat_session.chat(llm_messages, files):
-                    logger.info(f"[MEMORY PROFILING] mem mid: {mem()} MB")
+                    cur = rss_mb()
+                    peak_rss = max(peak_rss, cur)
+                    logger.info(f"[MEM] RSS now: {cur:.2f} MB")
                     response_queue.put(msg)
             finally:
-                logger.info(f"[MEMORY PROFILING] run_chat end mem: {mem()} MB")
+                cur, peak = get_traced_memory()
+                stop()
+                logger.info(f"[MEM] end RSS: {rss_mb():.2f} MB")
+                logger.info(f"[MEM] delta RSS: {rss_mb() - baseline_rss:.2f} MB")
+                logger.info(f"[MEM] peak RSS delta: {peak_rss - baseline_rss:.2f} MB")
+                logger.info(
+                    f"[MEM] tracemalloc peak Python alloc: {peak / 1024 / 1024:.2f} MB"
+                )
+                logger.info(f"[TIME] took {time() - t0:.2f}s")
                 response_queue.put(None)
 
         producer = create_task(

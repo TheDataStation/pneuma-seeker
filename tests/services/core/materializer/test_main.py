@@ -34,7 +34,6 @@ class MaterializerTests(unittest.TestCase):
 
         self.config = Config(".env.test")
         self.config.DATA_SOURCES = ["test_ds"]
-        self.config.ENABLE_MULTI_TOPIC_TABLE_RETRIEVE = False
         self.config.ENABLE_WEB_SEARCH = True
         self.config.ENABLE_WEB_CRAWL = True
         self.config.LLM_PATH = "mock"
@@ -75,8 +74,8 @@ class MaterializerTests(unittest.TestCase):
 
     def test_table_retrieve_and_table_projection_materializes_T(self):
         # LLM will ask to call table_retrieve then table_projection to materialize t1
-        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompt":"find tables"}}}}'
-        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":["a","b"]}}}}}}'
+        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}'
+        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
         self.lm_api.llm._responses = [f"""{{"plan": [{plan1}, {plan2}]}}"""]  # type: ignore
 
         table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
@@ -90,8 +89,10 @@ class MaterializerTests(unittest.TestCase):
             metadata={},
         )
 
-        # First call to retrieve_documents returns the table for table_retrieve
-        self.action_set.retrieve_documents = MagicMock(return_value=[table_doc])
+        # TABLE_RETRIEVE uses multi-topic retrieval.
+        self.action_set.retrieve_multi_topic_documents = MagicMock(
+            return_value=[table_doc]
+        )
 
         # Define target T (schema only) so materializer knows it needs t1
         T = {"t1": pd.DataFrame(columns=["a", "b"])}
@@ -116,11 +117,11 @@ class MaterializerTests(unittest.TestCase):
 
     def test_web_search_sets_web_search_result(self):
         # LLM will call table_retrieve, web_search, then table_projection to finish
-        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompt":"find tables"}}}}'
+        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}'
         plan2 = (
             f'{{"action":"{ActionNames.WEB_SEARCH.value}","args":{{"prompt":"query"}}}}'
         )
-        plan3 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":["a","b"]}}}}}}'
+        plan3 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
         self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}, {plan3}]}}']  # type: ignore
 
         table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
@@ -142,9 +143,10 @@ class MaterializerTests(unittest.TestCase):
         )
 
         # First call returns the table, second call returns the web result
-        self.action_set.retrieve_documents = MagicMock(
-            side_effect=[[table_doc], [web_text]]
+        self.action_set.retrieve_multi_topic_documents = MagicMock(
+            return_value=[table_doc]
         )
+        self.action_set.retrieve_documents = MagicMock(return_value=[web_text])
 
         T = {"t1": pd.DataFrame(columns=["a", "b"])}
 
@@ -188,9 +190,9 @@ class MaterializerTests(unittest.TestCase):
 
     def test_web_crawl_sets_web_crawl_result(self):
         # LLM will call table_retrieve, web_crawl, then table_projection to finish
-        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompt":"find tables"}}}}'
+        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}'
         plan2 = f'{{"action":"{ActionNames.WEB_CRAWL.value}","args":{{"url":"http://example.com"}}}}'
-        plan3 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":["a","b"]}}}}}}'
+        plan3 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
         self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}, {plan3}]}}']  # type: ignore
 
         table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
@@ -212,9 +214,10 @@ class MaterializerTests(unittest.TestCase):
         )
 
         # First call returns the table, second call returns the web result
-        self.action_set.retrieve_documents = MagicMock(
-            side_effect=[[table_doc], [web_text]]
+        self.action_set.retrieve_multi_topic_documents = MagicMock(
+            return_value=[table_doc]
         )
+        self.action_set.retrieve_documents = MagicMock(return_value=[web_text])
 
         T = {"t1": pd.DataFrame(columns=["a", "b"])}
 
@@ -258,8 +261,8 @@ class MaterializerTests(unittest.TestCase):
 
     def test_semantic_column_generator_adds_column(self):
         # LLM will call table_retrieve, table_projection, then semantic_column_generator
-        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompt":"find tables"}}}}'
-        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":["a","b"]}}}}}}'
+        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}'
+        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
         plan3 = f'{{"action":"{ActionNames.SEMANTIC_COLUMN_GENERATION.value}","args":{{"table_id":"t1","new_column_name":"newcol","relevant_columns":["b"],"instruction":"make new"}}}}'
 
         # Mock the LLM responses using llm._responses (the internal list used by the LLM mock)
@@ -286,7 +289,9 @@ class MaterializerTests(unittest.TestCase):
             metadata={},
         )
 
-        self.action_set.retrieve_documents = MagicMock(return_value=[table_doc])
+        self.action_set.retrieve_multi_topic_documents = MagicMock(
+            return_value=[table_doc]
+        )
 
         T = {"t1": pd.DataFrame(columns=["a", "b", "newcol"])}
 
@@ -329,10 +334,10 @@ class MaterializerTests(unittest.TestCase):
         )
 
     def test_rematerialize_cleans_previous_intermediate_tables(self):
-        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompt":"find tables"}}}}'
-        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":["a","b"]}}}}}}'
-        plan3 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompt":"find other tables"}}}}'
-        plan4 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t2":{{"id":"test_ds.table_2","columns":["a","b"]}}}}}}'
+        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}'
+        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
+        plan3 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find other tables"]}}}}'
+        plan4 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t2":{{"id":"test_ds.table_2","columns":{{"a":"a","b":"b"}}}}}}}}'
 
         self.lm_api.llm._responses = [  # type: ignore
             f'{{"plan": [{plan1}, {plan2}]}}',
@@ -359,7 +364,7 @@ class MaterializerTests(unittest.TestCase):
             metadata={},
         )
 
-        self.action_set.retrieve_documents = MagicMock(
+        self.action_set.retrieve_multi_topic_documents = MagicMock(
             side_effect=[[table_doc_1], [table_doc_2]]
         )
 

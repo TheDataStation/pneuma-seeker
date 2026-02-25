@@ -222,6 +222,8 @@ class Conductor:
                 executor_part_of_plan = False
                 materializer_part_of_plan = False
                 user_facing_communication_part_of_plan = False
+                table_retrieve_part_of_plan = False
+                assumption_check_part_of_plan = False
                 for action_plan in plan:
                     assert isinstance(action_plan, dict)
                     if action_plan.get("action") is None:
@@ -250,10 +252,14 @@ class Conductor:
                         == ActionNames.MATERIALIZER.value
                     ):
                         materializer_part_of_plan = True
+                    if action_plan.get("action") == ActionNames.TABLE_RETRIEVE.value:
+                        table_retrieve_part_of_plan = True
+                    if action_plan.get("action") == ActionNames.ASSUMPTION_CHECK.value:
+                        assumption_check_part_of_plan = True
                 # Ensure there is no user-facing communication in the same plan as code execution (simply remove the user-facing part)
-                if (executor_part_of_plan or materializer_part_of_plan) and user_facing_communication_part_of_plan:
+                if (executor_part_of_plan or materializer_part_of_plan or table_retrieve_part_of_plan or assumption_check_part_of_plan) and user_facing_communication_part_of_plan:
                     self.__log(
-                        "==> Removing user-facing communication from plan due to presence of code execution or materialization."
+                        "==> Removing user-facing communication from plan due to presence of code execution or materialization or table retrieval or assumption check."
                     )
                     plan = [
                         action_plan
@@ -379,61 +385,36 @@ class Conductor:
                     self.__log(f"=> {error_msg}")
                     return error_msg, ActionExecutionStatus.ERROR
 
-                if self.config.ENABLE_MULTI_TOPIC_TABLE_RETRIEVE:
-                    if "prompts" not in action_args:
-                        error_msg = "=> `args` must have a `prompts` property"
-                        self.__log(f"=> {error_msg}")
-                        return error_msg, ActionExecutionStatus.ERROR
+                if "prompts" not in action_args:
+                    error_msg = "=> `args` must have a `prompts` property"
+                    self.__log(f"=> {error_msg}")
+                    return error_msg, ActionExecutionStatus.ERROR
 
-                    if not isinstance(action_args["prompts"], list) or not all(
-                        isinstance(p, str) for p in action_args["prompts"]
-                    ):
-                        error_msg = "=> `prompts` must be a list of strings"
-                        self.__log(f"=> {error_msg}")
-                        return error_msg, ActionExecutionStatus.ERROR
+                if not isinstance(action_args["prompts"], list) or not all(
+                    isinstance(p, str) for p in action_args["prompts"]
+                ):
+                    error_msg = "=> `prompts` must be a list of strings"
+                    self.__log(f"=> {error_msg}")
+                    return error_msg, ActionExecutionStatus.ERROR
 
-                    self.retrieved_tables = (
-                        self.action_set.retrieve_multi_topic_documents(
-                            action_args["prompts"],
-                            RetrieverType.PNEUMA_RETRIEVER,
-                            10,
-                            True,
-                            5,
-                        )
-                    )
-                else:
-                    if "prompt" not in action_args:
-                        error_msg = "=> `args` must have a `prompt` property"
-                        self.__log(f"=> {error_msg}")
-                        return error_msg, ActionExecutionStatus.ERROR
-
-                    if not isinstance(action_args["prompt"], str):
-                        error_msg = "=> `prompt` must be a string"
-                        self.__log(f"=> {error_msg}")
-                        return error_msg, ActionExecutionStatus.ERROR
-
-                    if len(action_args["prompt"].strip()) == 0:
-                        error_msg = "=> `prompt` must be a non-empty string"
-                        self.__log(f"=> {error_msg}")
-                        return error_msg, ActionExecutionStatus.ERROR
-
-                    self.retrieved_tables = self.action_set.retrieve_documents(
-                        action_args["prompt"],
+                self.retrieved_tables = (
+                    self.action_set.retrieve_multi_topic_documents(
+                        action_args["prompts"],
                         RetrieverType.PNEUMA_RETRIEVER,
                         10,
                         True,
-                        5,
+                        3,
                     )
+                )
 
                 self.__log(
                     f"Retrieved tables:\n {[i.doc_id for i in self.retrieved_tables]}"
                 )
 
                 try:
-                    if self.config.ENABLE_JOIN_PATH_EXTRACTION:
-                        self.join_paths = self.action_set.discover_join_paths(
-                            self.retrieved_tables
-                        )
+                    self.join_paths = self.action_set.discover_join_paths(
+                        self.retrieved_tables
+                    )
                 except Exception as e:
                     self.__log(f"=> Error during join path extraction: {e}")
 
@@ -507,59 +488,33 @@ class Conductor:
                     self.__log(f"=> {error_msg}")
                     return error_msg, ActionExecutionStatus.ERROR
 
-                if self.config.ENABLE_MULTI_TOPIC_TABLE_RETRIEVE:
-                    if "patterns" not in action_args:
-                        error_msg = "=> `args` must have a `patterns` property"
-                        self.__log(f"=> {error_msg}")
-                        return error_msg, ActionExecutionStatus.ERROR
+                if "patterns" not in action_args:
+                    error_msg = "=> `args` must have a `patterns` property"
+                    self.__log(f"=> {error_msg}")
+                    return error_msg, ActionExecutionStatus.ERROR
 
-                    if not isinstance(action_args["patterns"], list) or not all(
-                        isinstance(p, str) for p in action_args["patterns"]
-                    ):
-                        error_msg = "=> `patterns` must be a list of strings"
-                        self.__log(f"=> {error_msg}")
-                        return error_msg, ActionExecutionStatus.ERROR
+                if not isinstance(action_args["patterns"], list) or not all(
+                    isinstance(p, str) for p in action_args["patterns"]
+                ):
+                    error_msg = "=> `patterns` must be a list of strings"
+                    self.__log(f"=> {error_msg}")
+                    return error_msg, ActionExecutionStatus.ERROR
 
-                    if not all(len(p.strip()) > 0 for p in action_args["patterns"]):
-                        error_msg = "=> `patterns` must be a list of non-empty strings"
-                        self.__log(f"=> {error_msg}")
-                        return error_msg, ActionExecutionStatus.ERROR
+                if not all(len(p.strip()) > 0 for p in action_args["patterns"]):
+                    error_msg = "=> `patterns` must be a list of non-empty strings"
+                    self.__log(f"=> {error_msg}")
+                    return error_msg, ActionExecutionStatus.ERROR
 
-                    self.enumerated_tables = (
-                        self.action_set.retrieve_multi_topic_documents(
-                            action_args["patterns"],
-                            RetrieverType.ENUMERATOR,
-                            20,
-                            True,
-                            5,
-                        )
+                self.enumerated_tables = (
+                    self.action_set.retrieve_multi_topic_documents(
+                        action_args["patterns"],
+                        RetrieverType.ENUMERATOR,
+                        20,
+                        True,
+                        2,
                     )
-                    success_msg = f"Enumerated table IDs based on these patterns: {action_args['patterns']}. If there are any matches, the IDs will be reflected in `OTHER TABLE IDS WITH SIMILAR NAMING PATTERNS`."
-                    self.__log(success_msg)
-                    return (
-                        success_msg,
-                        ActionExecutionStatus.SUCCESS,
-                    )
-
-                if "pattern" not in action_args:
-                    error_msg = "=> `args` must have a `pattern` property"
-                    self.__log(f"=> {error_msg}")
-                    return error_msg, ActionExecutionStatus.ERROR
-
-                if not isinstance(action_args["pattern"], str):
-                    error_msg = "=> `pattern` must be a string"
-                    self.__log(f"=> {error_msg}")
-                    return error_msg, ActionExecutionStatus.ERROR
-
-                if len(action_args["pattern"].strip()) == 0:
-                    error_msg = "=> `pattern` must be a non-empty string"
-                    self.__log(f"=> {error_msg}")
-                    return error_msg, ActionExecutionStatus.ERROR
-
-                self.enumerated_tables = self.action_set.retrieve_documents(
-                    action_args["pattern"], RetrieverType.ENUMERATOR, 20, True, 5
                 )
-                success_msg = f"Enumerated table IDs based on this pattern: {action_args['pattern']}. If there are any matches, the IDs will be reflected in `OTHER TABLE IDS WITH SIMILAR NAMING PATTERNS`."
+                success_msg = f"Enumerated table IDs based on these patterns: {action_args['patterns']}. If there are any matches, the IDs will be reflected in `OTHER TABLE IDS WITH SIMILAR NAMING PATTERNS`."
                 self.__log(success_msg)
                 return (
                     success_msg,
@@ -715,11 +670,22 @@ class Conductor:
                         action_args["code"], "conductor_assumption_check"
                     )
                     self.__log(f"Assumption Check execution result: {execution_result}")
-                    self.db_api.execute_query(
-                        self.user_id,
-                        self.chat_id,
+                    # Assumption checks may materialize either a *table* or a *view*.
+                    # In DuckDB, attempting to DROP the wrong object type throws.
+                    # Cleanup must be best-effort and must not turn a successful
+                    # assumption_check into a failure.
+                    for cleanup_stmt in (
+                        "DROP VIEW IF EXISTS conductor_assumption_check;",
                         "DROP TABLE IF EXISTS conductor_assumption_check;",
-                    )
+                    ):
+                        try:
+                            self.db_api.execute_query(
+                                self.user_id, self.chat_id, cleanup_stmt
+                            )
+                        except Exception as cleanup_exc:
+                            self.__log(
+                                f"Assumption Check cleanup warning ({cleanup_stmt}): {cleanup_exc}"
+                            )
                     return (
                         f"Executed Assumption Check, which resulted in this output: {execution_result}",
                         ActionExecutionStatus.SUCCESS,

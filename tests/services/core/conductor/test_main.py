@@ -36,7 +36,6 @@ class ConductorTests(unittest.TestCase):
         config.ENABLE_WEB_CRAWL = True
         config.LLM_PATH = "mock"
         config.EMBED_MODEL_PATH = "mock"
-        config.ENABLE_MULTI_TOPIC_TABLE_RETRIEVE = False
 
         self.logger = logging.getLogger("test_conductor")
         self.logger.setLevel(logging.ERROR)
@@ -67,11 +66,13 @@ class ConductorTests(unittest.TestCase):
         # set the queued responses on the underlying mock LLM instance
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
-            {{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompt":"find tables"}}}},
+            {{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}
+        ]}}""",
+            f"""{{"plan": [
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"done"}}}}
-        ]}}"""
+        ]}}""",
         ]
-        self.conductor.action_set.retrieve_documents = MagicMock(
+        self.conductor.action_set.retrieve_multi_topic_documents = MagicMock(
             return_value=[
                 Table(
                     doc_id="table1",
@@ -164,12 +165,12 @@ class ConductorTests(unittest.TestCase):
     def test_table_enumerator_updates_enumerated_ids(self):
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
-            {{"action":"{ActionNames.TABLE_ENUMERATION.value}","args":{{"pattern":"pattern"}}}},
+            {{"action":"{ActionNames.TABLE_ENUMERATION.value}","args":{{"patterns":["pattern"]}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"enum done"}}}}
         ]}}"""
         ]
 
-        self.conductor.action_set.retrieve_documents = MagicMock(
+        self.conductor.action_set.retrieve_multi_topic_documents = MagicMock(
             return_value=[
                 Table(
                     doc_id="table1",
@@ -257,7 +258,9 @@ class ConductorTests(unittest.TestCase):
         self.assertIsInstance(state.T["t1"], AbstractDocument)
         self.assertEqual(set(state.T["t1"].content.columns), {"a", "b"})
         self.assertEqual(state.column_descriptions, {"t1": {"a": "col a"}})
-        self.assertEqual(state.S, "result = pd.DataFrame({'sum': [tables['t1']['a'].sum()]})")
+        self.assertEqual(
+            state.S, "result = pd.DataFrame({'sum': [tables['t1']['a'].sum()]})"
+        )
         self.assertFalse(state.is_T_materialized)
         self.assertFalse(state.is_S_executed)
 
@@ -318,10 +321,16 @@ class ConductorTests(unittest.TestCase):
             ]}}""",
             f"""{{"plan": [
                 {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"materialization and execution done"}}}}
-            ]}}"""
+            ]}}""",
         ]
         self.conductor.materializer.materialize_T = MagicMock(
-            return_value=([], None, None, None, {"t1": pd.DataFrame({"a": [1, 2], "b": [3, 4]})})
+            return_value=(
+                [],
+                None,
+                None,
+                None,
+                {"t1": pd.DataFrame({"a": [1, 2], "b": [3, 4]})},
+            )
         )
         self.conductor.action_set.execute_code = MagicMock(
             return_value=pd.DataFrame({"sum": [3]})
@@ -343,12 +352,8 @@ class ConductorTests(unittest.TestCase):
             "S should be marked as executed",
         )
         self.assertEqual(self.conductor.state.T["t1"].content.shape, (2, 2))
-        self.assertEqual(
-            list(self.conductor.state.T["t1"].content["a"]), [1, 2]
-        )
-        self.assertEqual(
-            list(self.conductor.state.T["t1"].content["b"]), [3, 4]
-        )
+        self.assertEqual(list(self.conductor.state.T["t1"].content["a"]), [1, 2])
+        self.assertEqual(list(self.conductor.state.T["t1"].content["b"]), [3, 4])
 
     def test_assumption_check_produces_expected_string(self):
         df = pd.DataFrame({"A": [1, 2, 3], "B": ["x", "x", "y"]})
@@ -364,8 +369,10 @@ class ConductorTests(unittest.TestCase):
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
             {{"action":"{ActionNames.ASSUMPTION_CHECK.value}","args":{{"code":"result = tables['table1']['A'].mean()"}}}},
+        ]}}""",
+            f"""{{"plan": [
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"info provided"}}}}
-        ]}}"""
+        ]}}""",
         ]
         gen = self.conductor.chat(
             user_input="check assumptions",

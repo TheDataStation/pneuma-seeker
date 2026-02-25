@@ -31,6 +31,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         self.workspace_db_path = Path(self.temp_dir) / "workspaces"
         self.config = Config()
         self.config.DATA_SOURCES = ["test_ds"]
+        self.config.ENABLE_SEMANTIC_COL_GEN = True
         self.logger = MagicMock()
         self.db_api = DBAPI(
             self.config,
@@ -57,7 +58,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
             {
                 "src_table_id": "test_ds.table",
                 "target_table_id": "table",
-                "src_table_columns": ["a"],
+                "column_mapping": {"a": "a"},
             }
         )
 
@@ -102,7 +103,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
             {
                 "src_table_id": "test_ds.table",
                 "target_table_id": "table",
-                "src_table_columns": ["a"],
+                "column_mapping": {"a": "a"},
             }
         )
 
@@ -130,7 +131,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
             {
                 "src_table_id": "test_ds.table",
                 "target_table_id": "table",
-                "src_table_columns": ["name", "age"],
+                "column_mapping": {"name": "name", "age": "age"},
             }
         )
 
@@ -218,7 +219,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
             {
                 "src_table_id": "test_ds.table",
                 "target_table_id": "table",
-                "src_table_columns": ["city", "country"],
+                "column_mapping": {"city": "city", "country": "country"},
             }
         )
 
@@ -248,7 +249,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
             {
                 "src_table_id": "test_ds.table",
                 "target_table_id": "table",
-                "src_table_columns": ["name", "age"],
+                "column_mapping": {"name": "name", "age": "age"},
             }
         )
 
@@ -280,7 +281,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
             {
                 "src_table_id": "test_ds.table",
                 "target_table_id": "table",
-                "src_table_columns": ["first_name", "last_name"],
+                "column_mapping": {"first_name": "first_name", "last_name": "last_name"},
             }
         )
 
@@ -309,7 +310,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
             {
                 "src_table_id": "test_ds.table",
                 "target_table_id": "table",
-                "src_table_columns": ["product", "quantity", "price"],
+                "column_mapping": {"product": "product", "quantity": "quantity", "price": "price"},
             }
         )
 
@@ -338,7 +339,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
             {
                 "src_table_id": "test_ds.table",
                 "target_table_id": "table",
-                "src_table_columns": ["a"],
+                "column_mapping": {"a": "a"},
             }
         )
 
@@ -369,7 +370,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
             {
                 "src_table_id": "test_ds.table",
                 "target_table_id": "table",
-                "src_table_columns": ["col1", "col2"],
+                "column_mapping": {"col1": "col1", "col2": "col2"},
             }
         )
 

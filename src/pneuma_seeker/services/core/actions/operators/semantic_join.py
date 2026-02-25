@@ -363,7 +363,7 @@ class SemanticJoin(Action, Applicable):
         for _, row in df.iterrows():
             texts.append(
                 self.__concat_for_embedding(
-                    relevant_cols, row.to_dict(), delimiter=delimiter
+                    relevant_cols, row.to_dict(), delimiter=delimiter # type: ignore
                 )
             )
         return texts
