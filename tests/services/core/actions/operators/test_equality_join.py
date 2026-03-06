@@ -14,7 +14,7 @@ sys.path.insert(
 	0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../../src"))
 )
 
-from pneuma_seeker.services.core.action_set.operators.equality_join import EqualityJoin
+from pneuma_seeker.services.core.action_set.impl.equality_join import EqualityJoin
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.shared.config import Config
 

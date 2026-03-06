@@ -12,10 +12,10 @@ sys.path.insert(
 
 import pandas as pd
 
-from pneuma_seeker.services.core.action_set.operators.semantic_column_generation import (
+from pneuma_seeker.services.core.action_set.impl.semantic_column_generation import (
     SemanticColumnGeneration,
 )
-from pneuma_seeker.services.core.action_set.operators.table_projection import (
+from pneuma_seeker.services.core.action_set.impl.table_projection import (
     TableProjection,
 )
 from pneuma_seeker.services.core.api.db import DBAPI

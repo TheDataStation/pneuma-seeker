@@ -6,7 +6,7 @@ from pandas import DataFrame
 
 from pneuma_seeker.services.core.action_set.main import ActionSet
 from pneuma_seeker.shared.schemas.core.action import ActionNames
-from pneuma_seeker.services.core.action_set.operators.semantic_join import (
+from pneuma_seeker.services.core.action_set.impl.semantic_join import (
     SyntacticSimMetric,
 )
 from pneuma_seeker.services.core.api.db import DBAPI

@@ -1,5 +1,5 @@
 from pneuma_seeker.shared.schemas.core.action import ActionNames
-from pneuma_seeker.services.core.action_set.interfaces.abstract_action import Action
+from pneuma_seeker.services.core.action_set.interfaces import Action
 
 
 class TableEnumeration(Action):

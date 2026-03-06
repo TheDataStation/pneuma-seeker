@@ -11,7 +11,7 @@ sys.path.insert(
 import numpy as np
 import pandas as pd
 
-from pneuma_seeker.services.core.action_set.operators.semantic_join import (
+from pneuma_seeker.services.core.action_set.impl.semantic_join import (
     SemanticJoin,
     SyntacticSimMetric,
 )

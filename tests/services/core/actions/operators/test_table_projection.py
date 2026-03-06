@@ -13,7 +13,7 @@ sys.path.insert(
     0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../../src"))
 )
 
-from pneuma_seeker.services.core.action_set.operators.table_projection import (
+from pneuma_seeker.services.core.action_set.impl.table_projection import (
     TableProjection,
 )
 from pneuma_seeker.services.core.api.db import DBAPI

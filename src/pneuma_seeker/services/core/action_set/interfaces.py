@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from logging import Logger
+from typing import Any
 
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
@@ -42,4 +43,18 @@ class Action(ABC):
     @abstractmethod
     def get_notes(self) -> str:
         """Returns additional notes about the action."""
+        pass
+
+
+class Applicable(ABC):
+    @abstractmethod
+    def apply(self, input: dict[str, Any]) -> Any:
+        """Applies the action with the given input and returns the output."""
+        pass
+
+
+class Executable(ABC):
+    @abstractmethod
+    def execute(self, input: dict[str, Any]) -> Any:
+        """Executes the action with the given input and returns the output."""
         pass

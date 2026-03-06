@@ -14,29 +14,29 @@ from pneuma_seeker.provenance.provenance_helper import (
     generate_table_select_code,
     generate_view_textual_document_code,
 )
-from pneuma_seeker.services.core.action_set.executors.query_executor import QueryExecutor
-from pneuma_seeker.services.core.action_set.executors.python_executor import PythonExecutor
-from pneuma_seeker.services.core.action_set.operators.equality_join import EqualityJoin
-from pneuma_seeker.services.core.action_set.operators.semantic_column_generation import (
+from pneuma_seeker.services.core.action_set.impl.query_executor import QueryExecutor
+from pneuma_seeker.services.core.action_set.impl.python_executor import PythonExecutor
+from pneuma_seeker.services.core.action_set.impl.equality_join import EqualityJoin
+from pneuma_seeker.services.core.action_set.impl.semantic_column_generation import (
     SemanticColumnGeneration,
 )
-from pneuma_seeker.services.core.action_set.operators.semantic_join import (
+from pneuma_seeker.services.core.action_set.impl.semantic_join import (
     SemanticJoin,
     SyntacticSimMetric,
 )
-from pneuma_seeker.services.core.action_set.operators.table_projection import (
+from pneuma_seeker.services.core.action_set.impl.table_projection import (
     TableProjection,
 )
-from pneuma_seeker.services.core.action_set.operators.table_union import TableUnion
-from pneuma_seeker.services.core.action_set.retrievers.join_path_extraction import (
+from pneuma_seeker.services.core.action_set.impl.table_union import TableUnion
+from pneuma_seeker.services.core.action_set.impl.join_path_extraction import (
     JoinPathExtraction,
 )
-from pneuma_seeker.services.core.action_set.retrievers.table_enumeration import (
+from pneuma_seeker.services.core.action_set.impl.table_enumeration import (
     TableEnumeration,
 )
-from pneuma_seeker.services.core.action_set.retrievers.table_retrieve import TableRetrieve
-from pneuma_seeker.services.core.action_set.retrievers.web_crawl import WebCrawl
-from pneuma_seeker.services.core.action_set.retrievers.web_search import WebSearch
+from pneuma_seeker.services.core.action_set.impl.table_retrieve import TableRetrieve
+from pneuma_seeker.services.core.action_set.impl.web_crawl import WebCrawl
+from pneuma_seeker.services.core.action_set.impl.web_search import WebSearch
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
 from pneuma_seeker.services.core.ir_system.main import IRSystem
