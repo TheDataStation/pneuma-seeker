@@ -15,7 +15,7 @@ sys.path.insert(
 	0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../../src"))
 )
 
-from pneuma_seeker.services.core.actions.operators.table_union import TableUnion
+from pneuma_seeker.services.core.action_set.operators.table_union import TableUnion
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.shared.config import Config
 

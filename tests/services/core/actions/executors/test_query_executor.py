@@ -14,7 +14,7 @@ sys.path.insert(
 import pandas as pd
 
 from pneuma_seeker.services.core.api.db import DBAPI
-from pneuma_seeker.services.core.actions.executors.query_executor import QueryExecutor
+from pneuma_seeker.services.core.action_set.executors.query_executor import QueryExecutor
 from pneuma_seeker.shared.config import Config
 
 

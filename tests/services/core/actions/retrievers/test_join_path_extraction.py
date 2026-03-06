@@ -9,7 +9,7 @@ sys.path.insert(
 
 import pandas as pd
 
-from pneuma_seeker.services.core.actions.retrievers.join_path_extraction import (
+from pneuma_seeker.services.core.action_set.retrievers.join_path_extraction import (
     JoinPathExtraction,
 )
 from pneuma_seeker.shared.config import Config

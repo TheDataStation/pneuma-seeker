@@ -5,7 +5,7 @@ from typing import Any, cast
 from pandas import DataFrame
 
 from pneuma_seeker.provenance.graph import ProvenanceGraph, ProvenanceNode
-from pneuma_seeker.services.core.actions.main import ActionSet
+from pneuma_seeker.services.core.action_set.main import ActionSet
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
 from pneuma_seeker.services.core.conductor.prompt_factory import ConductorPromptFactory

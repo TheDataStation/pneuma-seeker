@@ -4,7 +4,7 @@ import pandas as pd
 from pyxdameraulevenshtein import damerau_levenshtein_distance
 
 from pneuma_seeker.shared.schemas.core.action import ActionNames
-from pneuma_seeker.services.core.actions.interfaces.abstract_action import Action
+from pneuma_seeker.services.core.action_set.interfaces.abstract_action import Action
 
 
 class JoinPathExtraction(Action):

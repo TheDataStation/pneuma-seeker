@@ -2,8 +2,8 @@ from typing import Any
 
 import pandas as pd
 
-from pneuma_seeker.services.core.actions.interfaces.abstract_action import Action
-from pneuma_seeker.services.core.actions.interfaces.executable import Executable
+from pneuma_seeker.services.core.action_set.interfaces.abstract_action import Action
+from pneuma_seeker.services.core.action_set.interfaces.executable import Executable
 from pneuma_seeker.shared.schemas.core.action import ActionNames
 
 

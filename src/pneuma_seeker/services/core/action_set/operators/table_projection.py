@@ -3,8 +3,8 @@ from typing import Any
 from pandas import DataFrame
 
 from pneuma_seeker.shared.schemas.core.action import ActionNames
-from pneuma_seeker.services.core.actions.interfaces.abstract_action import Action
-from pneuma_seeker.services.core.actions.interfaces.applicable import Applicable
+from pneuma_seeker.services.core.action_set.interfaces.abstract_action import Action
+from pneuma_seeker.services.core.action_set.interfaces.applicable import Applicable
 
 
 class TableProjection(Action, Applicable):
