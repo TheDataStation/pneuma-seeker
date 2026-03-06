@@ -46,6 +46,51 @@ class PythonExecutor(Action, Executable):
         if not isinstance(result_table_id, str):
             raise ValueError("Input 'result_table_id' must be a string.")
 
+        # Basic sanitization/fixes for model-produced code to reduce SyntaxError
+        def _strip_code_fence(s: str) -> str:
+            s = s.strip()
+            # extract content from triple-backtick blocks
+            import re
+
+            m = re.search(r"```(?:python)?\n(.+?)```", s, flags=re.DOTALL | re.IGNORECASE)
+            if m:
+                return m.group(1).strip()
+            # sometimes models return JSON like {"code": "..."}
+            try:
+                import json
+
+                parsed = json.loads(s)
+                if isinstance(parsed, dict) and "code" in parsed and isinstance(parsed["code"], str):
+                    return parsed["code"].strip()
+            except Exception:
+                pass
+            return s
+
+        def _fix_common_unicode_quotes(s: str) -> str:
+            return s.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
+
+        code = _strip_code_fence(code)
+        code = _fix_common_unicode_quotes(code)
+
+        # Try compiling first to give a clearer error and attempt minimal fixes
+        try:
+            compile(code, "<string>", "exec")
+        except SyntaxError as e:
+            # As a fallback, try removing leading/trailing lines that often include
+            # assistant messages like 'S:' or 'RESULT:'
+            lines = code.splitlines()
+            # drop leading non-indented short prefixes
+            while lines and (lines[0].strip().endswith(":" ) or len(lines[0].strip()) <= 3 and not lines[0].lstrip().startswith(("def ", "import ", "from ", "result", "pd", "np"))):
+                lines.pop(0)
+            new_code = "\n".join(lines)
+            new_code = _fix_common_unicode_quotes(new_code)
+            try:
+                compile(new_code, "<string>", "exec")
+                code = new_code
+            except SyntaxError:
+                # surface a richer error message including the sanitized code
+                raise SyntaxError(f"Code compilation failed after sanitization: {e}; sanitized code:\n{new_code}")
+
         env = {
             "pd": pd,
             "np": np,
