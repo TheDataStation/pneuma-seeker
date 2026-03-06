@@ -77,8 +77,8 @@ class Config:
         )
 
         ## Other Action Settings
-        self.ENABLE_ASSUMPTION_CHECK = (
-            getenv("ENABLE_ASSUMPTION_CHECK", "true").lower() == "true"
+        self.ENABLE_CONTEXT_EXTRACTION = (
+            getenv("ENABLE_CONTEXT_EXTRACTION", "true").lower() == "true"
         )
         
         # Database Settings

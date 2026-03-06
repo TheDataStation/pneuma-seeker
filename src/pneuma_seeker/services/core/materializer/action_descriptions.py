@@ -10,7 +10,7 @@ def get_materializer_actions(
 {get_table_enumeration_description(config)}
 {get_query_executor_description()}
 {get_python_executor_description()}
-{get_assumption_check_description() if config.ENABLE_ASSUMPTION_CHECK else ""}
+{get_context_extraction_description() if config.ENABLE_CONTEXT_EXTRACTION else ""}
 {get_table_projection_description()}
 {get_equality_join_description()}
 {get_table_union_description()}
@@ -195,7 +195,7 @@ def get_table_retrieve_description(config: Config) -> str:
         - Potential join paths between retrieved tables will be provided for reference.\n"""
 
 
-def get_assumption_check_description():
+def get_context_extraction_description():
     return f"""\n- **{ActionNames.CONTEXT_EXTRACTION.value}**
     - Executes Python code to explore, inspect, or test assumptions about the data.
     - This action is used ONLY to gather evidence, perform sanity checks, or confirm suspicions. It has no lasting side effects.

@@ -1388,7 +1388,7 @@ class Materializer:
                         )
                     )
             case ActionNames.CONTEXT_EXTRACTION.value:
-                if not self.config.ENABLE_ASSUMPTION_CHECK:
+                if not self.config.ENABLE_CONTEXT_EXTRACTION:
                     error_msg = f"{ActionNames.CONTEXT_EXTRACTION.value} is not enabled in the configuration."
                     self.__log(f"==> {error_msg}")
                     self.llm_messages.append(

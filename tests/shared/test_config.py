@@ -97,7 +97,7 @@ class ConfigTests(unittest.TestCase):
         self.assertIsInstance(cfg.SEMANTIC_COL_GEN_ROW_PROCESSING_BATCH_SIZE, int)
         self.assertIsInstance(cfg.SEMANTIC_COL_GEN_VALUE_GENERATION_BATCH_SIZE, int)
         
-        self.assertIsInstance(cfg.ENABLE_ASSUMPTION_CHECK, bool)
+        self.assertIsInstance(cfg.ENABLE_CONTEXT_EXTRACTION, bool)
 
     # ========== Test Environment Variable Loading ==========
 

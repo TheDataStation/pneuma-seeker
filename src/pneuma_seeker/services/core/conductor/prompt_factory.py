@@ -118,7 +118,7 @@ You must respect the following boundary between `{ActionNames.MATERIALIZER.value
 - **{ActionNames.PYTHON_EXECUTOR.value}**:
   Execute `S` on `T` to produce the final information that will be communicated to the user via `{ActionNames.USER_FACING_COMMUNICATION.value}`.
   - **Args**: {{}}
-{self.__get_assumption_check_description() if self.config.ENABLE_ASSUMPTION_CHECK else ""}
+{self.__get_context_extraction_description() if self.config.ENABLE_CONTEXT_EXTRACTION else ""}
 {self.__get_web_search_description() if self.config.ENABLE_WEB_SEARCH else ""}
 {self.__get_web_crawl_description() if self.config.ENABLE_WEB_CRAWL else ""}
 
@@ -214,7 +214,7 @@ Finds/raw-crawls a specific web page (URL) and returns the extracted text conten
   - Returned content is raw extracted text from the page (no summarization).
   - Use this when the user specifically requests information from a particular URL.\n"""
 
-    def __get_assumption_check_description(self):
+    def __get_context_extraction_description(self):
         return f"""\n- **{ActionNames.CONTEXT_EXTRACTION.value}**
   - Executes Python code to explore, inspect, or test assumptions or relevance of the retrieved or external tables.
   - This action is used ONLY to gather evidence, perform sanity checks, or confirm suspicions. It has no lasting side effects.

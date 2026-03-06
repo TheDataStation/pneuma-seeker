@@ -199,7 +199,7 @@ class ActionSet:
         if self.config.ENABLE_WEB_CRAWL:
             self.valid_conductor_actions.append(ActionNames.WEB_CRAWL.value)
             self.valid_materializer_actions.append(ActionNames.WEB_CRAWL.value)
-        if self.config.ENABLE_ASSUMPTION_CHECK:
+        if self.config.ENABLE_CONTEXT_EXTRACTION:
             self.valid_conductor_actions.append(ActionNames.CONTEXT_EXTRACTION.value)
             self.valid_materializer_actions.append(ActionNames.CONTEXT_EXTRACTION.value)
 

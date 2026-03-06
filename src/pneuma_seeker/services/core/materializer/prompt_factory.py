@@ -61,7 +61,7 @@ When forming a sequence of actions for a step, you must follow this **reactive p
 # Action-Related Guidelines
 - Always include an "args" object (use {{}} if the action has no args).
 - If an action has an `assign_to` argument, set the argument to the correct target table IDs or intermediate table IDs exactly (case-sensitive).
-{f"- Use {ActionNames.CONTEXT_EXTRACTION.value} to validate assumptions (e.g., about the existence of values) in the tables prior to determining how best to integrate them.\n" if self.config.ENABLE_ASSUMPTION_CHECK else ""}
+{f"- Use {ActionNames.CONTEXT_EXTRACTION.value} to validate assumptions (e.g., about the existence of values) in the tables prior to determining how best to integrate them.\n" if self.config.ENABLE_CONTEXT_EXTRACTION else ""}
 - If you need to integrate (e.g., union) tables of certain names or patterns, the pre-provided tables may not be comprehensive. Call {ActionNames.TABLE_ENUMERATION.value} to discover all matching tables.
 - Operator outputs (e.g., from {ActionNames.TABLE_PROJECTION.value} and {ActionNames.EQUALITY_JOIN.value}) are persisted immediately into the workspace database. You can use those output tables in subsequent operator calls.
 - You may compose operators arbitrarily (e.g., projection -> join -> projection).
