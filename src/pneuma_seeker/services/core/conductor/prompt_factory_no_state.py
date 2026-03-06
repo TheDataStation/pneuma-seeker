@@ -43,11 +43,11 @@ You operate iteratively, and the total number of steps must not exceed **{self.c
 In each step, follow this structure:
 1. Start with **{ActionNames.SITUATIONAL_ANALYSIS.value}**.
 2. Use **{ActionNames.TABLE_RETRIEVE.value}** (and optionally **{ActionNames.TABLE_ENUMERATION.value}**) to discover tables.
-3. Use **{ActionNames.ASSUMPTION_CHECK.value}** as the **compute** tool to query/transform tables and materialize a preview result table.
+3. Use **{ActionNames.CONTEXT_EXTRACTION.value}** as the **compute** tool to query/transform tables and materialize a preview result table.
 4. Communicate the final answer in a **subsequent step** via **{ActionNames.USER_FACING_COMMUNICATION.value}**.
 
 Important runtime constraint:
-- If your plan includes `{ActionNames.TABLE_RETRIEVE.value}` or `{ActionNames.ASSUMPTION_CHECK.value}`, do **not** include `{ActionNames.USER_FACING_COMMUNICATION.value}` in the same plan.
+- If your plan includes `{ActionNames.TABLE_RETRIEVE.value}` or `{ActionNames.CONTEXT_EXTRACTION.value}`, do **not** include `{ActionNames.USER_FACING_COMMUNICATION.value}` in the same plan.
   Do retrieval/compute first, then answer on the next step.
 
 # Actions
@@ -73,7 +73,7 @@ Return **one JSON object** describing your planned actions for this step:
   "plan": [
     {{"action": "{ActionNames.SITUATIONAL_ANALYSIS.value}", "args": {{"message": "..."}}}},
     {{"action": "{ActionNames.TABLE_RETRIEVE.value}", "args": {{"prompts": ["..."]}}}},
-    {{"action": "{ActionNames.ASSUMPTION_CHECK.value}", "args": {{"code": "..."}}}}
+    {{"action": "{ActionNames.CONTEXT_EXTRACTION.value}", "args": {{"code": "..."}}}}
   ]
 }}
 """.strip()
@@ -97,7 +97,7 @@ Return **one JSON object** describing your planned actions for this step:
     - You may provide multiple patterns in a single call (at most {self.config.TABLE_RETRIEVE_MAX_TOPICS} patterns).\n"""
 
     def __get_assumption_check_as_compute_description(self) -> str:
-        return f"""- **{ActionNames.ASSUMPTION_CHECK.value}** (used as compute):
+        return f"""- **{ActionNames.CONTEXT_EXTRACTION.value}** (used as compute):
   Execute inline code to query/transform tables and produce a **preview-sized** result.
   - **Args**: {{"code": "<code string>"}}
   - **Execution context**:

@@ -196,7 +196,7 @@ def get_table_retrieve_description(config: Config) -> str:
 
 
 def get_assumption_check_description():
-    return f"""\n- **{ActionNames.ASSUMPTION_CHECK.value}**
+    return f"""\n- **{ActionNames.CONTEXT_EXTRACTION.value}**
     - Executes Python code to explore, inspect, or test assumptions about the data.
     - This action is used ONLY to gather evidence, perform sanity checks, or confirm suspicions. It has no lasting side effects.
     - It MUST NOT be used to construct final outputs or pipeline tables.

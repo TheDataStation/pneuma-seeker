@@ -368,7 +368,7 @@ class ConductorTests(unittest.TestCase):
 
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
-            {{"action":"{ActionNames.ASSUMPTION_CHECK.value}","args":{{"code":"result = tables['table1']['A'].mean()"}}}},
+            {{"action":"{ActionNames.CONTEXT_EXTRACTION.value}","args":{{"code":"result = tables['table1']['A'].mean()"}}}},
         ]}}""",
             f"""{{"plan": [
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"info provided"}}}}

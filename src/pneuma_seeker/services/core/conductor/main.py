@@ -254,7 +254,7 @@ class Conductor:
                         materializer_part_of_plan = True
                     if action_plan.get("action") == ActionNames.TABLE_RETRIEVE.value:
                         table_retrieve_part_of_plan = True
-                    if action_plan.get("action") == ActionNames.ASSUMPTION_CHECK.value:
+                    if action_plan.get("action") == ActionNames.CONTEXT_EXTRACTION.value:
                         assumption_check_part_of_plan = True
                 # Ensure there is no user-facing communication in the same plan as code execution (simply remove the user-facing part)
                 if (executor_part_of_plan or materializer_part_of_plan or table_retrieve_part_of_plan or assumption_check_part_of_plan) and user_facing_communication_part_of_plan:
@@ -654,7 +654,7 @@ class Conductor:
                     error_msg = f"Error during script (S) execution: {e}"
                     self.__log(f"=> {error_msg}")
                     return error_msg, ActionExecutionStatus.ERROR
-            case ActionNames.ASSUMPTION_CHECK.value:
+            case ActionNames.CONTEXT_EXTRACTION.value:
                 self.__log(f"Assumption Check request with params: {action_args}")
                 if not isinstance(action_args, dict):
                     error_msg = "=> `args` must be an object with a `code` property"

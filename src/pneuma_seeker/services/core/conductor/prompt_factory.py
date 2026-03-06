@@ -87,7 +87,7 @@ You maintain and update a shared state (T,S) that formalizes the user's active i
         - **Binary encodings & sign interpretation**:
           - When answering "does X increase/decrease Y" questions (especially with regressions or causal models), **define the treatment variable carefully** so that `1` always corresponds to the *more* of X (e.g., higher tier, feature enabled, more aggressive policy, premium plan, automated workflow).
           - If both a human-readable label column (e.g., plan_tier) and a numeric indicator column (often suffixed with _ind, e.g., premium_ind) exist for the same concept:
-            - Prefer using the numeric indicator column for modeling **but** perform a quick sanity check (via `{ActionNames.ASSUMPTION_CHECK.value}`) using a small crosstab to confirm which value (0/1) corresponds to the intended category.
+            - Prefer using the numeric indicator column for modeling **but** perform a quick sanity check (via `{ActionNames.CONTEXT_EXTRACTION.value}`) using a small crosstab to confirm which value (0/1) corresponds to the intended category.
             - If the mapping is inverted (e.g., label says "Premium" but indicator value is `0`), **do not proceed blindly**: either flip the indicator (use `1 - indicator`) or derive the flag from the label column — whichever makes 1 match the intended meaning.
           - When reporting results, interpret coefficient signs relative to the intended meaning of `1`:
             - For duration or time-to-event outcomes: a negative coefficient on "more X" means the process completes faster.
@@ -138,11 +138,11 @@ Both you and **{ActionNames.MATERIALIZER.value}** share the same data layer. You
   - Entities (e.g., customers)
   - Attributes or states (e.g., high-priority)
   Each retrieval prompt should include at least one constraint or qualifier term in addition to the main entity. Prefer verbatim or near-verbatim phrasing for constraints and relations from the input.
-- {ActionNames.TABLE_RETRIEVE.value} is not perfect, so retrieved tables may be noisy or partially relevant. Leverage {ActionNames.ASSUMPTION_CHECK.value} to explore and confirm the relevance of retrieved tables. If a retrieved table is not relevant, do not use it in T or S. If it is partially relevant, you may still use it but be cautious about which columns to include in T and how to interpret them.
-- If a retrieved table has ID, or contains labels, categories, or values that match a user constraint or qualifier, you can take it into consideration (do not flat out disregard it). You can check with {ActionNames.ASSUMPTION_CHECK.value} to further confirm relevance.
+- {ActionNames.TABLE_RETRIEVE.value} is not perfect, so retrieved tables may be noisy or partially relevant. Leverage {ActionNames.CONTEXT_EXTRACTION.value} to explore and confirm the relevance of retrieved tables. If a retrieved table is not relevant, do not use it in T or S. If it is partially relevant, you may still use it but be cautious about which columns to include in T and how to interpret them.
+- If a retrieved table has ID, or contains labels, categories, or values that match a user constraint or qualifier, you can take it into consideration (do not flat out disregard it). You can check with {ActionNames.CONTEXT_EXTRACTION.value} to further confirm relevance.
 - If you are about to dismiss a retrieved table as irrelevant **only because its column names are unclear**, you may do a very quick check for an already-retrieved companion "dictionary/metadata/description/schema" table that explains column meanings (IF AVAILABLE). These companion tables may share a common stem in the name and differ only by a suffix/prefix (e.g., a business dataset might have `orders` and `orders_metadata`, or `customer_events` and `customer_events_dictionary`).
   - Do **not** enumerate/search for more tables for this purpose. Only use this if such a companion table is already present in the retrieved set.
-  - If present, use {ActionNames.ASSUMPTION_CHECK.value} to sample/inspect just enough to decide whether the original table is relevant.
+  - If present, use {ActionNames.CONTEXT_EXTRACTION.value} to sample/inspect just enough to decide whether the original table is relevant.
   - If the user requests for tables on some specific timeframe and you only retrieved tables on a subset of that timeframe, use {ActionNames.TABLE_ENUMERATION.value} to find other tables with similar names that may fill the gaps. If no more tables are available, you can still proceed with the available tables but be mindful of the missing data and its implications on the analysis.
 
 # Convergence, Proxies, and Iteration (be assertive)
@@ -215,7 +215,7 @@ Finds/raw-crawls a specific web page (URL) and returns the extracted text conten
   - Use this when the user specifically requests information from a particular URL.\n"""
 
     def __get_assumption_check_description(self):
-        return f"""\n- **{ActionNames.ASSUMPTION_CHECK.value}**
+        return f"""\n- **{ActionNames.CONTEXT_EXTRACTION.value}**
   - Executes Python code to explore, inspect, or test assumptions or relevance of the retrieved or external tables.
   - This action is used ONLY to gather evidence, perform sanity checks, or confirm suspicions. It has no lasting side effects.
   - It MUST NOT be used to construct final outputs or pipeline tables.

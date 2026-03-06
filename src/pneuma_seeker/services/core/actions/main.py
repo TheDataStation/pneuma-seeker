@@ -200,8 +200,8 @@ class ActionSet:
             self.valid_conductor_actions.append(ActionNames.WEB_CRAWL.value)
             self.valid_materializer_actions.append(ActionNames.WEB_CRAWL.value)
         if self.config.ENABLE_ASSUMPTION_CHECK:
-            self.valid_conductor_actions.append(ActionNames.ASSUMPTION_CHECK.value)
-            self.valid_materializer_actions.append(ActionNames.ASSUMPTION_CHECK.value)
+            self.valid_conductor_actions.append(ActionNames.CONTEXT_EXTRACTION.value)
+            self.valid_materializer_actions.append(ActionNames.CONTEXT_EXTRACTION.value)
 
     def is_valid_conductor_action(self, action_name: str) -> bool:
         return action_name in self.valid_conductor_actions

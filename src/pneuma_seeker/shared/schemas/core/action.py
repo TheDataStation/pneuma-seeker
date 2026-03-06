@@ -8,7 +8,7 @@ class ActionNames(Enum):
     TABLE_ENUMERATION = "table_enumeration"
     WEB_SEARCH = "web_search"
     WEB_CRAWL = "web_crawl"
-    ASSUMPTION_CHECK = "assumption_check"
+    CONTEXT_EXTRACTION = "assumption_check"
     SITUATIONAL_ANALYSIS = "situational_analysis"
     JOIN_PATH_EXTRACTION = "join_path_extraction"
     SEMANTIC_COLUMN_GENERATION = "semantic_column_generation"
