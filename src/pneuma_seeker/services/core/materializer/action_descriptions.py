@@ -12,13 +12,13 @@ def get_materializer_actions(
 {action_set.get_action_description(ActionNames.QUERY_EXECUTOR)}
 {get_python_executor_description()}
 {get_context_extraction_description() if config.ENABLE_CONTEXT_EXTRACTION else ""}
-{get_table_projection_description()}
-{get_equality_join_description()}
-{get_table_union_description()}
+{action_set.get_action_description(ActionNames.TABLE_PROJECTION)}
+{action_set.get_action_description(ActionNames.EQUALITY_JOIN)}
+{action_set.get_action_description(ActionNames.TABLE_UNION)}
 {action_set.get_action_description(ActionNames.SEMANTIC_JOIN) if config.ENABLE_SEMANTIC_JOIN else ""}
 {action_set.get_action_description(ActionNames.SEMANTIC_COLUMN_GENERATION) if config.ENABLE_SEMANTIC_COL_GEN else ""}
-{get_web_search_description() if config.ENABLE_WEB_SEARCH else ""}
-{get_web_crawl_description() if config.ENABLE_WEB_CRAWL else ""}""".strip()
+{action_set.get_action_description(ActionNames.WEB_SEARCH) if config.ENABLE_WEB_SEARCH else ""}
+{action_set.get_action_description(ActionNames.WEB_CRAWL) if config.ENABLE_WEB_CRAWL else ""}""".strip()
 
 
 def get_table_enumeration_description(config: Config) -> str:
@@ -77,61 +77,6 @@ def get_python_executor_description() -> str:
     - Args: {{"code": "<Python code string>", "assign_to": "<ID of the resulting intermediate table>"}}\n"""
 
 
-def get_table_projection_description() -> str:
-    return f"""- **{ActionNames.TABLE_PROJECTION.value}**
-    - Projects a table (internal, external, or intermediate) to a subset of its columns, optionally renaming columns at the same time.
-    - The output table is materialized into the workspace database.
-    - Args:
-    {{
-        "<target_table_id>": {{
-            "id": "<source_table_id>",
-            "columns": {{"<output_col_1>": "<source_col_1>", "<output_col_2>": "<source_col_2>"}}
-        }}
-    }}
-    - Notes:
-        - If the source table is an internal table that was retrieved (i.e., the table has an ID like "Table x (dataset: y)"), reference it as a dataset-qualified name like `y."x"`.
-        - If the source table is an intermediate/external table created in the workspace, reference it by its workspace name directly (e.g., `my_intermediate_table`).
-        - The `columns` mapping is **output_column_name -> source_column_name** (use this to rename columns during projection).
-        - The output table (`target_table_id`) is always created/overwritten in the workspace.\n"""
-
-
-def get_equality_join_description() -> str:
-    return f"""- **{ActionNames.EQUALITY_JOIN.value}**
-    - Joins two tables (internal, external, or intermediate) by exact equality on specified key columns.
-    - The output table is materialized into the workspace database.
-    - Args:
-    {{
-        "left_table_id": "<left table reference>",
-        "right_table_id": "<right table reference>",
-        "left_table_column_keys": ["<left join key col 1>", "<left join key col 2>", ...],
-        "right_table_column_keys": ["<right join key col 1>", "<right join key col 2>", ...],
-        "result_table_id": "<intermediate/target table name for the join result>"
-    }}
-    - Notes:
-        - If a table is an internal table that was retrieved (i.e., the table has an ID like "Table x (dataset: y)"), reference it as a dataset-qualified name like `y."x"`.
-        - If a table is an intermediate/external table created during processing, reference it by its workspace name directly (e.g., `my_intermediate_table`).
-        - The key lists must be non-empty and the same length; keys are matched positionally."""
-
-
-def get_table_union_description() -> str:
-    return f"""- **{ActionNames.TABLE_UNION.value}**
-    - Unions multiple tables (internal, external, or intermediate) into a single workspace table.
-    - Each entry in `table_ids` may be either:
-        - an explicit table reference (e.g., `my_intermediate_table` or `y."x"`), OR
-        - a regex selector prefixed with `re:` (e.g., `re:^data_\\d{4}$` or `re:^y\\.data_\\d{4}$`).
-    - The output includes a provenance column derived from each source table ID.
-    - Args: {{
-        "table_ids": ["<table ref or re:<pattern>>", ...],
-        "result_table_id": "<intermediate/target table name for the union result>",
-        "provenance_column_name": "<output column name for provenance>",
-        "provenance_regex": "<regex used to extract provenance from each table id/name>"
-      }}
-    - Notes:
-        - Regex patterns are matched against both the full display name (e.g., `y.data_2021`) and the bare table name (e.g., `data_2021`).
-        - If tables have different schemas, missing columns are filled with NULL.
-        - The output table (`result_table_id`) is always created/overwritten in the workspace."""
-
-
 def get_table_retrieve_description(config: Config) -> str:
     return f"""- **{ActionNames.TABLE_RETRIEVE.value}**:
     Retrieve internal tables.
@@ -183,24 +128,3 @@ def get_context_extraction_description():
     - The system will automatically read from "materializer_assumption_check", return at most the first 10 rows, and clean up the table after use.
     - Do NOT create any other persistent tables.
     - Args: {{\"code\": \"<Python code string>\"}}\n"""
-
-
-def get_web_search_description():
-    """Gets the optional web search description for the Materializer."""
-    return f"""\n- **{ActionNames.WEB_SEARCH.value}**
-    - Retrieves information from the web to assist in filling tables when internal and external data are insufficient.
-    - Args: {{"prompt": "<query describing what data to retrieve or clarify>"}}
-    - Usage notes:
-        - Use web_search only when no reliable internal/external source exists for the required column(s).
-        - Avoid repetitive or redundant queries.\n"""
-
-
-def get_web_crawl_description():
-    """Gets the optional web crawl description for the Materializer."""
-    return f"""\n- **{ActionNames.WEB_CRAWL.value}**
-    - Crawls a specified web page to extract textual content for table materialization.
-    - Args: {{"url": "<URL of the web page to crawl>"}}
-    - Usage notes:
-        - Use this when the user specifically requests information from a particular URL.
-        - The crawler respects robots.txt and will not fetch disallowed paths.
-        - Returned content is raw extracted text from the page (no summarization).\n"""

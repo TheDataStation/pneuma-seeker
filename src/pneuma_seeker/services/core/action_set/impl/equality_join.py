@@ -13,7 +13,21 @@ class EqualityJoin(Action, Applicable):
         return ActionNames.EQUALITY_JOIN.value
 
     def get_description(self) -> str:
-        return "Joins two tables on specified columns."
+        return f"""- **{ActionNames.EQUALITY_JOIN.value}**
+    - Joins two tables (internal, external, or intermediate) by exact equality on specified key columns.
+    - The output table is materialized into the workspace database.
+    - Args:
+    {{
+        "left_table_id": "<left table reference>",
+        "right_table_id": "<right table reference>",
+        "left_table_column_keys": ["<left join key col 1>", "<left join key col 2>", ...],
+        "right_table_column_keys": ["<right join key col 1>", "<right join key col 2>", ...],
+        "result_table_id": "<intermediate/target table name for the join result>"
+    }}
+    - Notes:
+        - If a table is an internal table that was retrieved (i.e., the table has an ID like "Table x (dataset: y)"), reference it as a dataset-qualified name like `y."x"`.
+        - If a table is an intermediate/external table created during processing, reference it by its workspace name directly (e.g., `my_intermediate_table`).
+        - The key lists must be non-empty and the same length; keys are matched positionally."""
 
     def get_input_schema(self) -> dict[str, str]:
         return {}

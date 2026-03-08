@@ -7,7 +7,12 @@ class WebSearch(Action):
         return ActionNames.WEB_SEARCH.value
 
     def get_description(self) -> str:
-        return "Searches the web based on the input query."
+        return f"""- **{ActionNames.WEB_SEARCH.value}**
+    - Retrieves information from the web when internal and external tables are insufficient.
+    - Args: {{"prompt": "<query describing what data to retrieve>"}}
+    - Usage notes:
+        - Use only when no reliable internal/external source exists for the required column(s).
+        - Avoid repetitive or redundant queries."""
 
     def get_input_schema(self) -> dict[str, str]:
         return {

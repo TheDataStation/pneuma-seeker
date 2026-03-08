@@ -14,7 +14,22 @@ class TableUnion(Action, Applicable):
 		return ActionNames.TABLE_UNION.value
 
 	def get_description(self) -> str:
-		return "Unions multiple tables (by explicit IDs and/or regex patterns), materializing the result as a new workspace table."
+		return f"""- **{ActionNames.TABLE_UNION.value}**
+    - Unions multiple tables (internal, external, or intermediate) into a single workspace table.
+    - Each entry in `table_ids` may be either:
+        - an explicit table reference (e.g., `my_intermediate_table` or `y."x"`), OR
+        - a regex selector prefixed with `re:` (e.g., `re:^data_\\d{{4}}$` or `re:^y\\.data_\\d{{4}}$`).
+    - The output includes a provenance column derived from each source table ID.
+    - Args: {{
+		"table_ids": ["<table ref or re:<pattern>>", ...],
+		"result_table_id": "<intermediate/target table name for the union result>",
+		"provenance_column_name": "<output column name for provenance>",
+		"provenance_regex": "<regex used to extract provenance from each table id/name>"
+	}}
+    - Notes:
+        - Regex patterns are matched against both the full display name (e.g., `y.data_2021`) and the bare table name (e.g., `data_2021`).
+        - If tables have different schemas, missing columns are filled with NULL.
+        - The output table (`result_table_id`) is always created/overwritten in the workspace."""
 
 	def get_input_schema(self) -> dict[str, str]:
 		return {}

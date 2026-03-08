@@ -7,7 +7,13 @@ class WebCrawl(Action):
         return ActionNames.WEB_CRAWL.value
 
     def get_description(self) -> str:
-        return "Crawls the web based on the input query."
+        return f"""- **{ActionNames.WEB_CRAWL.value}**
+    - Crawls a specified web page to extract textual content for table materialization.
+    - Args: {{"url": "<URL of the web page to crawl>"}}
+    - Usage notes:
+        - Use this when the user specifically requests information from a particular URL.
+        - The crawler respects robots.txt and will not fetch disallowed paths.
+        - Returned content is raw extracted text from the page (no summarization)."""
 
     def get_input_schema(self) -> dict[str, str]:
         return {

@@ -12,7 +12,21 @@ class TableProjection(Action, Applicable):
         return ActionNames.TABLE_PROJECTION.value
 
     def get_description(self) -> str:
-        return "Projects a DB-backed table (internal, external, or intermediate) to a subset of its columns (optionally renaming them), materializing the result as a new workspace table and returning a small preview."
+        return f"""- **{ActionNames.TABLE_PROJECTION.value}**
+    - Projects a table (internal, external, or intermediate) to a subset of its columns, optionally renaming columns at the same time.
+    - The output table is materialized into the workspace database.
+    - Args:
+    {{
+        "<target_table_id>": {{
+            "id": "<source_table_id>",
+            "columns": {{"<output_col_1>": "<source_col_1>", "<output_col_2>": "<source_col_2>"}}
+        }}
+    }}
+    - Notes:
+        - If the source table is an internal table that was retrieved (i.e., the table has an ID like "Table x (dataset: y)"), reference it as a dataset-qualified name like `y."x"`.
+        - If the source table is an intermediate/external table created in the workspace, reference it by its workspace name directly (e.g., `my_intermediate_table`).
+        - The `columns` mapping is **output_column_name -> source_column_name** (use this to rename columns during projection).
+        - The output table (`target_table_id`) is always created/overwritten in the workspace.\n"""
 
     def get_input_schema(self) -> dict[str, str]:
         return {}
