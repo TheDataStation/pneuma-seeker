@@ -101,7 +101,7 @@ You must respect the following boundary between `{ActionNames.MATERIALIZER.value
 - **S (Python script)** is responsible only for *post-integration processing*, such as applying filters, computing aggregates, ratios, or differences on already materialized tables.
 
 # Actions
-{self.__get_table_retrieve_description()}
+{self.action_set.get_action_description(ActionNames.TABLE_RETRIEVE)}
 {self.__get_table_enumeration_description()}
 
 - **{ActionNames.STATE_MANIPULATION.value}**:
@@ -169,16 +169,6 @@ Return **one JSON object** describing your planned actions for this step, e.g.:
   ]
 }}
 """.strip()
-
-    def __get_table_retrieve_description(self):
-        return f"""- **{ActionNames.TABLE_RETRIEVE.value}**:
-  Retrieve internal tables.
-  - **Args**: {{"prompts": ["<retrieval query 1>", "<retrieval query 2>", ...]}}
-  - **Notes**:
-    - You may provide multiple retrieval queries in a single call to retrieve tables on different topics (at most {self.config.TABLE_RETRIEVE_MAX_TOPICS} topics).
-    - If available, include specific keywords or entities in each query to improve retrieval precision.
-    - Previously retrieved tables will be replaced with new retrievals.
-    - Potential join paths between retrieved tables will be provided for reference.\n"""
 
     def __get_table_enumeration_description(self) -> str:
         return f"""- **{ActionNames.TABLE_ENUMERATION.value}**:
