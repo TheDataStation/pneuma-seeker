@@ -32,10 +32,15 @@ class QueryExecutor(Action, Executable):
 		return ActionNames.QUERY_EXECUTOR.value
 
 	def get_description(self) -> str:
-		return (
-			"Executes a SQL query in the workspace DuckDB and persists the result "
-			"into a specified intermediate table, returning a preview DataFrame."
-		)
+		return f"""- **{ActionNames.QUERY_EXECUTOR.value}**
+    - Executes a single SQL query and materializes the result into a workspace table.
+    - The system will run: `CREATE OR REPLACE TABLE "<assign_to>" AS <query>`, then returns a preview with `SELECT * FROM "<assign_to>" LIMIT 10`.
+    - Input guidelines:
+        - `query` should generally start with `SELECT ...` or `WITH ... SELECT ...`.
+        - Provide only one SQL statement (no embedded `;`).
+        - When referencing retrieved/enumerated tables, use dataset-qualified names like `y."x"`.
+        - When referencing intermediate or external tables created in the workspace, use the table name directly.
+    - Args: {{"query": "<SQL query>", "assign_to": "<ID of the resulting intermediate table>"}}\n"""
 
 	def get_input_schema(self) -> dict[str, str]:
 		return {

@@ -9,7 +9,7 @@ def get_materializer_actions(
     return f"""
 {get_table_retrieve_description(config)}
 {get_table_enumeration_description(config)}
-{get_query_executor_description()}
+{action_set.get_action_description(ActionNames.QUERY_EXECUTOR)}
 {get_python_executor_description()}
 {get_context_extraction_description() if config.ENABLE_CONTEXT_EXTRACTION else ""}
 {get_table_projection_description()}
@@ -75,18 +75,6 @@ def get_table_enumeration_description(config: Config) -> str:
     - Notes:
         - You may provide multiple patterns in a single call (at most {config.TABLE_RETRIEVE_MAX_TOPICS} patterns).
     - Example: {{"patterns": ["^sales_\\d{4}$", "^revenue_\\d{4}$"]}} will match all tables named like `sales_2020`, `sales_2021`, etc., and `revenue_2020`, `revenue_2021`, etc.\n"""
-
-
-def get_query_executor_description() -> str:
-    return f"""- **{ActionNames.QUERY_EXECUTOR.value}**
-    - Executes a single SQL query and materializes the result into a workspace table.
-    - The system will run: `CREATE OR REPLACE TABLE "<assign_to>" AS <query>`, then returns a preview with `SELECT * FROM "<assign_to>" LIMIT 10`.
-    - Input guidelines:
-        - `query` should generally start with `SELECT ...` or `WITH ... SELECT ...`.
-        - Provide only one SQL statement (no embedded `;`).
-        - When referencing retrieved/enumerated tables, use dataset-qualified names like `y."x"`.
-        - When referencing intermediate or external tables created in the workspace, use the table name directly.
-    - Args: {{"query": "<SQL query>", "assign_to": "<ID of the resulting intermediate table>"}}\n"""
 
 
 def get_python_executor_description() -> str:
