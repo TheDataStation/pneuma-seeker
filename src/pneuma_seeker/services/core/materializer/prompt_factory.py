@@ -2,6 +2,7 @@ import json
 
 from pandas import DataFrame
 
+from pneuma_seeker.services.core.action_set.main import ActionSet
 from pneuma_seeker.shared.schemas.core.action import ActionNames
 from pneuma_seeker.services.core.materializer.action_descriptions import (
     get_materializer_actions,
@@ -16,8 +17,9 @@ from pneuma_seeker.shared.schemas.core.ir_system import (
 class MaterializerPromptFactory:
     """Generates prompts for the Materializer LLM agent."""
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, action_set: ActionSet) -> None:
         self.config = config
+        self.action_set = action_set
 
     def get_planning_prompt(
         self,
@@ -46,7 +48,7 @@ When forming a sequence of actions for a step, you must follow this **reactive p
 {S}
 
 # Available Actions
-{get_materializer_actions(self.config)}
+{get_materializer_actions(self.config, self.action_set)}
 
 # Notes
 

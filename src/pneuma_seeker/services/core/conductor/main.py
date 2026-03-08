@@ -46,8 +46,6 @@ class Conductor:
         self.db_api = db_api
         self.language_model_api = language_model_api
 
-        self.prompt_factory = ConductorPromptFactory(self.config)
-
         self.action_set = ActionSet(
             self.user_id,
             self.chat_id,
@@ -57,6 +55,7 @@ class Conductor:
             self.db_api,
             self.language_model_api,
         )
+        self.prompt_factory = ConductorPromptFactory(self.config, self.action_set)
         self.materializer = Materializer(
             self.user_id,
             self.chat_id,

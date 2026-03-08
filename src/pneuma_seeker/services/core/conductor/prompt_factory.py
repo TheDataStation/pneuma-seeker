@@ -1,5 +1,6 @@
 """src/pneuma_seeker/core/conductor/prompt_factory.py"""
 
+from pneuma_seeker.services.core.action_set.main import ActionSet
 from pneuma_seeker.services.core.conductor.state import ConductorState
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.schemas.core.action import ActionNames
@@ -13,8 +14,9 @@ from pneuma_seeker.shared.schemas.core.ir_system import (
 class ConductorPromptFactory:
     """Factory for prompts used by Conductor."""
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, action_set: ActionSet) -> None:
         self.config = config
+        self.action_set = action_set
 
     def get_sys_prompt(self) -> str:
         """Gets the system prompt for Conductor."""
@@ -111,9 +113,7 @@ You must respect the following boundary between `{ActionNames.MATERIALIZER.value
   - **Notes**:
     - A `{ActionNames.STATE_MANIPULATION.value}` call resets previous T rather than appending.
 
-- **{ActionNames.MATERIALIZER.value}**:
-  Populate tables in T with rows based on data integration and processing.
-  - **Args**: {{"note": "<additional note or empty string>"}}
+- {self.action_set.get_action_description(ActionNames.MATERIALIZER)}
 
 - **{ActionNames.PYTHON_EXECUTOR.value}**:
   Execute `S` on `T` to produce the final information that will be communicated to the user via `{ActionNames.USER_FACING_COMMUNICATION.value}`.

@@ -14,6 +14,7 @@ from pneuma_seeker.provenance.provenance_helper import (
     generate_table_select_code,
     generate_view_textual_document_code,
 )
+from pneuma_seeker.services.core.action_set.impl.context_extraction import ContextExtraction
 from pneuma_seeker.services.core.action_set.impl.query_executor import QueryExecutor
 from pneuma_seeker.services.core.action_set.impl.python_executor import PythonExecutor
 from pneuma_seeker.services.core.action_set.impl.equality_join import EqualityJoin
@@ -24,6 +25,8 @@ from pneuma_seeker.services.core.action_set.impl.semantic_join import (
     SemanticJoin,
     SyntacticSimMetric,
 )
+from pneuma_seeker.services.core.action_set.impl.situational_analysis import SituationalAnalysis
+from pneuma_seeker.services.core.action_set.impl.state_manipulation import StateManipulation
 from pneuma_seeker.services.core.action_set.impl.table_projection import (
     TableProjection,
 )
@@ -35,6 +38,7 @@ from pneuma_seeker.services.core.action_set.impl.table_enumeration import (
     TableEnumeration,
 )
 from pneuma_seeker.services.core.action_set.impl.table_retrieve import TableRetrieve
+from pneuma_seeker.services.core.action_set.impl.user_facing_communication import UserFacingCommunication
 from pneuma_seeker.services.core.action_set.impl.web_crawl import WebCrawl
 from pneuma_seeker.services.core.action_set.impl.web_search import WebSearch
 from pneuma_seeker.services.core.api.db import DBAPI
@@ -112,7 +116,22 @@ class ActionSet:
             self.db_api,
             self.language_model_api,
         )
-
+        self.context_extraction = ContextExtraction(
+            self.user_id,
+            self.chat_id,
+            self.config,
+            self.logger,
+            self.db_api,
+            self.language_model_api,
+        )
+        self.situational_analysis = SituationalAnalysis(
+            self.user_id,
+            self.chat_id,
+            self.config,
+            self.logger,
+            self.db_api,
+            self.language_model_api,
+        )
         self.python_executor = PythonExecutor(
             self.user_id,
             self.chat_id,
@@ -121,7 +140,6 @@ class ActionSet:
             self.db_api,
             self.language_model_api,
         )
-
         self.query_executor = QueryExecutor(
             self.user_id,
             self.chat_id,
@@ -130,7 +148,6 @@ class ActionSet:
             self.db_api,
             self.language_model_api,
         )
-
         self.semantic_join = SemanticJoin(
             self.user_id,
             self.chat_id,
@@ -164,6 +181,22 @@ class ActionSet:
             self.language_model_api,
         )
         self.table_union = TableUnion(
+            self.user_id,
+            self.chat_id,
+            self.config,
+            self.logger,
+            self.db_api,
+            self.language_model_api,
+        )
+        self.state_manipulation = StateManipulation(
+            self.user_id,
+            self.chat_id,
+            self.config,
+            self.logger,
+            self.db_api,
+            self.language_model_api,
+        )
+        self.user_facing_communication = UserFacingCommunication(
             self.user_id,
             self.chat_id,
             self.config,
@@ -208,6 +241,50 @@ class ActionSet:
 
     def is_valid_materializer_action(self, action_name: str) -> bool:
         return action_name in self.valid_materializer_actions
+    
+    def get_action_description(self, action_name: ActionNames):
+        match action_name:
+            case ActionNames.TABLE_RETRIEVE:
+                return self.table_retrieve.get_description()
+            case ActionNames.JOIN_PATH_EXTRACTION:
+                return self.join_path_extraction.get_description()
+            case ActionNames.CONTEXT_EXTRACTION:
+                return self.context_extraction.get_description()
+            case ActionNames.TABLE_ENUMERATION:
+                return self.table_enumeration.get_description()
+            case ActionNames.WEB_SEARCH:
+                return self.web_search.get_description()
+            case ActionNames.WEB_CRAWL:
+                return self.web_crawl.get_description()
+            case ActionNames.QUERY_EXECUTOR:
+                return self.query_executor.get_description()
+            case ActionNames.PYTHON_EXECUTOR:
+                return self.python_executor.get_description()
+            case ActionNames.SEMANTIC_JOIN:
+                return self.semantic_join.get_description()
+            case ActionNames.SEMANTIC_COLUMN_GENERATION:
+                return self.semantic_column_generation.get_description()
+            case ActionNames.TABLE_PROJECTION:
+                return self.table_projection.get_description()
+            case ActionNames.EQUALITY_JOIN:
+                return self.equality_join.get_description()
+            case ActionNames.TABLE_UNION:
+                return self.table_union.get_description()
+            case ActionNames.SITUATIONAL_ANALYSIS:
+                return self.situational_analysis.get_description()
+            case ActionNames.STATE_MANIPULATION:
+                return self.state_manipulation.get_description()
+            case ActionNames.MATERIALIZER:
+                return self.__get_materializer_action_description()
+            case ActionNames.USER_FACING_COMMUNICATION:
+                return self.user_facing_communication.get_description()
+            case _:
+                raise ValueError(f"Unknown action: {action_name}")
+    
+    def __get_materializer_action_description(self):
+        return f"""**{ActionNames.MATERIALIZER.value}**:
+  Populate tables in T with rows based on data integration and processing.
+  - **Args**: {{"note": "<additional note or empty string>"}}"""
 
     def retrieve_documents(
         self,

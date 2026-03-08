@@ -63,7 +63,7 @@ class Materializer:
             f"Initializing Materializer for user_id: {self.user_id}, chat_id: {self.chat_id}"
         )
 
-        self.prompt_factory = MaterializerPromptFactory(self.config)
+        self.prompt_factory = MaterializerPromptFactory(self.config, self.action_set)
         self.state = MaterializerState(self.user_id, self.chat_id, self.db_api)
         self.actions: list[str] = []
         self.llm_messages: list[LLMMessage] = []

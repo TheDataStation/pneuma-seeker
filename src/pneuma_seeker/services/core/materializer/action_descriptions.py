@@ -1,9 +1,10 @@
+from pneuma_seeker.services.core.action_set.main import ActionSet
 from pneuma_seeker.shared.schemas.core.action import ActionNames
 from pneuma_seeker.shared.config import Config
 
 
 def get_materializer_actions(
-    config: Config,
+    config: Config, action_set: ActionSet,
 ) -> str:
     return f"""
 {get_table_retrieve_description(config)}
