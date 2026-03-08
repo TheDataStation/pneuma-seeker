@@ -14,7 +14,7 @@ class TableUnion(Action, Applicable):
 		return ActionNames.TABLE_UNION.value
 
 	def get_description(self) -> str:
-		return f"""- **{ActionNames.TABLE_UNION.value}**
+		return f"""**{ActionNames.TABLE_UNION.value}**
     - Unions multiple tables (internal, external, or intermediate) into a single workspace table.
     - Each entry in `table_ids` may be either:
         - an explicit table reference (e.g., `my_intermediate_table` or `y."x"`), OR

@@ -32,7 +32,7 @@ class QueryExecutor(Action, Executable):
 		return ActionNames.QUERY_EXECUTOR.value
 
 	def get_description(self) -> str:
-		return f"""- **{ActionNames.QUERY_EXECUTOR.value}**
+		return f"""**{ActionNames.QUERY_EXECUTOR.value}**
     - Executes a single SQL query and materializes the result into a workspace table.
     - The system will run: `CREATE OR REPLACE TABLE "<assign_to>" AS <query>`, then returns a preview with `SELECT * FROM "<assign_to>" LIMIT 10`.
     - Input guidelines:

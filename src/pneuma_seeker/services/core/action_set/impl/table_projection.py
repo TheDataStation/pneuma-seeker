@@ -12,7 +12,7 @@ class TableProjection(Action, Applicable):
         return ActionNames.TABLE_PROJECTION.value
 
     def get_description(self) -> str:
-        return f"""- **{ActionNames.TABLE_PROJECTION.value}**
+        return f"""**{ActionNames.TABLE_PROJECTION.value}**
     - Projects a table (internal, external, or intermediate) to a subset of its columns, optionally renaming columns at the same time.
     - The output table is materialized into the workspace database.
     - Args:

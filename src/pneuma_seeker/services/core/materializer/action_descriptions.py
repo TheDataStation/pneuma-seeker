@@ -7,18 +7,18 @@ def get_materializer_actions(
     config: Config, action_set: ActionSet,
 ) -> str:
     return f"""
-{get_table_retrieve_description(config)}
+- {action_set.get_action_description(ActionNames.TABLE_RETRIEVE)}
 {get_table_enumeration_description(config)}
-{action_set.get_action_description(ActionNames.QUERY_EXECUTOR)}
+- {action_set.get_action_description(ActionNames.QUERY_EXECUTOR)}
 {get_python_executor_description()}
 {get_context_extraction_description() if config.ENABLE_CONTEXT_EXTRACTION else ""}
-{action_set.get_action_description(ActionNames.TABLE_PROJECTION)}
-{action_set.get_action_description(ActionNames.EQUALITY_JOIN)}
-{action_set.get_action_description(ActionNames.TABLE_UNION)}
-{action_set.get_action_description(ActionNames.SEMANTIC_JOIN) if config.ENABLE_SEMANTIC_JOIN else ""}
-{action_set.get_action_description(ActionNames.SEMANTIC_COLUMN_GENERATION) if config.ENABLE_SEMANTIC_COL_GEN else ""}
-{action_set.get_action_description(ActionNames.WEB_SEARCH) if config.ENABLE_WEB_SEARCH else ""}
-{action_set.get_action_description(ActionNames.WEB_CRAWL) if config.ENABLE_WEB_CRAWL else ""}""".strip()
+- {action_set.get_action_description(ActionNames.TABLE_PROJECTION)}
+- {action_set.get_action_description(ActionNames.EQUALITY_JOIN)}
+- {action_set.get_action_description(ActionNames.TABLE_UNION)}
+{"- " + action_set.get_action_description(ActionNames.SEMANTIC_JOIN) if config.ENABLE_SEMANTIC_JOIN else ""}
+{"- " + action_set.get_action_description(ActionNames.SEMANTIC_COLUMN_GENERATION) if config.ENABLE_SEMANTIC_COL_GEN else ""}
+{"- " + action_set.get_action_description(ActionNames.WEB_SEARCH) if config.ENABLE_WEB_SEARCH else ""}
+{"- " + action_set.get_action_description(ActionNames.WEB_CRAWL) if config.ENABLE_WEB_CRAWL else ""}""".strip()
 
 
 def get_table_enumeration_description(config: Config) -> str:
@@ -75,16 +75,6 @@ def get_python_executor_description() -> str:
         - DuckDB's registration can shadow the persistent table with the same name, which would silently truncate downstream queries.
         - If you need a preview, query `SELECT * FROM "<assign_to>" LIMIT 10` and (optionally) register it under a different temporary name like `"<assign_to>__preview"`.
     - Args: {{"code": "<Python code string>", "assign_to": "<ID of the resulting intermediate table>"}}\n"""
-
-
-def get_table_retrieve_description(config: Config) -> str:
-    return f"""- **{ActionNames.TABLE_RETRIEVE.value}**:
-    Retrieve internal tables.
-    - **Args**: {{"prompts": ["<retrieval query 1>", "<retrieval query 2>", ...]}}
-    - **Notes**:
-        - You may provide multiple retrieval queries in a single call to retrieve tables on different topics (at most {config.TABLE_RETRIEVE_MAX_TOPICS} topics).
-        - Previously retrieved tables will be replaced with new retrievals; does not affect user-provided external tables.
-        - Potential join paths between retrieved tables will be provided for reference.\n"""
 
 
 def get_context_extraction_description():

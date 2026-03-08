@@ -13,7 +13,7 @@ class EqualityJoin(Action, Applicable):
         return ActionNames.EQUALITY_JOIN.value
 
     def get_description(self) -> str:
-        return f"""- **{ActionNames.EQUALITY_JOIN.value}**
+        return f"""**{ActionNames.EQUALITY_JOIN.value}**
     - Joins two tables (internal, external, or intermediate) by exact equality on specified key columns.
     - The output table is materialized into the workspace database.
     - Args:

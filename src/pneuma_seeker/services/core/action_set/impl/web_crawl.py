@@ -7,7 +7,7 @@ class WebCrawl(Action):
         return ActionNames.WEB_CRAWL.value
 
     def get_description(self) -> str:
-        return f"""- **{ActionNames.WEB_CRAWL.value}**
+        return f"""**{ActionNames.WEB_CRAWL.value}**
     - Crawls a specified web page to extract textual content for table materialization.
     - Args: {{"url": "<URL of the web page to crawl>"}}
     - Usage notes:

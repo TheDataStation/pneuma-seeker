@@ -114,13 +114,12 @@ You must respect the following boundary between `{ActionNames.MATERIALIZER.value
     - A `{ActionNames.STATE_MANIPULATION.value}` call resets previous T rather than appending.
 
 - {self.action_set.get_action_description(ActionNames.MATERIALIZER)}
-
 - **{ActionNames.PYTHON_EXECUTOR.value}**:
   Execute `S` on `T` to produce the final information that will be communicated to the user via `{ActionNames.USER_FACING_COMMUNICATION.value}`.
   - **Args**: {{}}
 {self.__get_context_extraction_description() if self.config.ENABLE_CONTEXT_EXTRACTION else ""}
-{self.action_set.get_action_description(ActionNames.WEB_SEARCH) if self.config.ENABLE_WEB_SEARCH else ""}
-{self.action_set.get_action_description(ActionNames.WEB_CRAWL) if self.config.ENABLE_WEB_CRAWL else ""}
+- {self.action_set.get_action_description(ActionNames.WEB_SEARCH) if self.config.ENABLE_WEB_SEARCH else ""}
+- {self.action_set.get_action_description(ActionNames.WEB_CRAWL) if self.config.ENABLE_WEB_CRAWL else ""}
 
 ## Action Dependencies
   - `T` and `S` must already be defined before calling `{ActionNames.MATERIALIZER.value}`.

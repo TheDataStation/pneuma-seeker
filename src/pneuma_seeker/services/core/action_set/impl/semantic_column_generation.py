@@ -14,7 +14,7 @@ class SemanticColumnGeneration(Action, Applicable):
         return ActionNames.SEMANTIC_COLUMN_GENERATION.value
 
     def get_description(self) -> str:
-        return f"""- **{ActionNames.SEMANTIC_COLUMN_GENERATION.value}**
+        return f"""**{ActionNames.SEMANTIC_COLUMN_GENERATION.value}**
     - Adds a new column to an *intermediate* table using an LLM.
     - The column is derived from specified `relevant_columns` only — no other columns are used.
     - External and internal tables should first be transformed into intermediate tables if new columns are needed, because retrieved internal tables can be replaced.

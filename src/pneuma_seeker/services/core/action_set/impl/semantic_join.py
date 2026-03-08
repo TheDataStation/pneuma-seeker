@@ -26,7 +26,7 @@ class SemanticJoin(Action, Applicable):
         return ActionNames.SEMANTIC_JOIN.value
 
     def get_description(self) -> str:
-        return f"""- **{ActionNames.SEMANTIC_JOIN.value}**
+        return f"""**{ActionNames.SEMANTIC_JOIN.value}**
     - Joins two tables (internal, external, or intermediate) by computing semantic similarity between specified columns.
     - Similarity uses a weighted combination of embedding cosine similarity and normalized Damerau-Levenshtein edit similarity.
     - Produces a new joined table containing matched rows and a similarity_score column.

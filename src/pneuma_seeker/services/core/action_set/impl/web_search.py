@@ -7,7 +7,7 @@ class WebSearch(Action):
         return ActionNames.WEB_SEARCH.value
 
     def get_description(self) -> str:
-        return f"""- **{ActionNames.WEB_SEARCH.value}**
+        return f"""**{ActionNames.WEB_SEARCH.value}**
     - Retrieves information from the web when internal and external tables are insufficient.
     - Args: {{"prompt": "<query describing what data to retrieve>"}}
     - Usage notes:
