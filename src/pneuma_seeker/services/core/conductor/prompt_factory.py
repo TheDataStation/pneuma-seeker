@@ -119,8 +119,8 @@ You must respect the following boundary between `{ActionNames.MATERIALIZER.value
   Execute `S` on `T` to produce the final information that will be communicated to the user via `{ActionNames.USER_FACING_COMMUNICATION.value}`.
   - **Args**: {{}}
 {self.__get_context_extraction_description() if self.config.ENABLE_CONTEXT_EXTRACTION else ""}
-{self.__get_web_search_description() if self.config.ENABLE_WEB_SEARCH else ""}
-{self.__get_web_crawl_description() if self.config.ENABLE_WEB_CRAWL else ""}
+{self.action_set.get_action_description(ActionNames.WEB_SEARCH) if self.config.ENABLE_WEB_SEARCH else ""}
+{self.action_set.get_action_description(ActionNames.WEB_CRAWL) if self.config.ENABLE_WEB_CRAWL else ""}
 
 ## Action Dependencies
   - `T` and `S` must already be defined before calling `{ActionNames.MATERIALIZER.value}`.
@@ -132,6 +132,7 @@ Both you and **{ActionNames.MATERIALIZER.value}** share the same data layer. You
 - **Internal Tables**: Retrievable via `{ActionNames.TABLE_RETRIEVE.value}`. Use {ActionNames.TABLE_ENUMERATION.value} to discover related tables.
 - **External Tables**: User-uploaded tables if any. Already visible (do not call `{ActionNames.TABLE_RETRIEVE.value}`). These may be CSVs or extracted Excel sheets.
 {"- **Web Search Results**: Relevant information from the web.\n" if self.config.ENABLE_WEB_SEARCH else ""}
+{"- **Web Crawl Results**: Extracted textual content from specified web pages.\n" if self.config.ENABLE_WEB_CRAWL else ""}
 
 # Guidelines on Table Relevance
 - When calling {ActionNames.TABLE_RETRIEVE.value}, generate retrieval prompts that preserve all semantic constraints in the user input, not only entities or schema-related keywords. Ensure coverage of:
@@ -192,27 +193,6 @@ Return **one JSON object** describing your planned actions for this step, e.g.:
     - This is useful when you retrieve one table (e.g., `topic_2020`) but suspect there are other related tables (`topic_2021`, `topic_2022`, etc.)
     - You may provide multiple patterns in a single call (at most {self.config.TABLE_RETRIEVE_MAX_TOPICS} patterns).
     - Example: {{"patterns": ["^sales_\\d{{4}}$", "^revenue_\\d{{4}}$"]}} will match all tables named like `sales_2020`, `sales_2021`, etc., and `revenue_2020`, `revenue_2021`, etc.\n"""
-
-    def __get_web_search_description(self):
-        """Gets Web Search description for Conductor."""
-        return """\n- **web_search**:
-Finds a piece of information from the web.
-- **Args**: {{"prompt": "<retrieval query>"}}
-- **Returns**: A summarized textual snippet from relevant web sources.
-- **Notes**:
-  - Avoid retrying the same or slightly modified queries repeatedly.
-  - However, for different topics or aspects of an information need, feel free to call multiple times.\n"""
-
-    def __get_web_crawl_description(self):
-        """Gets the Web Crawl description for Conductor."""
-        return """\n- **web_crawl**:
-Finds/raw-crawls a specific web page (URL) and returns the extracted text content.
-- **Args**: {{"url": "<page_url>"}}
-- **Returns**: The textual content (possibly truncated) of the requested page.
-- **Notes**:
-  - The crawler respects robots.txt and will not fetch disallowed paths.
-  - Returned content is raw extracted text from the page (no summarization).
-  - Use this when the user specifically requests information from a particular URL.\n"""
 
     def __get_context_extraction_description(self):
         return f"""\n- **{ActionNames.CONTEXT_EXTRACTION.value}**
