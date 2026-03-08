@@ -15,52 +15,10 @@ def get_materializer_actions(
 {get_table_projection_description()}
 {get_equality_join_description()}
 {get_table_union_description()}
-{get_semantic_join_description() if config.ENABLE_SEMANTIC_JOIN else ""}
-{get_semantic_col_gen_description() if config.ENABLE_SEMANTIC_COL_GEN else ""}
+{action_set.get_action_description(ActionNames.SEMANTIC_JOIN) if config.ENABLE_SEMANTIC_JOIN else ""}
+{action_set.get_action_description(ActionNames.SEMANTIC_COLUMN_GENERATION) if config.ENABLE_SEMANTIC_COL_GEN else ""}
 {get_web_search_description() if config.ENABLE_WEB_SEARCH else ""}
 {get_web_crawl_description() if config.ENABLE_WEB_CRAWL else ""}""".strip()
-
-
-def get_semantic_join_description():
-    return f"""- **{ActionNames.SEMANTIC_JOIN.value}**
-        - Joins two tables (internal, external, or intermediate) by computing semantic similarity between specified columns.
-        - Similarity uses a weighted combination of embedding cosine similarity and normalized Damerau-Levenshtein edit similarity.
-        - Produces a new joined table containing matched rows and a similarity_score column.
-        - Use case: when the user explicitly asks for it, when two tables contain related entities that do not match exactly by key or text (e.g., "Intl Business Machines" vs. "IBM"), or when there are no potential join paths.
-            Even if both tables share a key column (e.g., "product_id"), the user may prefer semantic matching — for instance, comparing product descriptions between catalogs from different years to detect essentially identical products that were renumbered but now sold at different prices.
-        - Args: {{
-                "left_table_id": "<ID of left table (must exist in retrieved or intermediate tables)>",
-                "right_table_id": "<ID of right table (must exist in retrieved or intermediate tables)>",
-                "relevant_left_cols": ["<list of columns from left table used for semantic comparison>"],
-                "relevant_right_cols": ["<list of columns from right table used for semantic comparison>"],
-                "joined_table_id": "<ID to store the resulting joined table>"
-            }}
-        - Example: {{
-                "left_table_id": "companies_2024",
-                "right_table_id": "clients_2024",
-                "relevant_left_cols": ["company_name", "headquarters_city"],
-                "relevant_right_cols": ["client_name", "hq_location"],
-                "joined_table_id": "company_client_matches"
-            }}\n"""
-
-
-def get_semantic_col_gen_description():
-    return f"""- **{ActionNames.SEMANTIC_COLUMN_GENERATION.value}**
-        - Adds a new column to an *intermediate* table using an LLM.
-        - The column is derived from specified `relevant_columns` only — no other columns are used.
-        - External and internal tables should first be transformed into intermediate tables if new columns are needed, because retrieved internal tables can be replaced.
-        - Args: {{
-                "table_id": "<intermediate_table_id>",
-                "new_column_name": "<column to add>",
-                "relevant_columns": ["<list of source columns for generation>"],
-                "instruction": "<instruction describing how to generate the new column values>"
-            }}
-        - Example: {{
-                "table_id": "products_2024",
-                "new_column_name": "category",
-                "relevant_columns": ["product_name", "description"],
-                "instruction": "Classify each product into 'Electronics', 'Furniture', or 'Clothing'."
-            }}\n"""
 
 
 def get_table_enumeration_description(config: Config) -> str:

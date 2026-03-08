@@ -14,7 +14,22 @@ class SemanticColumnGeneration(Action, Applicable):
         return ActionNames.SEMANTIC_COLUMN_GENERATION.value
 
     def get_description(self) -> str:
-        return "Generates a new column for a given table based on semantic understanding, outputting the updated table."
+        return f"""- **{ActionNames.SEMANTIC_COLUMN_GENERATION.value}**
+        - Adds a new column to an *intermediate* table using an LLM.
+        - The column is derived from specified `relevant_columns` only — no other columns are used.
+        - External and internal tables should first be transformed into intermediate tables if new columns are needed, because retrieved internal tables can be replaced.
+        - Args: {{
+                "table_id": "<intermediate_table_id>",
+                "new_column_name": "<column to add>",
+                "relevant_columns": ["<list of source columns for generation>"],
+                "instruction": "<instruction describing how to generate the new column values>"
+            }}
+        - Example: {{
+                "table_id": "products_2024",
+                "new_column_name": "category",
+                "relevant_columns": ["product_name", "description"],
+                "instruction": "Classify each product into 'Electronics', 'Furniture', or 'Clothing'."
+            }}\n"""
 
     def get_input_schema(self) -> dict[str, str]:
         return {

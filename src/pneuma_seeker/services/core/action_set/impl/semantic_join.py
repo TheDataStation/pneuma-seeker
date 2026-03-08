@@ -26,7 +26,26 @@ class SemanticJoin(Action, Applicable):
         return ActionNames.SEMANTIC_JOIN.value
 
     def get_description(self) -> str:
-        return "Join two tables based on semantic similarity between specified columns."
+        return f"""- **{ActionNames.SEMANTIC_JOIN.value}**
+        - Joins two tables (internal, external, or intermediate) by computing semantic similarity between specified columns.
+        - Similarity uses a weighted combination of embedding cosine similarity and normalized Damerau-Levenshtein edit similarity.
+        - Produces a new joined table containing matched rows and a similarity_score column.
+        - Use case: when the user explicitly asks for it, when two tables contain related entities that do not match exactly by key or text (e.g., "Intl Business Machines" vs. "IBM"), or when there are no potential join paths.
+            Even if both tables share a key column (e.g., "product_id"), the user may prefer semantic matching — for instance, comparing product descriptions between catalogs from different years to detect essentially identical products that were renumbered but now sold at different prices.
+        - Args: {{
+                "left_table_id": "<ID of left table (must exist in retrieved or intermediate tables)>",
+                "right_table_id": "<ID of right table (must exist in retrieved or intermediate tables)>",
+                "relevant_left_cols": ["<list of columns from left table used for semantic comparison>"],
+                "relevant_right_cols": ["<list of columns from right table used for semantic comparison>"],
+                "joined_table_id": "<ID to store the resulting joined table>"
+            }}
+        - Example: {{
+                "left_table_id": "companies_2024",
+                "right_table_id": "clients_2024",
+                "relevant_left_cols": ["company_name", "headquarters_city"],
+                "relevant_right_cols": ["client_name", "hq_location"],
+                "joined_table_id": "company_client_matches"
+            }}\n"""
 
     def get_input_schema(self) -> dict[str, str]:
         return {
