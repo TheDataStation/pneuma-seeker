@@ -14,7 +14,7 @@ from pneuma_seeker.shared.schemas.core.ir_system import (
 )
 
 
-class MaterializerPromptFactoryNoAssumptionCheck:
+class MaterializerPromptFactoryNoContextExtraction:
     """Generates prompts for the Materializer LLM agent."""
 
     def __init__(self, config: Config, action_set: ActionSet) -> None:

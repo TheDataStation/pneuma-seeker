@@ -8,21 +8,29 @@ def get_materializer_actions(
 ) -> str:
     return f"""
 - {action_set.get_action_description(ActionNames.TABLE_RETRIEVE)}
-{get_table_enumeration_description(config)}
+
+- {get_table_enumeration_description(config)}
+
 - {action_set.get_action_description(ActionNames.QUERY_EXECUTOR)}
-{get_python_executor_description()}
-{get_context_extraction_description() if config.ENABLE_CONTEXT_EXTRACTION else ""}
+
+- {get_python_executor_description()}
+
+- {get_context_extraction_description() if config.ENABLE_CONTEXT_EXTRACTION else ""}
+
 - {action_set.get_action_description(ActionNames.TABLE_PROJECTION)}
+
 - {action_set.get_action_description(ActionNames.EQUALITY_JOIN)}
+
 - {action_set.get_action_description(ActionNames.TABLE_UNION)}
-{"- " + action_set.get_action_description(ActionNames.SEMANTIC_JOIN) if config.ENABLE_SEMANTIC_JOIN else ""}
-{"- " + action_set.get_action_description(ActionNames.SEMANTIC_COLUMN_GENERATION) if config.ENABLE_SEMANTIC_COL_GEN else ""}
-{"- " + action_set.get_action_description(ActionNames.WEB_SEARCH) if config.ENABLE_WEB_SEARCH else ""}
-{"- " + action_set.get_action_description(ActionNames.WEB_CRAWL) if config.ENABLE_WEB_CRAWL else ""}""".strip()
+
+{"- " + action_set.get_action_description(ActionNames.SEMANTIC_JOIN) + "\n" if config.ENABLE_SEMANTIC_JOIN else ""}
+{"- " + action_set.get_action_description(ActionNames.SEMANTIC_COLUMN_GENERATION) + "\n" if config.ENABLE_SEMANTIC_COL_GEN else ""}
+{"- " + action_set.get_action_description(ActionNames.WEB_SEARCH) + "\n" if config.ENABLE_WEB_SEARCH else ""}
+{"- " + action_set.get_action_description(ActionNames.WEB_CRAWL) + "\n" if config.ENABLE_WEB_CRAWL else ""}""".strip()
 
 
 def get_table_enumeration_description(config: Config) -> str:
-    return f"""- **{ActionNames.TABLE_ENUMERATION.value}**
+    return f"""**{ActionNames.TABLE_ENUMERATION.value}**
     - **Precondition — MUST NOT be called unless there is at least one internal table already retrieved.**
     - Each pattern in `patterns` **must be derived from the names of existing internal tables** (or obvious common tokens in them).
     - Lists other available internal tables in the database whose names match given regex patterns.
@@ -32,11 +40,11 @@ def get_table_enumeration_description(config: Config) -> str:
     - Args: {{"patterns": ["<regex pattern 1>", "<regex pattern 2>", ...]}}
     - Notes:
         - You may provide multiple patterns in a single call (at most {config.TABLE_RETRIEVE_MAX_TOPICS} patterns).
-    - Example: {{"patterns": ["^sales_\\d{4}$", "^revenue_\\d{4}$"]}} will match all tables named like `sales_2020`, `sales_2021`, etc., and `revenue_2020`, `revenue_2021`, etc.\n"""
+    - Example: {{"patterns": ["^sales_\\d{4}$", "^revenue_\\d{4}$"]}} will match all tables named like `sales_2020`, `sales_2021`, etc., and `revenue_2020`, `revenue_2021`, etc."""
 
 
 def get_python_executor_description() -> str:
-    return f"""- **{ActionNames.PYTHON_EXECUTOR.value}**
+    return f"""**{ActionNames.PYTHON_EXECUTOR.value}**
     - Executes Python code to transform and/or combine data.
     - Tables are stored in the DuckDB-based workspace database and are NOT guaranteed to fit in memory.
     - To access tables, use the provided database API:
@@ -74,11 +82,11 @@ def get_python_executor_description() -> str:
     - If your code creates the final output table using SQL (e.g., `CREATE OR REPLACE TABLE "<assign_to>" AS ...`), do **NOT** call `db_api.register_temporary_df(..., "<assign_to>")` with a preview DataFrame.
         - DuckDB's registration can shadow the persistent table with the same name, which would silently truncate downstream queries.
         - If you need a preview, query `SELECT * FROM "<assign_to>" LIMIT 10` and (optionally) register it under a different temporary name like `"<assign_to>__preview"`.
-    - Args: {{"code": "<Python code string>", "assign_to": "<ID of the resulting intermediate table>"}}\n"""
+    - Args: {{"code": "<Python code string>", "assign_to": "<ID of the resulting intermediate table>"}}"""
 
 
 def get_context_extraction_description():
-    return f"""\n- **{ActionNames.CONTEXT_EXTRACTION.value}**
+    return f"""**{ActionNames.CONTEXT_EXTRACTION.value}**
     - Executes Python code to explore, inspect, or test assumptions about the data.
     - This action is used ONLY to gather evidence, perform sanity checks, or confirm suspicions. It has no lasting side effects.
     - It MUST NOT be used to construct final outputs or pipeline tables.
@@ -117,4 +125,4 @@ def get_context_extraction_description():
     - The content of "materializer_assumption_check" should be small and preview-sized (for example, aggregated statistics, samples, or at most a few rows).
     - The system will automatically read from "materializer_assumption_check", return at most the first 10 rows, and clean up the table after use.
     - Do NOT create any other persistent tables.
-    - Args: {{\"code\": \"<Python code string>\"}}\n"""
+    - Args: {{\"code\": \"<Python code string>\"}}"""

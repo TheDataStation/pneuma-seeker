@@ -1,5 +1,6 @@
 """src/pneuma_seeker/core/conductor/prompt_factory.py"""
 
+from pneuma_seeker.services.core.action_set.main import ActionSet
 from pneuma_seeker.services.core.conductor.state import ConductorState
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.schemas.core.action import ActionNames
@@ -10,11 +11,12 @@ from pneuma_seeker.shared.schemas.core.ir_system import (
 )
 
 
-class ConductorPromptFactoryNoAssumptionCheck:
+class ConductorPromptFactoryNoContextExtraction:
     """Factory for prompts used by Conductor."""
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, action_set: ActionSet) -> None:
         self.config = config
+        self.action_set = action_set
 
     def get_sys_prompt(self) -> str:
         """Gets the system prompt for Conductor."""
@@ -98,8 +100,9 @@ You must respect the following boundary between `{ActionNames.MATERIALIZER.value
 - **S (Python script)** is responsible only for *post-integration processing*, such as applying filters, computing aggregates, ratios, or differences on already materialized tables.
 
 # Actions
-{self.__get_table_retrieve_description()}
-{self.__get_table_enumeration_description()}
+- {self.action_set.get_action_description(ActionNames.TABLE_RETRIEVE)}
+
+- {self.__get_table_enumeration_description()}
 
 - **{ActionNames.STATE_MANIPULATION.value}**:
   Update T, S, or both.
@@ -110,15 +113,14 @@ You must respect the following boundary between `{ActionNames.MATERIALIZER.value
   - **Notes**:
     - A `{ActionNames.STATE_MANIPULATION.value}` call resets previous T rather than appending.
 
-- **{ActionNames.MATERIALIZER.value}**:
-  Populate tables in T with rows based on data integration and processing.
-  - **Args**: {{"note": "<additional note or empty string>"}}
+- {self.action_set.get_action_description(ActionNames.MATERIALIZER)}
 
 - **{ActionNames.PYTHON_EXECUTOR.value}**:
   Execute `S` on `T` to produce the final information that will be communicated to the user via `{ActionNames.USER_FACING_COMMUNICATION.value}`.
   - **Args**: {{}}
-{self.__get_web_search_description() if self.config.ENABLE_WEB_SEARCH else ""}
-{self.__get_web_crawl_description() if self.config.ENABLE_WEB_CRAWL else ""}
+
+- {self.action_set.get_action_description(ActionNames.WEB_SEARCH) + "\n" if self.config.ENABLE_WEB_SEARCH else ""}
+- {self.action_set.get_action_description(ActionNames.WEB_CRAWL) + "\n" if self.config.ENABLE_WEB_CRAWL else ""}
 
 ## Action Dependencies
   - `T` and `S` must already be defined before calling `{ActionNames.MATERIALIZER.value}`.
@@ -130,6 +132,7 @@ Both you and **{ActionNames.MATERIALIZER.value}** share the same data layer. You
 - **Internal Tables**: Retrievable via `{ActionNames.TABLE_RETRIEVE.value}`. Use {ActionNames.TABLE_ENUMERATION.value} to discover related tables.
 - **External Tables**: User-uploaded tables if any. Already visible (do not call `{ActionNames.TABLE_RETRIEVE.value}`). These may be CSVs or extracted Excel sheets.
 {"- **Web Search Results**: Relevant information from the web.\n" if self.config.ENABLE_WEB_SEARCH else ""}
+{"- **Web Crawl Results**: Extracted textual content from specified web pages.\n" if self.config.ENABLE_WEB_CRAWL else ""}
 
 # Guidelines on Table Relevance
 - When calling {ActionNames.TABLE_RETRIEVE.value}, generate retrieval prompts that preserve all semantic constraints in the user input, not only entities or schema-related keywords. Ensure coverage of:
@@ -167,18 +170,8 @@ Return **one JSON object** describing your planned actions for this step, e.g.:
 }}
 """.strip()
 
-    def __get_table_retrieve_description(self):
-        return f"""- **{ActionNames.TABLE_RETRIEVE.value}**:
-  Retrieve internal tables.
-  - **Args**: {{"prompts": ["<retrieval query 1>", "<retrieval query 2>", ...]}}
-  - **Notes**:
-    - You may provide multiple retrieval queries in a single call to retrieve tables on different topics (at most {self.config.TABLE_RETRIEVE_MAX_TOPICS} topics).
-    - If available, include specific keywords or entities in each query to improve retrieval precision.
-    - Previously retrieved tables will be replaced with new retrievals.
-    - Potential join paths between retrieved tables will be provided for reference.\n"""
-
     def __get_table_enumeration_description(self) -> str:
-        return f"""- **{ActionNames.TABLE_ENUMERATION.value}**:
+        return f"""**{ActionNames.TABLE_ENUMERATION.value}**:
   List other available internal tables in the database whose names match given regex patterns.
   - **Args**: {{"patterns": ["<regex pattern 1>", "<regex pattern 2>", ...]}}
   - **Notes**:
@@ -188,7 +181,7 @@ Return **one JSON object** describing your planned actions for this step, e.g.:
     - Returns names only (not data), but `{ActionNames.MATERIALIZER.value}` will access the actual data.
     - This is useful when you retrieve one table (e.g., `topic_2020`) but suspect there are other related tables (`topic_2021`, `topic_2022`, etc.)
     - You may provide multiple patterns in a single call (at most {self.config.TABLE_RETRIEVE_MAX_TOPICS} patterns).
-    - Example: {{"patterns": ["^sales_\\d{{4}}$", "^revenue_\\d{{4}}$"]}} will match all tables named like `sales_2020`, `sales_2021`, etc., and `revenue_2020`, `revenue_2021`, etc.\n"""
+    - Example: {{"patterns": ["^sales_\\d{{4}}$", "^revenue_\\d{{4}}$"]}} will match all tables named like `sales_2020`, `sales_2021`, etc., and `revenue_2020`, `revenue_2021`, etc."""
 
     def __get_web_search_description(self):
         """Gets Web Search description for Conductor."""

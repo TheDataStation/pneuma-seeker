@@ -101,8 +101,9 @@ You must respect the following boundary between `{ActionNames.MATERIALIZER.value
 - **S (Python script)** is responsible only for *post-integration processing*, such as applying filters, computing aggregates, ratios, or differences on already materialized tables.
 
 # Actions
-{self.action_set.get_action_description(ActionNames.TABLE_RETRIEVE)}
-{self.__get_table_enumeration_description()}
+- {self.action_set.get_action_description(ActionNames.TABLE_RETRIEVE)}
+
+- {self.__get_table_enumeration_description()}
 
 - **{ActionNames.STATE_MANIPULATION.value}**:
   Update T, S, or both.
@@ -114,12 +115,14 @@ You must respect the following boundary between `{ActionNames.MATERIALIZER.value
     - A `{ActionNames.STATE_MANIPULATION.value}` call resets previous T rather than appending.
 
 - {self.action_set.get_action_description(ActionNames.MATERIALIZER)}
+
 - **{ActionNames.PYTHON_EXECUTOR.value}**:
   Execute `S` on `T` to produce the final information that will be communicated to the user via `{ActionNames.USER_FACING_COMMUNICATION.value}`.
   - **Args**: {{}}
-{self.__get_context_extraction_description() if self.config.ENABLE_CONTEXT_EXTRACTION else ""}
-- {self.action_set.get_action_description(ActionNames.WEB_SEARCH) if self.config.ENABLE_WEB_SEARCH else ""}
-- {self.action_set.get_action_description(ActionNames.WEB_CRAWL) if self.config.ENABLE_WEB_CRAWL else ""}
+
+- {self.__get_context_extraction_description() + "\n" if self.config.ENABLE_CONTEXT_EXTRACTION else ""}
+- {self.action_set.get_action_description(ActionNames.WEB_SEARCH) + "\n" if self.config.ENABLE_WEB_SEARCH else ""}
+- {self.action_set.get_action_description(ActionNames.WEB_CRAWL) + "\n" if self.config.ENABLE_WEB_CRAWL else ""}
 
 ## Action Dependencies
   - `T` and `S` must already be defined before calling `{ActionNames.MATERIALIZER.value}`.
@@ -171,7 +174,7 @@ Return **one JSON object** describing your planned actions for this step, e.g.:
 """.strip()
 
     def __get_table_enumeration_description(self) -> str:
-        return f"""- **{ActionNames.TABLE_ENUMERATION.value}**:
+        return f"""**{ActionNames.TABLE_ENUMERATION.value}**:
   List other available internal tables in the database whose names match given regex patterns.
   - **Args**: {{"patterns": ["<regex pattern 1>", "<regex pattern 2>", ...]}}
   - **Notes**:
@@ -181,10 +184,10 @@ Return **one JSON object** describing your planned actions for this step, e.g.:
     - Returns names only (not data), but `{ActionNames.MATERIALIZER.value}` will access the actual data.
     - This is useful when you retrieve one table (e.g., `topic_2020`) but suspect there are other related tables (`topic_2021`, `topic_2022`, etc.)
     - You may provide multiple patterns in a single call (at most {self.config.TABLE_RETRIEVE_MAX_TOPICS} patterns).
-    - Example: {{"patterns": ["^sales_\\d{{4}}$", "^revenue_\\d{{4}}$"]}} will match all tables named like `sales_2020`, `sales_2021`, etc., and `revenue_2020`, `revenue_2021`, etc.\n"""
+    - Example: {{"patterns": ["^sales_\\d{{4}}$", "^revenue_\\d{{4}}$"]}} will match all tables named like `sales_2020`, `sales_2021`, etc., and `revenue_2020`, `revenue_2021`, etc."""
 
     def __get_context_extraction_description(self):
-        return f"""\n- **{ActionNames.CONTEXT_EXTRACTION.value}**
+        return f"""\n**{ActionNames.CONTEXT_EXTRACTION.value}**
   - Executes Python code to explore, inspect, or test assumptions or relevance of the retrieved or external tables.
   - This action is used ONLY to gather evidence, perform sanity checks, or confirm suspicions. It has no lasting side effects.
   - It MUST NOT be used to construct final outputs or pipeline tables.
@@ -223,7 +226,7 @@ Return **one JSON object** describing your planned actions for this step, e.g.:
   - The content of "conductor_assumption_check" should be small and preview-sized (for example, aggregated statistics, samples, or at most a few rows).
   - The system will automatically read from "conductor_assumption_check", return at most the first 10 rows, and clean up the table after use.
   - Do NOT create any other persistent tables.
-  - Args: {{"code": "<Python code string>"}}\n"""
+  - Args: {{"code": "<Python code string>"}}"""
 
     def get_env_state_prompt(
         self,
