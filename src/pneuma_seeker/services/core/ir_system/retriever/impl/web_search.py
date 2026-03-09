@@ -1,6 +1,6 @@
 from openai import OpenAI
 from pneuma_seeker.shared.schemas.core.ir_system import RetrieverType, Text, AbstractDocument
-from pneuma_seeker.services.core.ir_system.retriever.abstract_retriever import AbstractRetriever
+from pneuma_seeker.services.core.ir_system.retriever.interface import AbstractRetriever
 
 
 class WebSearch(AbstractRetriever):

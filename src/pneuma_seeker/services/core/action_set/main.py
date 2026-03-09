@@ -43,7 +43,7 @@ from pneuma_seeker.services.core.action_set.impl.web_crawl import WebCrawl
 from pneuma_seeker.services.core.action_set.impl.web_search import WebSearch
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
-from pneuma_seeker.services.core.ir_system.main import IRSystem
+from pneuma_seeker.services.core.ir_system.main import Retriever
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.schemas.core.action import ActionNames
 from pneuma_seeker.shared.schemas.core.ir_system import AbstractDocument, RetrieverType
@@ -68,7 +68,7 @@ class ActionSet:
         self.db_api = db_api
         self.language_model_api = language_model_api
 
-        self.ir_system = IRSystem(
+        self.ir_system = Retriever(
             self.user_id,
             self.chat_id,
             self.config,

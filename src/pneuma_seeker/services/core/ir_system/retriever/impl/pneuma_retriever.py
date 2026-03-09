@@ -24,7 +24,7 @@ import json
 
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
-from pneuma_seeker.services.core.ir_system.retriever.abstract_retriever import (
+from pneuma_seeker.services.core.ir_system.retriever.interface import (
     AbstractRetriever,
 )
 from pneuma_seeker.services.language_model.abstract_model import AbstractModel

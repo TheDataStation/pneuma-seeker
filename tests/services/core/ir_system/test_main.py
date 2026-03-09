@@ -9,7 +9,7 @@ sys.path.insert(
 
 import pandas as pd
 
-from pneuma_seeker.services.core.ir_system.main import IRSystem
+from pneuma_seeker.services.core.ir_system.main import Retriever
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.schemas.core.ir_system import (
     AbstractDocument,
@@ -28,7 +28,7 @@ class IRSystemTests(unittest.TestCase):
         self.logger = MagicMock()
         self.db_api = MagicMock()
         self.lm_api = MagicMock()
-        self.ir_system = IRSystem(
+        self.ir_system = Retriever(
             "uX", "cX", self.config, self.logger, self.db_api, self.lm_api
         )
 

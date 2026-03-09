@@ -9,7 +9,7 @@ from pneuma_seeker.shared.schemas.core.ir_system import (
     RetrieverType,
     Text,
 )
-from pneuma_seeker.services.core.ir_system.retriever.abstract_retriever import (
+from pneuma_seeker.services.core.ir_system.retriever.interface import (
     AbstractRetriever,
 )
 

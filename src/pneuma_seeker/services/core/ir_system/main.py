@@ -11,7 +11,7 @@ from pneuma_seeker.shared.logger import formatted_log
 from pneuma_seeker.shared.schemas.core.ir_system import AbstractDocument, RetrieverType
 
 
-class IRSystem:
+class Retriever:
     """
     Information Retrieval System that manages multiple retrievers
     and handles document indexing and retrieval.

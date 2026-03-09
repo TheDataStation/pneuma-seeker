@@ -2,7 +2,7 @@ import re
 
 import json
 
-from pneuma_seeker.services.core.ir_system.retriever.abstract_retriever import (
+from pneuma_seeker.services.core.ir_system.retriever.interface import (
     AbstractRetriever,
 )
 from pneuma_seeker.shared.schemas.core.ir_system import (
