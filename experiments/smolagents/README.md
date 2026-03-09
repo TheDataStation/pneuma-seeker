@@ -1,6 +1,6 @@
 # Setup
 ```bash
-conda create --name dsguru python=3.12
+conda create --name smolagents python=3.12
 pip install -r requirements.txt
 ```
 
