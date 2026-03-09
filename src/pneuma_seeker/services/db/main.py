@@ -62,6 +62,7 @@ class PneumaDB:
         os.makedirs(self.workspace_db_path, exist_ok=True)
 
         self._conn_cache: dict[tuple[str, str], duckdb.DuckDBPyConnection] = {}
+        self._pg_registry: dict[str, str] = {}
 
         self.target_tables_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
@@ -353,21 +354,35 @@ class PneumaDB:
         self._conn_cache.clear()
 
     # ------------------------------------------------------------------
+    # PostgreSQL Dataset Registry
+    # ------------------------------------------------------------------
+    def register_postgres_dataset(self, dataset_name: str, connection_string: str) -> None:
+        """Registers a PostgreSQL-backed dataset by storing its libpq connection string.
+
+        When link_dataset_tables is called for this dataset_name, DuckDB will ATTACH
+        via the postgres extension (READ_ONLY) instead of looking for a local .db file.
+
+        Note: Prefer using DuckDB secrets over embedding credentials directly in the
+        connection string to avoid accidental credential exposure in error output.
+        See: https://duckdb.org/docs/stable/core_extensions/postgres#configuring-via-secrets
+        """
+        self._pg_registry[dataset_name] = connection_string
+
+    # ------------------------------------------------------------------
     # Dataset DB Linking into Workspace DB
     # ------------------------------------------------------------------
     def link_dataset_tables(self, user_id: str, chat_id: str, dataset_name: str):
         """
-        Attach a dataset DB into the workspace connection under a safe alias.
-        The alias is the cleaned dataset_name.
-        This is idempotent (no error if already attached).
+        Attach a dataset into the workspace connection under a safe alias.
+
+        - If dataset_name was registered via register_postgres_dataset, attaches
+          using DuckDB's postgres extension (READ_ONLY).
+        - Otherwise, attaches a local .db file (original behaviour).
+
+        The alias is clean_column_table_name(dataset_name). Idempotent.
         """
         self.__log(f"[PneumaDB] Linking dataset '{dataset_name}' into workspace.")
         ws_db_con = self.get_ws_db_connection(user_id, chat_id)
-        dataset_db_file = self.dataset_db_path / dataset_name / f"{dataset_name}.db"
-        if not dataset_db_file.exists():
-            raise FileNotFoundError(
-                f"Dataset DB not found: {dataset_db_file.as_posix()}"
-            )
 
         alias = clean_column_table_name(dataset_name)
 
@@ -377,10 +392,21 @@ class PneumaDB:
         if "name" in attached.columns and alias in attached["name"].tolist():
             return  # already attached
 
-        # Attach read-only
-        ws_db_con.execute(
-            f"ATTACH DATABASE '{dataset_db_file.as_posix()}' AS \"{alias}\" (READ_ONLY)"
-        )
+        if dataset_name in self._pg_registry:
+            conn_str = self._pg_registry[dataset_name]
+            ws_db_con.execute(
+                f"ATTACH '{conn_str}' AS \"{alias}\" (TYPE postgres, READ_ONLY)"
+            )
+        else:
+            dataset_db_file = self.dataset_db_path / dataset_name / f"{dataset_name}.db"
+            if not dataset_db_file.exists():
+                raise FileNotFoundError(
+                    f"Dataset DB not found: {dataset_db_file.as_posix()}"
+                )
+            # Attach read-only
+            ws_db_con.execute(
+                f"ATTACH DATABASE '{dataset_db_file.as_posix()}' AS \"{alias}\" (READ_ONLY)"
+            )
 
     # ------------------------------------------------------------------
     # Query Execution

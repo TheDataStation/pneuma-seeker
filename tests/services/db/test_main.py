@@ -7,7 +7,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
@@ -1505,6 +1505,141 @@ class TestIntegration(unittest.TestCase):
 
         self.assertEqual(chat1_history[0]["content"], "User 1 query")
         self.assertEqual(chat2_history[0]["content"], "User 2 query")
+
+
+class TestPostgresDatasetLinking(unittest.TestCase):
+    """Tests for PostgreSQL dataset linking via register_postgres_dataset."""
+
+    def setUp(self):
+        self.config = Config()
+        self.logger = logging.getLogger("test")
+        self.tmpdir = tempfile.mkdtemp()
+        self.db = PneumaDB(logger=self.logger, config=self.config)
+        self.db.dataset_db_path = Path(self.tmpdir) / "datasets"
+        self.db.workspace_db_path = Path(self.tmpdir) / "workspaces"
+        self.db.dataset_db_path.mkdir(parents=True, exist_ok=True)
+        self.db.workspace_db_path.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.db.close_all_connections()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _make_mock_ws_con(self, already_attached_alias: str | None = None):
+        """Returns a MagicMock workspace connection pre-configured for link_dataset_tables tests."""
+        mock_con = MagicMock()
+        name_col = [already_attached_alias] if already_attached_alias else []
+        mock_con.execute.return_value.fetchdf.return_value = pd.DataFrame({"name": name_col})
+        return mock_con
+
+    def test_register_stores_connection_string(self):
+        """register_postgres_dataset should store the connection string in the registry."""
+        conn_str = "host=localhost port=5432 dbname=mydb user=reader"
+        self.db.register_postgres_dataset("pg_ds", conn_str)
+        self.assertIn("pg_ds", self.db._pg_registry)
+        self.assertEqual(self.db._pg_registry["pg_ds"], conn_str)
+
+    def test_register_overrides_previous_connection_string(self):
+        """Re-registering a dataset name updates the stored connection string."""
+        self.db.register_postgres_dataset("ds", "host=server1")
+        self.db.register_postgres_dataset("ds", "host=server2")
+        self.assertEqual(self.db._pg_registry["ds"], "host=server2")
+
+    def test_link_issues_attach_with_type_postgres(self):
+        """link_dataset_tables should ATTACH with TYPE postgres for PG-registered datasets."""
+        conn_str = "host=localhost port=5432 dbname=mydb user=reader"
+        self.db.register_postgres_dataset("pg_ds", conn_str)
+
+        mock_con = self._make_mock_ws_con()
+        with patch.object(self.db, "get_ws_db_connection", return_value=mock_con):
+            self.db.link_dataset_tables("u", "c", "pg_ds")
+
+        executed_sqls = [call[0][0] for call in mock_con.execute.call_args_list]
+        attach_sqls = [s for s in executed_sqls if "ATTACH" in s.upper()]
+        self.assertEqual(len(attach_sqls), 1)
+        self.assertIn("TYPE POSTGRES", attach_sqls[0].upper())
+        self.assertIn(conn_str, attach_sqls[0])
+        self.assertIn('"pg_ds"', attach_sqls[0])
+
+    def test_link_postgres_attach_is_read_only(self):
+        """The postgres ATTACH should always include READ_ONLY."""
+        self.db.register_postgres_dataset("pg_ro", "host=localhost dbname=testdb")
+
+        mock_con = self._make_mock_ws_con()
+        with patch.object(self.db, "get_ws_db_connection", return_value=mock_con):
+            self.db.link_dataset_tables("u", "c", "pg_ro")
+
+        executed_sqls = [call[0][0] for call in mock_con.execute.call_args_list]
+        attach_sqls = [s for s in executed_sqls if "ATTACH" in s.upper()]
+        self.assertEqual(len(attach_sqls), 1)
+        self.assertIn("READ_ONLY", attach_sqls[0].upper())
+
+    def test_link_postgres_does_not_check_filesystem(self):
+        """Linking a PG-registered dataset must not raise FileNotFoundError."""
+        self.db.register_postgres_dataset("pg_only", "host=no-such-server")
+
+        mock_con = self._make_mock_ws_con()
+        with patch.object(self.db, "get_ws_db_connection", return_value=mock_con):
+            # Should not raise even though no local .db file exists
+            self.db.link_dataset_tables("u", "c", "pg_only")
+
+    def test_link_postgres_idempotent_skips_attach_when_already_attached(self):
+        """If the alias is already in PRAGMA database_list, ATTACH is not called again."""
+        conn_str = "host=localhost dbname=testdb"
+        self.db.register_postgres_dataset("pg_idem", conn_str)
+
+        # Simulate already attached (alias == clean_column_table_name("pg_idem") == "pg_idem")
+        mock_con = self._make_mock_ws_con(already_attached_alias="pg_idem")
+        with patch.object(self.db, "get_ws_db_connection", return_value=mock_con):
+            self.db.link_dataset_tables("u", "c", "pg_idem")
+
+        attach_calls = [
+            call[0][0]
+            for call in mock_con.execute.call_args_list
+            if "ATTACH" in call[0][0].upper()
+        ]
+        self.assertEqual(len(attach_calls), 0)
+
+    def test_link_postgres_first_call_attaches_second_skips(self):
+        """First link_dataset_tables call ATTACHes; second call (alias already present) skips."""
+        conn_str = "host=localhost dbname=testdb"
+        self.db.register_postgres_dataset("pg_idem2", conn_str)
+
+        # First call: not yet attached
+        mock_first = self._make_mock_ws_con()
+        with patch.object(self.db, "get_ws_db_connection", return_value=mock_first):
+            self.db.link_dataset_tables("u", "c", "pg_idem2")
+
+        attach_count_first = sum(
+            1
+            for call in mock_first.execute.call_args_list
+            if "ATTACH" in call[0][0].upper()
+        )
+        self.assertEqual(attach_count_first, 1)
+
+        # Second call: simulate already attached
+        mock_second = self._make_mock_ws_con(already_attached_alias="pg_idem2")
+        with patch.object(self.db, "get_ws_db_connection", return_value=mock_second):
+            self.db.link_dataset_tables("u", "c", "pg_idem2")
+
+        attach_count_second = sum(
+            1
+            for call in mock_second.execute.call_args_list
+            if "ATTACH" in call[0][0].upper()
+        )
+        self.assertEqual(attach_count_second, 0)
+
+    def test_unregistered_dataset_raises_file_not_found(self):
+        """Non-PG datasets still raise FileNotFoundError when the .db file is missing."""
+        with self.assertRaises(FileNotFoundError):
+            self.db.link_dataset_tables("u", "c", "no_such_local_ds")
+
+    def test_local_dataset_unaffected_by_pg_registry(self):
+        """Registering a PG dataset does not affect unrelated local dataset behaviour."""
+        self.db.register_postgres_dataset("pg_other", "host=localhost")
+
+        # "local_ds" is not in the registry, so it should raise FileNotFoundError
+        with self.assertRaises(FileNotFoundError):
+            self.db.link_dataset_tables("u", "c", "local_ds")
 
 
 class TestTransactionRollback(unittest.TestCase):
