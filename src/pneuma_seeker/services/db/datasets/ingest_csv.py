@@ -41,7 +41,7 @@ def dedupe_columns(cols):
 
 
 DATASET_NAME = "legal"
-DATASET_PATH = f"../{DATASET_NAME}/dataset"
+DATASET_PATH = f"../../../../../data_src/{DATASET_NAME}/dataset"
 OVERWRITE_DB = True
 
 if os.path.exists(f"{DATASET_NAME}.db") and not OVERWRITE_DB:
