@@ -452,8 +452,6 @@ class ServerEndpointTests(unittest.TestCase):
             main.session_manager.get_chat_session = original_get
 
     def test_helpers_now_ms_and_stream_payload(self):
-        t = main.now_ms()
-        self.assertIsInstance(t, int)
         payload = main.stream_payload("log", "hello")
         obj = json.loads(payload.strip())
         self.assertEqual(obj["sender"], "log")

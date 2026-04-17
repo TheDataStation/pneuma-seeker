@@ -21,7 +21,15 @@ from fastapi.responses import (
 from fastapi.templating import Jinja2Templates
 from markdown import markdown
 from markdown2 import markdown as markdown_2
+from pandas import DataFrame
 
+from pneuma_seeker.model import (
+    DatasetMetadataResponse,
+    EndpointTag,
+    IndexDatasetRequest,
+    IndexDatasetResponse,
+)
+from pneuma_seeker.services.indexing.main import IndexingService
 from pneuma_seeker.session_manager import SessionManager
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import setup_logger
@@ -29,12 +37,9 @@ from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.table_serializer import serialize_dataframe
 
 app = FastAPI(title="Pneuma-Seeker")
-logger = setup_logger("Core Service")
+logger = setup_logger()
 config = Config("../../.env")
-session_manager = SessionManager(
-    config,
-    logger,
-)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.ALLOWED_ORIGINS,
@@ -43,36 +48,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-BASE_DIR = (
-    Path(__file__).resolve().parents[2]
-)  # go up from /src/pneuma_seeker/main.py → project root
-TABLES_DIR = BASE_DIR / "data_src" / "target_tables"
-
+session_manager = SessionManager(
+    config,
+    logger,
+)
+indexing_service = IndexingService(
+    config,
+    logger,
+)
 templates = Jinja2Templates(
     directory=str(Path(__file__).resolve().parent / "templates")
 )
-
-TITLE_GENERATION_PREFIX = "### Task:\nGenerate a concise, 3-5 word title with an emoji summarizing the chat history.\n### Guidelines:\n- The title should clearly represent the main theme or subject of the conversation.\n- Use emojis that enhance understanding of the topic, but avoid quotation marks or special formatting."
-
-
-# Helper functions
-def now_ms() -> int:
-    """Returns the current time in milliseconds."""
-    return int(datetime.now().timestamp() * 1000)
-
-
-def stream_payload(sender: str, text: str) -> str:
-    """Formats a message payload for streaming responses."""
-    return (
-        dumps(
-            {
-                "sender": sender,
-                "text": text,
-                "time_stamp": now_ms(),
-            }
-        )
-        + "\n"
-    )
 
 
 @app.get("/")
@@ -80,7 +66,11 @@ def root():
     return {"status": "ok"}
 
 
-@app.get("/provenance/nodes/{user_id}/{chat_id}", response_class=JSONResponse)
+@app.get(
+    "/provenance/nodes/{user_id}/{chat_id}",
+    response_class=JSONResponse,
+    tags=[EndpointTag.CORE],
+)
 async def get_provenance_nodes(request: Request, user_id: str, chat_id: str):
     """
     Return all nodes of the provenance graph for a given user and chat.
@@ -115,7 +105,7 @@ async def get_provenance_nodes(request: Request, user_id: str, chat_id: str):
     )
 
 
-@app.get("/execute_code/{user_id}/{chat_id}")
+@app.get("/execute_code/{user_id}/{chat_id}", tags=[EndpointTag.CORE])
 async def execute_code(user_id: str, chat_id: str):
     """
     Endpoint to trigger execution of Python code (S) on target tables (T) for a given user and chat.
@@ -145,7 +135,7 @@ async def execute_code(user_id: str, chat_id: str):
         )
 
 
-@app.post("/download_chat_pdf")
+@app.post("/download_chat_pdf", tags=[EndpointTag.CORE])
 async def download_chat_pdf(data: dict):
     from weasyprint import HTML
 
@@ -194,7 +184,11 @@ async def download_chat_pdf(data: dict):
         )
 
 
-@app.post("/combined/html/{user_id}/{chat_id}", response_class=HTMLResponse)
+@app.post(
+    "/combined/html/{user_id}/{chat_id}",
+    response_class=HTMLResponse,
+    tags=[EndpointTag.CORE],
+)
 async def read_combined_html(request: Request, user_id: str, chat_id: str, data: dict):
     conductor = session_manager.get_chat_session(user_id, chat_id).conductor
     state = conductor.state.get_current_state_instance(config.TABLE_MAX_ROWS_DISPLAY)
@@ -238,7 +232,7 @@ async def read_combined_html(request: Request, user_id: str, chat_id: str, data:
     )
 
 
-@app.post("/chat")
+@app.post("/chat", tags=[EndpointTag.CORE])
 async def chat(request: Request):
     body: dict[str, Any] = await request.json()
     user_id: str = body.get("user_id", "default_user")
@@ -249,12 +243,6 @@ async def chat(request: Request):
 
     if data_source:
         config.DATA_SOURCES = [data_source]
-
-    is_title_generation_task = len(messages) > 0 and messages[0].get(
-        "content"
-    ).startswith(TITLE_GENERATION_PREFIX)
-    if is_title_generation_task:
-        return {}
 
     llm_messages: list[LLMMessage] = []
     for msg in messages:
@@ -356,7 +344,7 @@ async def chat(request: Request):
     )
 
 
-@app.get("/all_tables/{user_id}/{chat_id}")
+@app.get("/all_tables/{user_id}/{chat_id}", tags=[EndpointTag.CORE])
 def download_all_tables(user_id: str, chat_id: str):
     """
     Download all tables (CSV files) for a given user and chat as a ZIP file.
@@ -401,7 +389,7 @@ def download_all_tables(user_id: str, chat_id: str):
     )
 
 
-@app.get("/materializer_code/{user_id}/{chat_id}")
+@app.get("/materializer_code/{user_id}/{chat_id}", tags=[EndpointTag.CORE])
 def download_materializer_code(user_id: str, chat_id: str):
     """
     Downloads Materializer code (.py) generated for a given user and chat.
