@@ -1,4 +1,4 @@
-![The Architecture of Pneuma-Seeker](pneuma_seeker.png)
+![The Architecture of Pneuma-Seeker](etc/pneuma_seeker.png)
 
 # Pneuma-Seeker
 
@@ -9,40 +9,46 @@
 - $\mathcal{T}$ is a set of views derived from the underlying dataset (table collection)
 - $S$ is a Python script defined over $\mathcal{T}$
 
-This system, which we first introduced as part of our vision for [the Pneuma project](https://www.cidrdb.org/cidr2026/papers/p31-balaka.pdf), fulfills information needs by executing $S$ over $\mathcal{T}$.
+This system, part of our broader vision in [the Pneuma project](https://www.cidrdb.org/cidr2026/papers/p31-balaka.pdf), fulfills information needs by executing $S$ over $\mathcal{T}$.
 
 ---
 
-# How to Run the System
+# Getting Started
 
-First, prepare the environment:
+You can follow our [quick start guide](./quick_start.ipynb) to install the system and build an initial mental model of how it works through a simple example. Alternatively, you can follow the steps below:
 
+## Installation
+
+To ensure smooth installation and usage, we **strongly recommend** installing `Miniconda` (see [installation guide](https://www.anaconda.com/docs/getting-started/miniconda/install/overview)). Then, create a new environment using:
 ```bash
-conda create --name pneuma_seeker python=3.12.9
+conda create --name pneuma_seeker python=3.12.12 -y
+conda activate pneuma_seeker
 pip install -r requirements.txt
 ```
 
-You may modify configuration values through the `.env` file. Refer to `src/pneuma_seeker/shared/config.py` for all available configuration options.
+### Configuration
 
-Then, run the backend:
+Copy [`.env.example`](./.env.example) to `.env` and update the values as needed. See [the configuration file](./src/pneuma_seeker/shared/config.py) for all available options.
 
+## Run Backend
+
+Start the backend server with:
 ```bash
 cd src/pneuma_seeker
 nohup fastapi dev main.py --host 0.0.0.0 --port 8000 >> main.out &
 ```
-
-## MacOS Note
-
-On MacOS, FastAPI does not work well with nohup. Use the following instead:
-
+On macOS, use:
 ```bash
 fastapi dev main.py > main.out 2>&1
 ```
 
-## Running the Frontend
+## Index Dataset
+
+To be documented soon.
+
+## Run Frontend
 
 Clone the UI repository and run OpenWebUI:
-
 ```bash
 cd ..
 git clone https://github.com/luthfibalaka/pneuma-seeker-ui.git
@@ -52,10 +58,11 @@ pip install .
 nohup open-webui serve >> output.out &
 ```
 
-After launching the frontend, import all functions in `openwebui_functions` into the OpenWebUI interface so the frontend can call the Pneuma-Seeker backend.
+After launching the frontend, import all functions (`.json`) in `/openwebui_functions` into the OpenWebUI interface so the frontend can communicate with the Pneuma-Seeker backend.
 
+![Import functions to OpenWebUI](etc/openwebui_import.png)
 
-# Running Unit Tests
+# Run Unit Tests
 
 ```bash
 cd ./tests/pneuma_seeker
@@ -93,7 +100,7 @@ pneuma_seeker/
 
 # Citation
 
-If you would like to cite the paper on `Pneuma-Seeker`, please use the following BibTeX entry:
+If you would like to cite the [Pneuma-Seeker paper](https://arxiv.org/abs/2603.10747), please use:
 ```
 @misc{PneumaSeeker2026,
       title={Pneuma-Seeker: A Relational Reification Mechanism to Align AI Agents with Human Work over Relational Data}, 
@@ -104,9 +111,20 @@ If you would like to cite the paper on `Pneuma-Seeker`, please use the following
       primaryClass={cs.DB},
       url={https://arxiv.org/abs/2603.10747}, 
 }
-
 ```
-If you would like to cite the paper on the Pneuma project, please use the following BibTex entry:
+If you would like to cite the [Pneuma-Seeker demo paper](https://arxiv.org/abs/2604.14422), please use (recently accepted to the CAIS 2026 demo track; this will be updated soon):
+```
+@misc{balaka2026demonstrationpneumaseekeragenticreifying,
+      title={Demonstration of Pneuma-Seeker: Agentic System for Reifying and Fulfilling Information Needs on Tabular Data}, 
+      author={Muhammad Imam Luthfi Balaka and Raul Castro Fernandez},
+      year={2026},
+      eprint={2604.14422},
+      archivePrefix={arXiv},
+      primaryClass={cs.AI},
+      url={https://arxiv.org/abs/2604.14422}, 
+}
+```
+If you would like to cite the [Pneuma project paper](https://www.cidrdb.org/cidr2026/papers/p31-balaka.pdf), please use:
 ```
 @inproceedings{PneumaProjectCIDR2026,
   author    = {Muhammad Imam Luthfi Balaka and Raul Castro Fernandez},
