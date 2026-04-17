@@ -407,3 +407,69 @@ def download_materializer_code(user_id: str, chat_id: str):
         media_type="application/octet-stream",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+@app.post("/index", response_model=IndexDatasetResponse, tags=[EndpointTag.INDEXING])
+def index_dataset(
+    payload: IndexDatasetRequest,
+) -> IndexDatasetResponse:
+    schema_summaries_df: DataFrame | None = None
+    if payload.schema_summaries is not None:
+        schema_summaries_df = DataFrame(payload.schema_summaries)
+
+    try:
+        run_id = indexing_service.index_dataset(
+            dataset_name=payload.dataset_name,
+            connector_config=payload.connector_config,
+            metadata_available=payload.metadata_available,
+            schema_summaries=schema_summaries_df,
+        )
+    except ValueError as exception:
+        raise HTTPException(status_code=400, detail=str(exception)) from exception
+    except RuntimeError as exception:
+        raise HTTPException(status_code=502, detail=str(exception)) from exception
+    except Exception as exception:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Indexing failed: {exception}",
+        ) from exception
+
+    return IndexDatasetResponse(
+        run_id=run_id,
+        dataset_name=payload.dataset_name,
+        latest_metadata=indexing_service.get_latest_index_metadata(
+            payload.dataset_name
+        ),
+    )
+
+
+@app.get(
+    "/index/{dataset_name}/latest",
+    response_model=DatasetMetadataResponse,
+    tags=[EndpointTag.INDEXING],
+)
+def get_latest_metadata_endpoint(
+    dataset_name: str,
+) -> DatasetMetadataResponse:
+    metadata = indexing_service.get_latest_index_metadata(dataset_name)
+    if metadata is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No indexing metadata found for dataset '{dataset_name}'.",
+        )
+
+    return DatasetMetadataResponse(dataset_name=dataset_name, latest_metadata=metadata)
+
+
+def stream_payload(sender: str, text: str) -> str:
+    """Formats a message payload for streaming responses."""
+    return (
+        dumps(
+            {
+                "sender": sender,
+                "text": text,
+                "time_stamp": int(datetime.now().timestamp() * 1000),
+            }
+        )
+        + "\n"
+    )

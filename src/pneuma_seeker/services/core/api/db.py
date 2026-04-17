@@ -56,6 +56,10 @@ class DBAPI:
         """
         self.pneuma_db.link_dataset_tables(user_id, chat_id, dataset_name)
 
+    def register_postgres_dataset(self, dataset_name: str, connection_string: str):
+        """Registers a PostgreSQL dataset connection string for later linking."""
+        self.pneuma_db.register_postgres_dataset(dataset_name, connection_string)
+
     # ------------------------------------------------------------------
     # Query Execution
     # ------------------------------------------------------------------
