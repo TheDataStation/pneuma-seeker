@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Generator
 
 import pandas as pd
 
@@ -75,4 +75,4 @@ class CSVConnector(SourceConnector):
 
 		table = pd.read_csv(stream_map[stream])
 		for row in table.to_dict(orient="records"):
-			yield row
+			yield row # type: ignore

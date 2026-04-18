@@ -28,7 +28,7 @@ class Config:
 
         # Frontend-Backend Interaction Settings        
         self.ALLOWED_ORIGINS = getenv("ALLOWED_ORIGINS", "*").split(",")
-        self.OPENWEBUI_BASE_URL = getenv("OPENWEBUI_BASE_URL", "http://localhost:8080/")
+        self.OPENWEBUI_BASE_URL = getenv("OPENWEBUI_BASE_URL", "http://0.0.0.0:8080/")
         self.OPENWEBUI_API_KEY = getenv("OPENWEBUI_API_KEY", "")
         self.TABLE_MAX_ROWS_DISPLAY = int(getenv("TABLE_MAX_ROWS_DISPLAY", "10"))
 
