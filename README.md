@@ -62,7 +62,7 @@ After launching the frontend, import all functions (`.json`) in `/openwebui_func
 
 ![Import functions to OpenWebUI](etc/openwebui_import.png)
 
-# Run Unit Tests
+## Run Unit Tests
 
 ```bash
 cd ./tests/pneuma_seeker
@@ -97,6 +97,10 @@ pneuma_seeker/
 ├── requirements.txt          # Python dependencies
 └── README.md                 # Project documentation
 ```
+
+## Contributing
+
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute, report issues, and submit pull requests.
 
 # Citation
 
