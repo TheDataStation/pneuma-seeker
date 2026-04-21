@@ -1,0 +1,19 @@
+services:
+  core:
+    build:
+      context: .
+      dockerfile: src/pneuma_seeker/docker/core-service.dockerfile
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    networks:
+      - backend-net
+    volumes:
+      - ./src/pneuma_seeker/services/db/datasets:/app/src/pneuma_seeker/services/db/datasets
+      - ./src/pneuma_seeker/services/db/workspaces:/app/src/pneuma_seeker/services/db/workspaces
+    env_file:
+      - .env
+
+networks:
+  backend-net:
+    driver: bridge
