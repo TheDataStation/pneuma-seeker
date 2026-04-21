@@ -9,24 +9,29 @@
 
 To install and run `Pneuma-Seeker`, you need to set up both the backend and frontend.
 
-We **recommend** installing `Miniconda` (see [installation guide](https://www.anaconda.com/docs/getting-started/miniconda/install/overview)). Then, create a new environment using:
+First, copy the environment configuration:
+```bash
+cp .env.example .env
+```
+Then update values as needed. See [the configuration file](./src/pneuma_seeker/shared/config.py) for all available options.
+
+To install and run the backend, you can simply run:
+```bash
+docker compose up -d
+```
+
+However, for development purposes, we **recommend** installing `Miniconda` (see [installation guide](https://www.anaconda.com/docs/getting-started/miniconda/install/overview)). Then, create a new environment using:
 ```bash
 conda create --name pneuma_seeker python=3.12.12 -y
 conda activate pneuma_seeker
 pip install -r requirements.txt
 ```
 
-Copy environment configuration:
-```bash
-cp .env.example .env
-```
-Then update values as needed. See [the configuration file](./src/pneuma_seeker/shared/config.py) for all available options.
-
 Start the backend server:
 ```bash
 cd src/pneuma_seeker
 ```
-On MacOS:
+On macOS:
 ```bash
 fastapi dev main.py > main.out 2>&1
 ```
