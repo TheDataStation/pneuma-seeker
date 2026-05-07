@@ -1,0 +1,8 @@
+Descriprtion:
+The datasets are accessible through the Federal Trade Commission (FTC) portal Federal Trade Commission (2025b) and Wikipedia Wikipedia contributors (2025), including information on merger filings, civil penalty actions, etc. The data is used in visualizations and dashboards that analyze nation-level debt collection and fraud detection, available at Federal Trade Commission (2025c;a).
+
+Sources:
+Federal Trade Commission. Age and Fraud Dashboard. https://public.tableau.com/app/profile/federal.trade.commission/viz/AgeandFraud/Infographic, 2025a. 
+Federal Trade Commission. FTC Open Government Data Sets. https://www.ftc.gov/policy-notices/open-government/data-sets, 2025b.
+Federal Trade Commission. Debt Collection Dashboard. https://public.tableau.com/app/profile/federal.trade.commission/viz/DebtCollection/Infographic, 2025c.
+Wikipedia contributors. Metropolitan statistical area — Wikipedia, The Free Encyclopedia. https://en.wikipedia.org/wiki/Metropolitan_statistical_area, 2025.

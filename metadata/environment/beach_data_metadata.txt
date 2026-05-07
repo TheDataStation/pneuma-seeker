@@ -1,0 +1,10 @@
+Bacteria monitoring and management is conducted by the Massachusetts Dept. of Conservation and Recreation (DCR).
+High bacteria triggers a swimming advisory and often repeated sampling until bacteria meet limits.
+
+Displayed are Enterococcus bacteria counts. The maximum daily limit is 104 counts/100 mL. All results are in counts/100 mL
+When the test does not detect Enterococcus, the result is reported as the test low detection limit with a "<" tag.
+Results above the high detection limit, the result is reported with the limit and a ">" tag.
+Use 1/2 of the detection limit when calculating a geometric mean that includes results with a "<" tag.
+
+Rainfall totals from Logan Airport, National Weather Service rain gauge. 1-Day rain is on the day of sampling.
+2-Day includes the day before and day of sampling. 3-day includes two days before and day of sampling.

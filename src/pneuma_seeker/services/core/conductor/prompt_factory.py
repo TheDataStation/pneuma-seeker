@@ -123,6 +123,11 @@ You must respect the following boundary between `{ActionNames.MATERIALIZER.value
 - {self.__get_context_extraction_description() + "\n" if self.config.ENABLE_CONTEXT_EXTRACTION else ""}
 - {self.action_set.get_action_description(ActionNames.WEB_SEARCH) + "\n" if self.config.ENABLE_WEB_SEARCH else ""}
 - {self.action_set.get_action_description(ActionNames.WEB_CRAWL) + "\n" if self.config.ENABLE_WEB_CRAWL else ""}
+- **{ActionNames.RESULT_EXPLANATION.value}**:
+  Read the full derivation pipeline for the current result: source tables used, integration steps with code, the processing script, and the result schema with per-column annotations. No raw data rows are included.
+  Use this when the user asks how the result was produced, requests a methodology explanation, or asks follow-up questions about specific steps.
+  - **Args**: {{}}
+  - **Notes**: Only available after T has been materialized.
 
 ## Action Dependencies
   - `T` and `S` must already be defined before calling `{ActionNames.MATERIALIZER.value}`.

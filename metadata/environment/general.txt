@@ -1,0 +1,9 @@
+Descriprtion:
+The data files consist of beach water quality dataset from Massachusetts Environment Public Health Tracking (EPHT) Massachusetts Department of Public Health (2025b), the Massachusetts Bay beach dataset from Massachusetts Water Resources Authority (MWRA) Massachusetts Water Resources Authority (2025b), and the rainfall dataset from NOAA National Weather Service National Weather Service (2025), from 2002 to 2025. The data has been used in yearly reports Massachusetts Department of Public Health (2025a); Massachusetts Water Resources Authority (2025a) to uncover trends in beach water pollution and the correlation between rainfall and water quality.
+
+Sources:
+Massachusetts Department of Public Health. Water Body Testing Report — Massachusetts  Environmental Public Health Tracking Network (MEPHTN). https://dphanalytics.hhs.mass.gov/ibmcognos/bi/?perspective=authoring&pathRef=.public_folders%2FMEPHTN%2Fenvironmental%2Fwater-body-testing&id=iB8503D8E63864870AC33EF393D858EB2, 2025b.
+Massachusetts Department of Public Health. Water Quality at Massachusetts Swimming Beaches. https://www.mass.gov/lists/water-quality-at-massachusetts-swimming-beaches, 2025a.
+Massachusetts Water Resources Authority. Beach Fact Sheets — Massachusetts Water Resources Authority (MWRA). https://www.mwra.com/harbor/download-environmental-data#beach-fact-sheets, 2025a.
+Massachusetts Water Resources Authority. Download Environmental Data — Massachusetts Water Resources Authority (MWRA). https://www.mwra.com/harbor/download-environmental-data, 2025b.
+NOAA Office of Satellite and Product Operations. NOAA Geostationary Operational Environmental Satellite (GOES) I-M and N-P Series Imager Data. NOAA National Centers for Environmental Information, 1994. URL https://doi.org/10.25921/Z9JQ-K976.

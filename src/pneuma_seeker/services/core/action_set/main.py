@@ -38,6 +38,7 @@ from pneuma_seeker.services.core.action_set.impl.table_enumeration import (
     TableEnumeration,
 )
 from pneuma_seeker.services.core.action_set.impl.table_retrieve import TableRetrieve
+from pneuma_seeker.services.core.action_set.impl.result_explanation import ResultExplanation
 from pneuma_seeker.services.core.action_set.impl.user_facing_communication import UserFacingCommunication
 from pneuma_seeker.services.core.action_set.impl.web_crawl import WebCrawl
 from pneuma_seeker.services.core.action_set.impl.web_search import WebSearch
@@ -204,6 +205,14 @@ class ActionSet:
             self.db_api,
             self.language_model_api,
         )
+        self.result_explanation = ResultExplanation(
+            self.user_id,
+            self.chat_id,
+            self.config,
+            self.logger,
+            self.db_api,
+            self.language_model_api,
+        )
 
         self.valid_conductor_actions = [
             ActionNames.USER_FACING_COMMUNICATION.value,
@@ -213,6 +222,7 @@ class ActionSet:
             ActionNames.STATE_MANIPULATION.value,
             ActionNames.MATERIALIZER.value,
             ActionNames.PYTHON_EXECUTOR.value,
+            ActionNames.RESULT_EXPLANATION.value,
         ]
         self.valid_materializer_actions = [
             ActionNames.SITUATIONAL_ANALYSIS.value,
@@ -278,6 +288,8 @@ class ActionSet:
                 return self.__get_materializer_action_description()
             case ActionNames.USER_FACING_COMMUNICATION:
                 return self.user_facing_communication.get_description()
+            case ActionNames.RESULT_EXPLANATION:
+                return self.result_explanation.get_description()
             case _:
                 raise ValueError(f"Unknown action: {action_name}")
     

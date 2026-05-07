@@ -38,7 +38,7 @@ class Config:
         self.PERSIST_CHAT_SESSION = (
             getenv("PERSIST_CHAT_SESSION", "true").lower() == "true"
         )
-        self.DATA_SOURCES = ["archeology"]
+        self.DATA_SOURCES = ["environment", "legal"]
         self.ENABLE_MEMORY_PROFILING = (
             getenv("ENABLE_MEMORY_PROFILING", "false").lower() == "true"
         )

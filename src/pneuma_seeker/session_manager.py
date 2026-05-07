@@ -1,6 +1,8 @@
 # src/pneuma_seeker/session_manager.py
 from logging import Logger
 
+import copy
+
 from pneuma_seeker.chat_session import ChatSession
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
@@ -16,16 +18,20 @@ class SessionManager:
         self.logger = logger
         self.chat_sessions: dict[tuple[str, str], ChatSession] = {}
 
-    def get_chat_session(self, user_id: str, chat_id: str) -> ChatSession:
+    def get_chat_session(self, user_id: str, chat_id: str, dataset: str | None = None) -> ChatSession:
         """Retrieves or creates a ChatSession for the given user and chat IDs."""
         key = (user_id, chat_id)
         if key not in self.chat_sessions:
+            session_config = self.config
+            if dataset and dataset != self.config.DATA_SOURCES[0]:
+                session_config = copy.copy(self.config)
+                session_config.DATA_SOURCES = [dataset] + [d for d in self.config.DATA_SOURCES if d != dataset]
             self.chat_sessions[key] = ChatSession(
                 user_id,
                 chat_id,
-                self.config,
+                session_config,
                 self.logger,
-                DBAPI(self.config, self.logger),
-                LanguageModelAPI(self.config, self.logger),
+                DBAPI(session_config, self.logger),
+                LanguageModelAPI(session_config, self.logger),
             )
         return self.chat_sessions[key]

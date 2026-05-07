@@ -1,3 +1,4 @@
+import re
 from logging import Logger
 from time import time
 from typing import Any, cast
@@ -77,6 +78,8 @@ class Conductor:
         self.web_search_result: AbstractDocument | None = None
         self.web_crawl_result: AbstractDocument | None = None
         self.join_paths: str | None = None
+        # Cache for LLM-generated code annotation blocks (keyed by script content)
+        self.annotation_cache: dict[str, list[dict]] = {}
 
         # Short-lived state (per chat call)
         self.user_facing_response = ""
@@ -693,6 +696,85 @@ class Conductor:
                     error_msg = f"Error during Assumption Check execution: {e}"
                     self.__log(f"=> {error_msg}")
                     return error_msg, ActionExecutionStatus.ERROR
+            case ActionNames.RESULT_EXPLANATION.value:
+                self.__log("Result Explanation request")
+                if not self.state.is_T_materialized:
+                    return (
+                        "T has not been materialized yet; there is no result to explain.",
+                        ActionExecutionStatus.ERROR,
+                    )
+
+                lines: list[str] = []
+
+                # Step 1: Source tables used (names + metadata only, no row data)
+                if self.retrieved_tables:
+                    lines.append("## Step 1: Source Tables")
+                    for doc in self.retrieved_tables:
+                        desc = doc.metadata.get("description", "")
+                        cols = doc.metadata.get("column_types", "")
+                        line = f"- **{doc.doc_id}**"
+                        if desc:
+                            line += f": {desc}"
+                        if cols:
+                            line += f" | Columns: {cols}"
+                        lines.append(line)
+
+                # Step 2: Materialization steps (description + annotated code, no row data)
+                ordered_nodes = self.prov_graph.topological_sort()
+                mat_nodes = [
+                    n for n in ordered_nodes
+                    if getattr(n.source_retriever, "value", str(n.source_retriever)) == "Materializer"
+                ]
+                if mat_nodes:
+                    lines.append("\n## Step 2: Data Integration Steps")
+                    for i, node in enumerate(mat_nodes, 1):
+                        lines.append(f"\n### Operation {i}: {node.description or '(no description)'}")
+                        if node.python_code:
+                            lines.append(f"```python\n{node.python_code}\n```")
+                            blocks = self.annotation_cache.get(node.python_code, [])
+                            if blocks:
+                                annotation = "\n".join(
+                                    f"{j}. **{b.get('label', '')}**: {b.get('desc', '')}"
+                                    for j, b in enumerate(blocks, 1)
+                                    if isinstance(b, dict)
+                                )
+                                lines.append(f"Plain-English breakdown:\n{annotation}")
+
+                # Step 3: Processing script S
+                if self.state.S:
+                    lines.append("\n## Step 3: Processing Script (S)")
+                    lines.append(f"```python\n{self.state.S}\n```")
+                    blocks = self.annotation_cache.get(self.state.S, [])
+                    if blocks:
+                        annotation = "\n".join(
+                            f"{j}. **{b.get('label', '')}**: {b.get('desc', '')}"
+                            for j, b in enumerate(blocks, 1)
+                            if isinstance(b, dict)
+                        )
+                        lines.append(f"Plain-English breakdown:\n{annotation}")
+
+                # Step 4: Result schema with column annotations
+                if self.state.T:
+                    lines.append("\n## Step 4: Result Schema")
+                    for t_id, t_doc in self.state.T.items():
+                        cols = list(t_doc.content.columns) if hasattr(t_doc.content, "columns") else []
+                        col_descs: dict[str, str] = self.state.column_descriptions.get(t_id, {})
+                        if col_descs:
+                            lines.append(f"- **{t_id}** columns:")
+                            for col in cols:
+                                desc = col_descs.get(col, "")
+                                if desc:
+                                    lines.append(f"  - `{col}`: {desc}")
+                                else:
+                                    lines.append(f"  - `{col}`")
+                        else:
+                            lines.append(f"- **{t_id}**: columns = {cols}")
+
+                result_text = "\n".join(lines)
+                if not result_text.strip():
+                    return "No derivation steps found in the provenance graph.", ActionExecutionStatus.SUCCESS
+                self.__log(f"=> Result Explanation produced ({len(result_text)} chars)")
+                return result_text, ActionExecutionStatus.SUCCESS
             case _:
                 return (
                     f"Tool calling failed; {action_name} is unknown",

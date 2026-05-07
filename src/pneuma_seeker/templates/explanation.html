@@ -1,0 +1,4352 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Pneuma's Explanation</title>
+  <script>(function () {
+    // When embedded in a sandboxed iframe (e.g. Open WebUI's HTML artifact renderer),
+    // accessing localStorage throws a SecurityError. Provide an in-memory shim so any
+    // injected scripts (e.g. Open WebUI's Svelte bundle) don't crash.
+    try { window.localStorage; } catch (e) {
+      var _mem = {};
+      var _shim = {
+        getItem: function (k) { return Object.prototype.hasOwnProperty.call(_mem, k) ? _mem[k] : null; },
+        setItem: function (k, v) { _mem[k] = String(v); },
+        removeItem: function (k) { delete _mem[k]; },
+        clear: function () { _mem = {}; },
+        key: function (i) { return Object.keys(_mem)[i] || null; },
+        get length() { return Object.keys(_mem).length; }
+      };
+      try { Object.defineProperty(window, 'localStorage',   { get: function () { return _shim; }, configurable: true }); } catch (_) {}
+      try { Object.defineProperty(window, 'sessionStorage', { get: function () { return _shim; }, configurable: true }); } catch (_) {}
+    }
+  })();</script>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+
+  <style>
+    body {
+      background-color: #f6f6f6;
+      font-family: system-ui, sans-serif;
+    }
+
+    .card-header {
+      font-weight: 600;
+      background-color: #f8f9fa;
+      color: #1d1d1d;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+
+
+    /* --- Detail Panel --- */
+    .detail-panel {
+      padding: 0.5rem 0.65rem;
+      border-radius: 8px;
+      border: 2px solid #e9ecef;
+      transition: all 0.2s ease-in-out;
+      position: relative;
+      overflow: auto;
+    }
+
+    .detail-panel.highlighted {
+      border-color: #2563eb;
+      background-color: #f0f6ff;
+    }
+
+    .detail-panel.hover-highlight {
+      border-color: #93c5fd;
+      background-color: #f8fbff;
+    }
+
+    /* --- Custom tooltip --- */
+    #pneuma-tooltip {
+      position: fixed;
+      z-index: 9999;
+      background: #1e293b;
+      color: #f8fafc;
+      font-size: 0.75rem;
+      padding: 0.3rem 0.55rem;
+      border-radius: 5px;
+      max-width: 260px;
+      pointer-events: none;
+      white-space: normal;
+      line-height: 1.4;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+      display: none;
+    }
+
+    /* --- Download button --- */
+    .download-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      background: none;
+      border: 1px solid #e9ecef;
+      border-radius: 5px;
+      padding: 0.15rem 0.45rem;
+      cursor: pointer;
+      color: #6c757d;
+      font-size: 0.72rem;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+
+    .download-btn:hover {
+      border-color: #4d9aff;
+      color: #2563eb;
+      background-color: #f0f6ff;
+    }
+
+    /* --- Connector between panels --- */
+    .detail-connector {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      height: 0.55rem;
+      position: relative;
+    }
+
+    /* Vertical line */
+    .detail-connector::before {
+      content: "";
+      width: 2px;
+      flex: 1;
+      background-color: #495057;
+    }
+
+    /* Circle at top (touches bottom of previous block) */
+    .connector-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #495057;
+      position: absolute;
+      top: -4px;
+      z-index: 2;
+    }
+
+    /* Arrowhead at bottom (touches top of next block) */
+    .connector-arrow {
+      width: 0;
+      height: 0;
+      border-left: 6px solid transparent;
+      border-right: 6px solid transparent;
+      border-top: 7px solid #495057;
+      position: absolute;
+      bottom: -3px;
+      z-index: 2;
+    }
+
+    .detail-header {
+      font-weight: 600;
+      font-size: 0.85rem;
+      color: #1d1d1d;
+      margin-bottom: 0.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+
+    .detail-header .badge {
+      font-size: 0.7rem;
+      font-weight: 500;
+    }
+
+    .detail-panel p,
+    .table-explore-view p {
+      font-size: 0.78rem !important;
+      margin-bottom: 0.35rem;
+    }
+
+    /* --- Matched Tables --- */
+    .matched-table-card {
+      border: 1px solid #e9ecef;
+      border-radius: 8px;
+      padding: 0.5rem 0.75rem;
+      background-color: #fff;
+      transition: all 0.15s ease-in-out;
+      flex: 1 1 0;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .matched-table-card:hover {
+      border-color: #4d9aff;
+      box-shadow: 0 1px 4px rgba(37, 99, 235, 0.1);
+    }
+
+    .matched-table-name {
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: #212529;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .matched-table-name i {
+      color: #6c757d;
+    }
+
+    .column-list {
+      margin-top: 0.5rem;
+    }
+
+    .column-row {
+      display: flex;
+      align-items: center;
+      padding: 0.3rem 0;
+      border-bottom: 1px solid #f1f3f5;
+      font-size: 0.82rem;
+    }
+
+    .column-row:last-child {
+      border-bottom: none;
+    }
+
+    .column-name {
+      font-weight: 500;
+      color: #212529;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      margin-right: 0.5rem;
+    }
+
+    .column-type {
+      color: #6c757d;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      font-size: 0.78rem;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .column-relevance {
+      margin-left: auto;
+      font-size: 0.75rem;
+    }
+
+    /* --- Operation cards --- */
+    .operation-card {
+      border: 1px solid #e9ecef;
+      border-radius: 8px;
+      padding: 0.55rem 0.75rem;
+      background-color: #fff;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .operation-card:hover {
+      border-color: #4d9aff;
+      box-shadow: 0 1px 4px rgba(37, 99, 235, 0.1);
+    }
+
+    .op-header {
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .op-type-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-weight: 600;
+      font-size: 0.78rem;
+      color: #2563eb;
+      background-color: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 5px;
+      padding: 0.2rem 0.5rem;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .op-header-desc {
+      font-size: 0.82rem;
+      color: #374151;
+      overflow-wrap: break-word;
+      min-width: 0;
+    }
+
+    .op-table-context {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      padding: 0.4rem 0.55rem;
+      background-color: #f8f9fa;
+      border-radius: 6px;
+      border: 1px solid #e9ecef;
+    }
+
+    .op-table-row {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.25rem;
+    }
+
+    .op-table-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.77rem;
+      font-weight: 600;
+      color: #212529;
+      background-color: #fff;
+      border: 1px solid #d0d7de;
+      border-radius: 5px;
+      padding: 0.18rem 0.45rem;
+      white-space: nowrap;
+      user-select: none;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .op-table-arrow {
+      color: #adb5bd;
+      font-size: 0.72rem;
+      flex-shrink: 0;
+    }
+
+    .op-col-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.2rem;
+    }
+
+    .op-col-tag {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      font-size: 0.7rem;
+      background-color: #fff8e1;
+      border: 1px solid #ffe082;
+      color: #6d4c00;
+      border-radius: 4px;
+      padding: 0.12rem 0.38rem;
+      white-space: nowrap;
+    }
+
+    .code-snippet {
+      background-color: #f6f8fa;
+      border: 1px solid #e9ecef;
+      border-radius: 6px;
+      padding: 0.5rem 0.75rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      font-size: 0.8rem;
+      margin-top: 0.4rem;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    /* --- Operation detail expand --- */
+    .op-toggle-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      background: none;
+      border: none;
+      padding: 0;
+      cursor: pointer;
+      font-size: 0.72rem;
+      color: #6c757d;
+      font-weight: 500;
+      transition: color 0.15s;
+      margin-top: 0.1rem;
+      align-self: flex-start;
+    }
+
+    .op-toggle-btn:hover {
+      color: #2563eb;
+    }
+
+    .op-detail {
+      display: none;
+      flex-direction: column;
+      gap: 0.5rem;
+      border-top: 1px solid #e9ecef;
+      padding-top: 0.4rem;
+      margin-top: 0.2rem;
+    }
+
+    .op-detail.open {
+      display: flex;
+    }
+
+    .op-detail-section-label {
+      font-size: 0.68rem;
+      font-weight: 600;
+      color: #6c757d;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 0.2rem;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+
+    .op-all-cols {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.2rem;
+    }
+
+    .op-all-col-chip {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      font-size: 0.68rem;
+      border-radius: 4px;
+      padding: 0.1rem 0.35rem;
+      border: 1px solid #d0d7de;
+      background: #f8f9fa;
+      color: #6c757d;
+      white-space: nowrap;
+    }
+
+    .op-all-col-chip.used {
+      background: #dbeafe;
+      border-color: #93c5fd;
+      color: #1d4ed8;
+      font-weight: 600;
+    }
+
+    /* --- Column sample table in op detail --- */
+    .op-col-sample-scroll {
+      overflow-x: auto;
+      margin-top: 0.5rem;
+      border: 1px solid #e9ecef;
+      border-radius: 6px;
+    }
+
+    /* --- Join step cards --- */
+    .join-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .join-step-card {
+      border: 1px solid #e9ecef;
+      border-radius: 6px;
+      background: #fff;
+    }
+
+    .join-step-header {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.28rem 0.55rem;
+      background: #f8f9fa;
+      border-bottom: 1px solid #e9ecef;
+      border-radius: 6px 6px 0 0;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: #374151;
+    }
+
+    .join-step-body {
+      padding: 0.4rem 0.55rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .join-col-pair {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+    }
+
+    .join-table-col {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      font-size: 0.72rem;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1d4ed8;
+      border-radius: 4px;
+      padding: 0.1rem 0.35rem;
+      font-weight: 600;
+    }
+
+    .join-eq-sign {
+      font-size: 0.75rem;
+      color: #adb5bd;
+      font-weight: 700;
+    }
+
+    /* --- Similarity table --- */
+    .sim-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.72rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    }
+
+    .sim-table th {
+      padding: 0.2rem 0.4rem;
+      background: #f6f8fa;
+      border-bottom: 1px solid #d0d7de;
+      font-weight: 600;
+      color: #374151;
+      white-space: nowrap;
+      text-align: left;
+    }
+
+    .sim-table td {
+      padding: 0.2rem 0.4rem;
+      border-bottom: 1px solid #f1f3f5;
+      color: #374151;
+      white-space: nowrap;
+    }
+
+    .sim-table tr:last-child td { border-bottom: none; }
+
+    .sim-score-high { color: #16a34a; font-weight: 700; }
+    .sim-score-med  { color: #ca8a04; font-weight: 700; }
+    .sim-score-low  { color: #dc2626; font-weight: 700; }
+
+    .sim-match-badge {
+      font-size: 0.62rem;
+      font-weight: 600;
+      border-radius: 3px;
+      padding: 0.05rem 0.3rem;
+    }
+
+    /* --- Step description callout --- */
+    .step-desc {
+      font-size: 0.875rem;
+      color: #374151;
+      background: #f0f6ff;
+      border-left: 3px solid #3b82f6;
+      padding: 0.45rem 0.75rem;
+      border-radius: 0 4px 4px 0;
+      margin-bottom: 0.75rem;
+      line-height: 1.55;
+    }
+
+    /* --- Step 3 stacked layout --- */
+    .integration-split {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .integration-left {
+      min-width: 0;
+    }
+
+    .integration-right {
+      min-width: 0;
+    }
+
+    .split-section-header {
+      font-weight: 600;
+      font-size: 0.85rem;
+      color: #1d1d1d;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    /* --- Markdown-style table --- */
+    .markdown-table-wrapper {
+      overflow-x: auto;
+    }
+
+
+    /* --- Table chips in Step 1 --- */
+    .table-chip {
+      cursor: default;
+    }
+
+    /* --- Table explore view (replaces detail panels) --- */
+    .table-explore-view {
+      display: none;
+    }
+
+    .table-explore-view.visible {
+      display: block;
+      animation: fadeSlideIn 0.2s ease-out;
+    }
+
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateY(-6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .detail-panels-wrapper.hidden {
+      display: none;
+    }
+
+    /* In drill-down mode, hide all panels/connectors except the active one */
+    .detail-panels-wrapper.drilldown .detail-panel {
+      display: none;
+    }
+    .detail-panels-wrapper.drilldown .detail-panel.active-detail {
+      display: block;
+    }
+    .detail-panels-wrapper.drilldown .detail-connector {
+      display: none;
+    }
+
+    .explore-back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      background: none;
+      border: 1px solid #e9ecef;
+      border-radius: 6px;
+      padding: 0.3rem 0.6rem;
+      cursor: pointer;
+      color: #495057;
+      font-size: 0.78rem;
+      font-weight: 500;
+      transition: all 0.15s;
+      margin-bottom: 0.6rem;
+    }
+
+    .explore-back-btn:hover {
+      border-color: #4d9aff;
+      color: #2563eb;
+      background-color: #f0f6ff;
+    }
+
+    .table-name-card {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.45rem 0.85rem;
+      background: #fff;
+      border: 1px solid #dee2e6;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: 500;
+      color: #374151;
+      transition: all 0.15s ease-in-out;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      user-select: none;
+    }
+
+    .table-name-card:hover {
+      background: #eef3ff;
+      border-color: #4d9aff;
+      color: #1a56db;
+      box-shadow: 0 2px 6px rgba(77,154,255,0.18);
+    }
+
+    .table-name-card:active {
+      background: #dbeafe;
+    }
+
+    .explore-table-card {
+      border: 1px solid #e9ecef;
+      border-radius: 8px;
+      background-color: #fff;
+      margin-bottom: 0.6rem;
+    }
+
+    .explore-table-header {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      padding: 0.45rem 0.75rem;
+      border-bottom: 1px solid #e9ecef;
+      background-color: #f8f9fa;
+      border-radius: 8px 8px 0 0;
+    }
+
+    .explore-table-name-row {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+
+    .explore-table-meta-row {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .explore-table-name {
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: #1d1d1d;
+      white-space: nowrap;
+    }
+
+    .explore-table-scroll {
+      overflow: auto;
+      max-height: 260px;
+    }
+
+    .explore-sample-table {
+      width: max-content;
+      min-width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    }
+
+    .explore-sample-table th {
+      background-color: #f6f8fa;
+      font-weight: 600;
+      text-align: left;
+      padding: 0.3rem 0.5rem;
+      border-bottom: 2px solid #d0d7de;
+      color: #1d1d1d;
+      white-space: nowrap;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    .explore-sample-table .col-type {
+      font-weight: 400;
+      color: #6c757d;
+      font-size: 0.7rem;
+    }
+
+    .explore-sample-table td {
+      padding: 0.25rem 0.5rem;
+      border-bottom: 1px solid #f1f3f5;
+      color: #374151;
+      white-space: nowrap;
+    }
+
+    .explore-sample-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .explore-sample-table .ellipsis-row td {
+      color: #adb5bd;
+      text-align: center;
+      font-style: italic;
+      border-bottom: none;
+    }
+
+    .explore-sample-table th.col-used {
+      background-color: #dbeafe;
+      color: #1d4ed8;
+      border-bottom-color: #93c5fd;
+    }
+
+    .explore-sample-table td.col-used {
+      background-color: #eff6ff;
+      color: #1d4ed8;
+      font-weight: 500;
+    }
+
+    /* --- Column dictionary (step 3) --- */
+    .col-dict-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: #495057;
+      cursor: pointer;
+      padding: 0.3rem 0.5rem;
+      border-radius: 5px;
+      background: #f8f9fa;
+      border: 1px solid #e9ecef;
+      user-select: none;
+    }
+    .col-dict-header:hover { background: #f1f3f5; }
+    .col-dict-chevron { font-size: 0.65rem; transition: transform 0.18s; opacity: 0.55; }
+    .col-dict-chevron.open { transform: rotate(180deg); }
+    .col-dict-body { display: none; margin-top: 0.4rem; }
+    .col-dict-body.open { display: block; }
+    .col-dict-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.72rem;
+      table-layout: fixed;
+    }
+    .col-dict-table thead th {
+      background: #f1f3f5;
+      color: #6c757d;
+      font-weight: 600;
+      padding: 0.25rem 0.5rem;
+      border-bottom: 1px solid #dee2e6;
+      text-align: left;
+      white-space: nowrap;
+    }
+    .col-dict-table td {
+      padding: 0.25rem 0.5rem;
+      border-bottom: 1px solid #f1f3f5;
+      vertical-align: top;
+      color: #343a40;
+    }
+    .col-dict-table tr:last-child td { border-bottom: none; }
+    .col-dict-table code { font-size: 0.7rem; color: #1d4ed8; background: #eff6ff; padding: 0.1rem 0.3rem; border-radius: 3px; }
+    .col-dict-type {
+      display: inline-block;
+      font-size: 0.65rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      padding: 0.1rem 0.35rem;
+      border-radius: 3px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .col-dict-type-integer,
+    .col-dict-type-decimal,
+    .col-dict-type-boolean,
+    .col-dict-type-date,
+    .col-dict-type-datetime,
+    .col-dict-type-text     { background:#f3f4f6; color:#6c757d; }
+
+    /* --- Operation detail panel view --- */
+    .op-detail-view {
+      display: none;
+    }
+
+    .op-detail-view.visible {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      animation: fadeSlideIn 0.2s ease-out;
+    }
+
+    .op-detail-split {
+      display: flex;
+      gap: 1rem;
+      align-items: flex-start;
+    }
+
+    .op-detail-split-left,
+    .op-detail-split-right {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+
+    .op-nl-block {
+      background-color: #f0f6ff;
+      color: #1e3a6e;
+      border-radius: 6px;
+      padding: 0.5rem 0.65rem;
+      font-size: 0.8rem;
+      line-height: 1.55;
+    }
+
+    .exec-step-card {
+      border: 1px solid #e9ecef;
+      border-radius: 8px;
+      background-color: #fff;
+      margin-bottom: 0;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .exec-step-header {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.4rem 0.75rem;
+      background-color: #f8f9fa;
+      border-bottom: 1px solid #e9ecef;
+      border-radius: 8px 8px 0 0;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #1d1d1d;
+    }
+
+    .exec-step-body {
+      display: flex;
+      gap: 0;
+    }
+
+    .exec-code-side {
+      flex: 1 1 0;
+      min-width: 0;
+      border-right: 1px solid #e9ecef;
+      padding: 0.5rem 0.75rem;
+    }
+
+    .exec-code-desc {
+      background-color: #f0f6ff;
+      color: #1e40af;
+      border-radius: 5px;
+      padding: 0.35rem 0.6rem;
+      font-size: 0.74rem;
+      font-weight: 500;
+      line-height: 1.4;
+      margin-bottom: 0.4rem;
+    }
+
+    .exec-code-block {
+      background-color: #1e1e1e;
+      border-radius: 5px;
+      padding: 0.45rem 0.6rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      font-size: 0.72rem;
+      line-height: 1.45;
+      overflow-x: auto;
+      white-space: pre;
+      margin: 0;
+    }
+
+    .exec-table-side {
+      flex: 1 1 0;
+      min-width: 0;
+      overflow: auto;
+      max-height: 180px;
+    }
+
+    .exec-table-side .explore-sample-table th {
+      position: sticky;
+      top: 0;
+    }
+
+    .exec-connector {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      height: 0.85rem;
+      position: relative;
+    }
+
+    .exec-connector::before {
+      content: "";
+      width: 2px;
+      flex: 1;
+      background-color: #adb5bd;
+    }
+
+    .exec-connector .connector-arrow {
+      border-top-color: #adb5bd;
+    }
+
+    /* --- Op detail content padding --- */
+    #op-detail-content {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    /* --- Final answer block (Step 4) --- */
+    .final-answer-block {
+      background-color: #ffffff;
+      border: 1px solid #e9ecef;
+      border-left: 3px solid #2563eb;
+      border-radius: 0 8px 8px 0;
+      padding: 0.85rem 1rem;
+      font-size: 0.84rem;
+      line-height: 1.75;
+      color: #1d1d1d;
+    }
+
+    .final-answer-block strong {
+      color: #2563eb;
+    }
+
+    /* --- Column statistics strip --- */
+    .col-stats-row {
+      display: flex;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      gap: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      background-color: #f8f9fa;
+      border-top: 1px solid #e9ecef;
+      border-radius: 0 0 8px 8px;
+    }
+
+    .col-stat-card {
+      flex: 0 0 auto;
+      width: 130px;
+      background: #fff;
+      border: 1px solid #e9ecef;
+      border-radius: 6px;
+      padding: 0.4rem 0.5rem;
+    }
+
+    .col-stat-name {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      font-weight: 700;
+      font-size: 0.7rem;
+      color: #1d1d1d;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .col-stat-type {
+      font-size: 0.62rem;
+      color: #6c757d;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      margin-bottom: 0.25rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .col-stat-unique {
+      font-size: 0.64rem;
+      color: #2563eb;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+
+    /* Horizontal bar chart (categorical ≤ 12 unique) */
+    .col-stat-bar-item {
+      display: flex;
+      align-items: center;
+      gap: 0.2rem;
+      margin-bottom: 0.12rem;
+    }
+
+    .col-stat-bar-label {
+      font-size: 0.59rem;
+      color: #6c757d;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      width: 40px;
+      flex-shrink: 0;
+    }
+
+    .col-stat-bar-track {
+      flex: 1;
+      height: 5px;
+      background: #e9ecef;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .col-stat-bar-fill {
+      height: 100%;
+      background: #4d9aff;
+      border-radius: 3px;
+    }
+
+    .col-stat-bar-count {
+      font-size: 0.58rem;
+      color: #adb5bd;
+      white-space: nowrap;
+      flex-shrink: 0;
+      min-width: 14px;
+      text-align: right;
+    }
+
+    /* Vertical histogram (numeric) */
+    .col-hist-bars {
+      display: flex;
+      align-items: flex-end;
+      gap: 2px;
+      height: 36px;
+      margin-bottom: 0.2rem;
+    }
+
+    .col-hist-bar {
+      flex: 1;
+      background: #4d9aff;
+      border-radius: 2px 2px 0 0;
+      min-height: 2px;
+      cursor: default;
+    }
+
+    .col-hist-range {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.57rem;
+      color: #adb5bd;
+    }
+
+    .col-stat-single-val {
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: #374151;
+      text-align: center;
+      margin-top: 0.2rem;
+    }
+
+    /* Scrollable value list (high-cardinality strings) */
+    .col-scroll-list {
+      max-height: 68px;
+      overflow-y: auto;
+      border: 1px solid #e9ecef;
+      border-radius: 4px;
+    }
+
+    .col-scroll-item {
+      font-size: 0.6rem;
+      color: #374151;
+      padding: 0.1rem 0.3rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      border-bottom: 1px solid #f1f3f5;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    }
+
+    .col-scroll-item:last-child {
+      border-bottom: none;
+    }
+
+    /* --- Step 1 carousel (matches state_view.html retrieved tables) --- */
+    .carousel-container {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.75rem;
+    }
+
+    .carousel-tables {
+      flex: 1;
+      overflow: hidden;
+      border-radius: 6px;
+      width: 100%;
+    }
+
+    .carousel-inner-tables {
+      display: flex;
+      transition: transform 0.3s ease-in-out;
+    }
+
+    .carousel-item-table {
+      width: 100%;
+      min-width: 100%;
+      flex-shrink: 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+    }
+
+    .carousel-item-table .table-container {
+      width: 100%;
+    }
+
+    .carousel-item-table table {
+      white-space: nowrap;
+    }
+
+    .carousel-nav-btn {
+      background: none;
+      border: 1px solid #dee2e6;
+      border-radius: 6px;
+      padding: 0.5rem 0.75rem;
+      cursor: pointer;
+      transition: all 0.2s ease-in-out;
+      color: #6c757d;
+    }
+
+    .carousel-nav-btn:hover:not(:disabled) {
+      background-color: #f8f9fa;
+      color: #495057;
+      border-color: #adb5bd;
+    }
+
+    .carousel-nav-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .carousel-counter {
+      font-size: 0.75rem;
+      color: #6c757d;
+      white-space: nowrap;
+      min-width: 30px;
+      text-align: center;
+    }
+
+    .carousel-footer {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+    }
+
+    .table-title {
+      font-weight: 500;
+      font-size: 0.9rem;
+      margin-bottom: 0.25rem;
+    }
+
+    /* --- Python script block --- */
+    .python-script-block {
+      background-color: #1e1e1e;
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+      font-size: 0.78rem;
+      line-height: 1.6;
+      overflow: visible;
+      white-space: pre-wrap;
+      word-break: break-all;
+      margin: 0;
+    }
+
+    /* --- Script annotated view --- */
+    .script-annotate-block {
+      display: flex;
+      flex-direction: column;
+      margin-bottom: 0.9rem;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+    }
+    .script-annotate-block-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: #f0f6ff;
+      border-bottom: 1px solid #bfdbfe;
+      padding: 0.45rem 0.75rem;
+    }
+    .script-annotate-step-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 1.3rem;
+      height: 1.3rem;
+      border-radius: 50%;
+      background: #1d4ed8;
+      color: #fff;
+      font-size: 0.65rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .script-annotate-code {
+      border-bottom: 1px solid #2d2d2d;
+    }
+    .script-annotate-code pre {
+      margin: 0 !important;
+      border-radius: 0 !important;
+    }
+    .script-annotate-nl {
+      font-size: 0.74rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+    .script-nl-label {
+      font-weight: 700;
+      color: #1d4ed8;
+      font-size: 0.74rem;
+    }
+    .script-nl-desc {
+      color: #374151;
+      line-height: 1.45;
+    }
+    .annotate-block-section-label {
+      font-size: 0.62rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #9ca3af;
+      padding: 0.25rem 0.75rem 0;
+    }
+    /* Column token — appears in desc text, code, and table headers */
+    .col-tok {
+      border-radius: 3px;
+      transition: background 0.12s, outline 0.12s, color 0.12s;
+      cursor: default;
+    }
+    /* In the natural-language description panel */
+    .script-annotate-nl .col-tok {
+      font-weight: 700;
+      color: #1d4ed8;
+      background: rgba(37, 99, 235, 0.08);
+      padding: 0 0.2rem;
+    }
+    /* In the dark code block — amber so it pops on #1e1e1e */
+    .script-annotate-code .col-tok {
+      color: #fbbf24 !important;   /* amber, overrides hljs token color */
+      font-weight: 700;
+      border-bottom: 1px dashed rgba(251, 191, 36, 0.5);
+      padding-bottom: 1px;
+    }
+    /* In the mini sample table headers */
+    .annotate-mini-table th.col-tok {
+      color: #1d4ed8;
+    }
+    /* Active state (hovered column) — shared across all three surfaces */
+    .col-tok.col-active {
+      outline: 2px solid rgba(37, 99, 235, 0.45);
+      outline-offset: 1px;
+    }
+    .script-annotate-nl .col-tok.col-active {
+      background: rgba(37, 99, 235, 0.2);
+      color: #1e40af;
+    }
+    .script-annotate-code .col-tok.col-active {
+      background: rgba(251, 191, 36, 0.2);
+      outline-color: rgba(251, 191, 36, 0.7);
+      color: #fde68a !important;
+      border-bottom-style: solid;
+    }
+    .annotate-mini-table th.col-tok.col-active {
+      background: rgba(37, 99, 235, 0.12);
+      color: #1e40af;
+    }
+    /* Mini sample table inside each annotation block */
+    .annotate-mini-table-wrap {
+      margin-top: 0;
+      border-top: 1px solid #e2e8f0;
+      overflow-x: auto;
+      border-radius: 4px;
+      border: 1px solid #e2e8f0;
+    }
+    .annotate-mini-table {
+      width: max-content;
+      min-width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    }
+    .annotate-mini-table th {
+      background-color: #f6f8fa;
+      font-weight: 600;
+      text-align: left;
+      padding: 0.3rem 0.5rem;
+      border-bottom: 2px solid #d0d7de;
+      color: #1d1d1d;
+      white-space: nowrap;
+    }
+    .annotate-mini-table td {
+      padding: 0.25rem 0.5rem;
+      border-bottom: 1px solid #f1f3f5;
+      color: #374151;
+      white-space: nowrap;
+    }
+    .annotate-mini-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    /* Syntax highlighting overrides */
+    pre.exec-code-block code.hljs,
+    pre.python-script-block code.hljs {
+      background: transparent;
+      padding: 0;
+      font-size: inherit;
+      line-height: inherit;
+      font-family: inherit;
+    }
+
+    /* --- Step 2 split: ops left, DAG right --- */
+    /* --- Step 2 provenance carousel (matches state_view Provenance of T) --- */
+    #step2-prov-container {
+      background-color: #ffffff;
+      border: 1px solid #e9ecef;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 0.9rem;
+      line-height: 1.5;
+      color: #212529;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+
+    #step2-prov-container h1,
+    #step2-prov-container h2,
+    #step2-prov-container h3 {
+      font-weight: 600;
+      font-size: 0.95rem;
+      margin-top: 0.5rem;
+      margin-bottom: 0.25rem;
+      border-bottom: 1px solid #dee2e6;
+      padding-bottom: 0.2rem;
+    }
+
+    #step2-prov-container p { margin-bottom: 0.4rem; }
+    #step2-prov-container a { color: #0d6efd; text-decoration: none; }
+    #step2-prov-container a:hover { text-decoration: underline; }
+    #step2-prov-container hr { margin: 0.5rem 0; border-top: 1px solid #e9ecef; }
+
+    .step2-prov-viewport {
+      overflow: hidden;
+      border-radius: 8px;
+    }
+
+    .step2-prov-inner {
+      display: flex;
+      transition: transform 0.3s ease-in-out;
+    }
+
+    .step2-prov-item {
+      width: 100%;
+      min-width: 100%;
+      flex-shrink: 0;
+    }
+
+    .step2-prov-panel {
+      max-height: 420px;
+      overflow: auto;
+    }
+
+    .step2-prov-footer {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      margin-top: 0.75rem;
+    }
+
+    .step2-split {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .step2-ops-side {
+      min-width: 0;
+      overflow-y: auto;
+    }
+
+  </style>
+</head>
+
+<body class="p-2">
+  <div class="container-fluid">
+
+    <div style="display:flex;gap:0.6rem;align-items:stretch;">
+
+    <!-- Vertical progress line: 4 segments -->
+    <div style="display:flex;flex-direction:column;width:4px;flex-shrink:0;gap:4px;padding:2px 0;">
+      <div id="seg1" style="flex:1;border-radius:2px;background:#22c55e;transition:background 0.35s;"></div>
+      <div id="seg2" style="flex:1;border-radius:2px;background:#e5e7eb;transition:background 0.35s;"></div>
+      <div id="seg3" style="flex:1;border-radius:2px;background:#e5e7eb;transition:background 0.35s;"></div>
+      <div id="seg4" style="flex:1;border-radius:2px;background:#e5e7eb;transition:background 0.35s;"></div>
+    </div>
+
+    <div style="flex:1;min-width:0;">
+
+    <!-- Step 1: Identifying Relevant Data -->
+    <div class="card mb-3 shadow-sm">
+      <div class="card-header d-flex align-items-center justify-content-between"
+           data-bs-toggle="collapse" data-bs-target="#step1Body"
+           aria-expanded="true" aria-controls="step1Body">
+        <div class="d-flex align-items-center gap-2">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:1.3rem;height:1.3rem;border-radius:50%;background:#3b82f6;color:#fff;font-size:0.68rem;font-weight:700;flex-shrink:0;">1</span>
+          <span style="font-size:0.9rem;font-weight:600;color:#111827;">Identifying Relevant Data</span>
+          {% if dataset %}<span style="font-size:0.7rem;font-weight:500;padding:0.15rem 0.5rem;border-radius:999px;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;">{{ dataset }}</span>{% endif %}
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <i id="step1-visited" class="bi bi-check-circle-fill" style="font-size:1.1rem;color:#22c55e;"></i>
+          <i class="bi bi-chevron-down small"></i>
+        </div>
+      </div>
+      <div id="step1Body" class="collapse show">
+        <div class="card-body">
+          <p id="step1-detail-desc" class="step-desc">
+            Pneuma searched its indices and retrieved tables.
+          </p>
+          {% if dataset_description or dataset_sources %}
+          <div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.6rem;">
+            {% if dataset_description %}
+            <div>
+              <button onclick="var p=this.nextElementSibling;var open=p.style.display!=='none';p.style.display=open?'none':'block';this.querySelector('.ds-chev').style.transform=open?'':'rotate(180deg)';"
+                style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.75rem;font-weight:500;color:#2563eb;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:0.25rem 0.6rem;cursor:pointer;line-height:1.4;">
+                <i class="bi bi-file-text" style="font-size:0.72rem;"></i>Description
+                <i class="bi bi-chevron-down ds-chev" style="font-size:0.62rem;transition:transform 0.2s;"></i>
+              </button>
+              <div style="display:none;font-size:0.74rem;color:#4b5563;background:#f9fafb;border:1px solid #bfdbfe;border-radius:0 6px 6px 6px;padding:0.5rem 0.65rem;white-space:pre-wrap;margin-top:2px;">{{ dataset_description }}</div>
+            </div>
+            {% endif %}
+            {% if dataset_sources %}
+            <div>
+              <button onclick="var p=this.nextElementSibling;var open=p.style.display!=='none';p.style.display=open?'none':'block';this.querySelector('.ds-chev').style.transform=open?'':'rotate(180deg)';"
+                style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.75rem;font-weight:500;color:#2563eb;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:0.25rem 0.6rem;cursor:pointer;line-height:1.4;">
+                <i class="bi bi-journal-bookmark" style="font-size:0.72rem;"></i>Sources
+                <i class="bi bi-chevron-down ds-chev" style="font-size:0.62rem;transition:transform 0.2s;"></i>
+              </button>
+              <div style="display:none;font-size:0.74rem;color:#4b5563;background:#f9fafb;border:1px solid #bfdbfe;border-radius:0 6px 6px 6px;padding:0.5rem 0.65rem;white-space:pre-wrap;margin-top:2px;">{{ dataset_sources }}</div>
+            </div>
+            {% endif %}
+          </div>
+          {% endif %}
+          <div id="step1-main">
+            <button class="explore-back-btn mb-2" id="view-all-tables-btn">
+              <i class="bi bi-grid-3x3-gap"></i> View all retrieved tables
+            </button>
+            <p id="step1-detail-desc-2" class="step-desc" style="display:none;"></p>
+            <div id="matched-table-names-container" class="d-flex flex-row gap-2 flex-wrap mb-2"></div>
+            <button id="step1-edit-relevance-btn" class="btn btn-sm btn-outline-secondary mt-1" style="font-size:0.75rem;">
+              <i class="bi bi-pencil-square me-1"></i>Edit relevant tables
+              <span style="font-size:0.68rem;color:#6c757d;margin-left:0.4rem;font-weight:400;">(sends feedback to chat)</span>
+            </button>
+          </div>
+
+          <!-- Edit-relevance panel (shown when user clicks "Edit relevant tables") -->
+          <div id="step1-edit-panel" style="display:none;margin-top:0.75rem;border:1px solid #e5e7eb;border-radius:8px;padding:0.75rem;background:#f9fafb;">
+            <div style="font-size:0.82rem;font-weight:600;color:#111827;margin-bottom:0.5rem;">
+              <i class="bi bi-pencil-square text-primary me-1"></i>Edit relevant tables
+            </div>
+            <p style="font-size:0.75rem;color:#6c757d;margin-bottom:0.6rem;">
+              Toggle which tables you believe are relevant. Saving will send a feedback message to the chat.
+            </p>
+            <div id="step1-relevance-checklist" style="display:flex;flex-direction:column;gap:0.35rem;margin-bottom:0.75rem;"></div>
+            <div style="display:flex;gap:0.5rem;">
+              <button id="step1-save-relevance-btn" class="btn btn-sm btn-primary" style="font-size:0.75rem;">
+                <i class="bi bi-send me-1"></i>Send to chat
+              </button>
+              <button id="step1-cancel-relevance-btn" class="btn btn-sm btn-outline-secondary" style="font-size:0.75rem;">
+                Cancel
+              </button>
+            </div>
+          </div>
+          <div id="table-explore-view" class="table-explore-view">
+            <button class="explore-back-btn" id="explore-back-btn">
+              <i class="bi bi-arrow-left"></i> Back
+            </button>
+            <div class="detail-header">
+              <i class="bi bi-search text-primary"></i>
+              Relevant Tables
+              <span class="badge bg-primary-subtle text-primary-emphasis">Step 1</span>
+            </div>
+            <div class="carousel-container mt-2">
+              <div class="carousel-tables">
+                <div id="step1-carousel-inner" class="carousel-inner-tables"></div>
+              </div>
+              <div style="font-size:0.7rem;color:#6c757d;padding:0.3rem 0.1rem 0.1rem;display:flex;align-items:center;gap:0.3rem;">
+                <i class="bi bi-info-circle" style="color:#3b82f6;"></i>
+                Drag on a numeric chart to zoom into a range &mdash; double-click to reset.
+              </div>
+              <div class="carousel-footer">
+                <button id="step1-carousel-prev" class="carousel-nav-btn" aria-label="Previous table">
+                  <i class="bi bi-chevron-left"></i>
+                </button>
+                <div class="carousel-counter">
+                  <span id="step1-carousel-counter">0/0</span>
+                </div>
+                <button id="step1-carousel-next" class="carousel-nav-btn" aria-label="Next table">
+                  <i class="bi bi-chevron-right"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2: Preparing the Data -->
+    <div class="card mb-3 shadow-sm">
+      <div class="card-header d-flex align-items-center justify-content-between"
+           data-bs-toggle="collapse" data-bs-target="#step2Body"
+           aria-expanded="false" aria-controls="step2Body">
+        <div class="d-flex align-items-center gap-2">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:1.3rem;height:1.3rem;border-radius:50%;background:#3b82f6;color:#fff;font-size:0.68rem;font-weight:700;flex-shrink:0;">2</span>
+          <span style="font-size:0.9rem;font-weight:600;color:#111827;">Preparing the Data</span>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <i id="step2-visited" class="bi bi-circle" style="font-size:1.1rem;color:#d1d5db;"></i>
+          <i class="bi bi-chevron-down small"></i>
+        </div>
+      </div>
+      <div id="step2Body" class="collapse">
+        <div class="card-body">
+          <p id="step2-detail-desc" class="step-desc">
+            This section shows how source data was used to prepare for the target table.
+          </p>
+          <div id="step2-main">
+            <!-- Per-operation carousel -->
+            <div id="step2-prov-container">
+              <div class="step2-prov-viewport">
+                <div id="step2-prov-inner" class="step2-prov-inner"></div>
+              </div>
+              <div class="step2-prov-footer">
+                <button id="step2-prov-prev" class="carousel-nav-btn" aria-label="Previous operation">
+                  <i class="bi bi-chevron-left"></i>
+                </button>
+                <div class="carousel-counter">
+                  <span id="step2-prov-counter">0/0</span>
+                </div>
+                <button id="step2-prov-next" class="carousel-nav-btn" aria-label="Next operation">
+                  <i class="bi bi-chevron-right"></i>
+                </button>
+              </div>
+            </div>
+            <!-- Detail buttons sit below the carousel, outside it -->
+            <div style="margin-top:0.5rem;display:flex;gap:0.5rem;">
+              <button id="step2-show-diagram-btn" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-diagram-3 me-1"></i> Show table diagram
+              </button>
+              <button id="step2-show-code-btn" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-code-slash me-1"></i> Show code
+              </button>
+            </div>
+            <!-- Table-level provenance diagram panel -->
+            <div id="step2-diagram-panel" style="display:none;margin-top:0.75rem;border-top:1px solid #e9ecef;padding-top:0.75rem;overflow-x:auto;"></div>
+            <!-- Inline operation detail panel (expands below diagram) -->
+            <div id="step2-op-detail-panel" style="display:none;margin-top:0.75rem;border-top:1px solid #e9ecef;padding-top:0.75rem;">
+              <div id="op-detail-content"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3: Target Table & Script Generation -->
+    <div class="card mb-3 shadow-sm">
+      <div class="card-header d-flex align-items-center justify-content-between"
+           data-bs-toggle="collapse" data-bs-target="#step3Body"
+           aria-expanded="false" aria-controls="step3Body">
+        <div class="d-flex align-items-center gap-2">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:1.3rem;height:1.3rem;border-radius:50%;background:#3b82f6;color:#fff;font-size:0.68rem;font-weight:700;flex-shrink:0;">3</span>
+          <span style="font-size:0.9rem;font-weight:600;color:#111827;">Target Table &amp; Script</span>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <i id="step3-visited" class="bi bi-circle" style="font-size:1.1rem;color:#d1d5db;"></i>
+          <i class="bi bi-chevron-down small"></i>
+        </div>
+      </div>
+      <div id="step3Body" class="collapse">
+        <div class="card-body">
+          <p id="step3-detail-desc" class="step-desc">
+            The system constructed a target table and generated a Python script to produce the result.
+          </p>
+          <div id="step3-main">
+            <div style="margin-bottom:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+              <button id="step3-show-table-btn" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-table me-1"></i> Show target table
+              </button>
+              <button id="step3-show-script-btn" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-code-slash me-1"></i> Show Python script
+              </button>
+            </div>
+            <div id="step3-table-panel" style="display:none;margin-bottom:0.75rem;">
+              <div class="split-section-header" id="step3-table-header"><i class="bi bi-table text-primary"></i> Target Table</div>
+              <div id="target-table-container" class="markdown-table-wrapper"></div>
+            </div>
+            <div id="step3-script-panel" style="display:none;margin-bottom:0.75rem;">
+              <div class="split-section-header" id="step3-script-header">
+                <i class="bi bi-code-slash text-primary"></i> Python Script
+                <button id="py-explain-btn" class="btn btn-sm btn-primary ms-auto" style="font-size:0.73rem;padding:0.2rem 0.65rem;" title="Get a plain-English explanation of what this code does">
+                  <i class="bi bi-lightbulb me-1"></i>Explain code
+                </button>
+                <button id="step3-execute-script-btn" class="btn btn-sm btn-success" style="font-size:0.73rem;padding:0.2rem 0.65rem;" title="Execute the original script">
+                  <i class="bi bi-play-circle me-1"></i>Execute
+                </button>
+                <button id="py-execute-edit-btn" class="btn btn-sm btn-warning" style="display:none;font-size:0.73rem;padding:0.2rem 0.65rem;" title="Execute your edited version (not saved)">
+                  <i class="bi bi-play-circle-fill me-1"></i>Execute edit
+                </button>
+                <button id="py-edit-btn" class="btn btn-sm btn-outline-secondary" style="font-size:0.73rem;padding:0.2rem 0.65rem;" title="Edit script temporarily">
+                  <i class="bi bi-pencil me-1"></i>Edit
+                </button>
+              </div>
+              <div id="py-edit-notice" style="display:none;font-size:0.75rem;color:#92400e;background:#fef3c7;border:1px solid #fcd34d;border-radius:4px;padding:0.3rem 0.6rem;margin-top:0.4rem;">
+                <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                <strong>Edits are temporary</strong> — changes are not saved to the pipeline. The original script is restored when you exit.
+              </div>
+              <div id="python-script-container"></div>
+              <div style="margin-top:0.5rem;display:flex;align-items:center;gap:0.5rem;">
+                <span id="step3-execute-status" style="font-size:0.78rem;color:#6c757d;"></span>
+              </div>
+              <div id="step3-exec-result-section" style="display:none;margin-top:0.5rem;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 4: Generating the Final Answer -->
+    <div class="card mb-3 shadow-sm">
+      <div class="card-header d-flex align-items-center justify-content-between"
+           data-bs-toggle="collapse" data-bs-target="#step4Body"
+           aria-expanded="false" aria-controls="step4Body">
+        <div class="d-flex align-items-center gap-2">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:1.3rem;height:1.3rem;border-radius:50%;background:#3b82f6;color:#fff;font-size:0.68rem;font-weight:700;flex-shrink:0;">4</span>
+          <span id="step4-label" style="font-size:0.9rem;font-weight:600;color:#111827;">Generating the Final Answer</span>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <i id="step4-visited" class="bi bi-circle" style="font-size:1.1rem;color:#d1d5db;"></i>
+          <i class="bi bi-chevron-down small"></i>
+        </div>
+      </div>
+      <div id="step4Body" class="collapse">
+        <div class="card-body">
+          <p id="step4-detail-desc" class="step-desc">
+            The script is executed on the target table to produce the final answer.
+          </p>
+          <div style="margin-bottom:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+            <button class="btn btn-sm btn-success" id="execute-script-btn">
+              <i class="bi bi-play-circle me-1"></i> Execute script
+            </button>
+            <span id="execute-status" style="font-size:0.8rem;color:#6c757d;"></span>
+          </div>
+          <div id="exec-result-section" style="display:none;margin-bottom:0.75rem;"></div>
+          <div id="result-container"></div>
+        </div>
+      </div>
+    </div>
+
+    </div><!-- /cards flex -->
+
+    <!-- Feedback sent toast: small floating notification -->
+    <div id="step1-feedback-toast" style="display:none;position:fixed;top:1rem;right:1rem;z-index:9999;background:#fff;border:1px solid #d1fae5;border-radius:8px;padding:0.55rem 0.85rem;box-shadow:0 4px 16px rgba(0,0,0,0.12);font-size:0.78rem;max-width:320px;transition:opacity 0.3s;">
+      <div id="step1-toast-body" style="display:flex;align-items:flex-start;gap:0.5rem;">
+        <!-- content set by JS -->
+      </div>
+    </div>
+
+    </div><!-- /wrapper flex -->
+
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script>
+    // =========================================================================
+    // HELPERS
+    // =========================================================================
+
+    const $ = (sel) => document.querySelector(sel);
+
+    // --- Custom tooltip ---
+    const _ttEl = document.createElement("div");
+    _ttEl.id = "pneuma-tooltip";
+    document.body.appendChild(_ttEl);
+    document.addEventListener("mouseover", e => {
+      const target = e.target.closest("[data-tooltip]");
+      if (!target) { _ttEl.style.display = "none"; return; }
+      _ttEl.textContent = target.dataset.tooltip;
+      _ttEl.style.display = "block";
+    });
+    document.addEventListener("mousemove", e => {
+      if (_ttEl.style.display === "none") return;
+      const x = e.clientX + 12, y = e.clientY + 12;
+      const rect = _ttEl.getBoundingClientRect();
+      _ttEl.style.left = (x + rect.width > window.innerWidth ? e.clientX - rect.width - 8 : x) + "px";
+      _ttEl.style.top = (y + rect.height > window.innerHeight ? e.clientY - rect.height - 8 : y) + "px";
+    });
+    document.addEventListener("mouseout", e => {
+      if (!e.target.closest("[data-tooltip]")) return;
+      if (!e.relatedTarget || !e.relatedTarget.closest("[data-tooltip]")) _ttEl.style.display = "none";
+    });
+
+    function getBackendUrl() {
+      try {
+        const ancestor = window.location.ancestorOrigins?.[0];
+        if (!ancestor) return "";
+        const u = new URL(ancestor);
+        return `${u.protocol}//${u.hostname}:8000`;
+      } catch { return ""; }
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    /** Wrap occurrences of column names in a plain-text string with col-tok spans (for innerHTML). */
+    function wrapColsInText(text, cols) {
+      if (!cols || cols.length === 0) return escapeHtml(text);
+      const sorted = [...cols].sort((a, b) => b.length - a.length);
+      const pattern = new RegExp(
+        `(?<![a-zA-Z0-9_])(${sorted.map(c => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?![a-zA-Z0-9_])`,
+        "g"
+      );
+      return escapeHtml(text).replace(
+        pattern,
+        (_, col) => `<span class="col-tok" data-col="${escapeHtml(col)}">${escapeHtml(col)}</span>`
+      );
+    }
+
+    /** Walk all text nodes inside a code element and wrap column name occurrences with col-tok spans. */
+    function wrapColsInCode(codeEl, cols) {
+      if (!cols || cols.length === 0) return;
+      const sorted = [...cols].sort((a, b) => b.length - a.length);
+      const pattern = new RegExp(
+        `(?<![a-zA-Z0-9_])(${sorted.map(c => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?![a-zA-Z0-9_])`,
+        "g"
+      );
+      // Collect text nodes first to avoid live-collection issues
+      const textNodes = [];
+      (function walk(node) {
+        if (node.nodeType === 3) { textNodes.push(node); return; }
+        if (node.nodeType === 1) node.childNodes.forEach(walk);
+      })(codeEl);
+      textNodes.forEach(tn => {
+        const text = tn.textContent;
+        if (!pattern.test(text)) { pattern.lastIndex = 0; return; }
+        pattern.lastIndex = 0;
+        const frag = document.createDocumentFragment();
+        let last = 0, m;
+        while ((m = pattern.exec(text)) !== null) {
+          if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+          const span = document.createElement("span");
+          span.className = "col-tok";
+          span.dataset.col = m[1];
+          span.textContent = m[1];
+          frag.appendChild(span);
+          last = m.index + m[1].length;
+        }
+        if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+        tn.parentNode.replaceChild(frag, tn);
+      });
+    }
+
+    /**
+     * Build a mini sample table from _opTableMap for the columns/tables referenced in a block.
+     * Uses tables from step 1 — no LLM involvement.
+     */
+    function buildMiniTable(cols, tables) {
+      if (!cols || cols.length === 0) return "";
+      // Pick the table with the most matching columns; prefer tables named in the block
+      let best = null, bestScore = 0;
+      for (const [tName, t] of Object.entries(_opTableMap)) {
+        const colMatches = cols.filter(c => (t.columns || []).some(tc => tc.name === c)).length;
+        const tableBonus = (tables || []).includes(tName) ? 100 : 0;
+        const score = colMatches + tableBonus;
+        if (score > bestScore) { bestScore = score; best = { tName, t }; }
+      }
+      if (!best || bestScore === 0) return "";
+      const { tName, t } = best;
+      const colObjs = (t.columns || []).filter(c => cols.includes(c.name));
+      if (colObjs.length === 0) return "";
+      const colIndices = colObjs.map(c => t.columns.indexOf(c));
+      const rows = (t.sampleRows || []).slice(0, 3);
+      const thHtml = colObjs.map(c =>
+        `<th class="col-tok" data-col="${escapeHtml(c.name)}">${escapeHtml(c.name)}</th>`
+      ).join("");
+      const trHtml = rows.map(row =>
+        `<tr>${colIndices.map(i => `<td>${escapeHtml(String(row[i] ?? ""))}</td>`).join("")}</tr>`
+      ).join("");
+      return `
+        <div class="annotate-mini-table-wrap" style="margin-top:0.4rem;">
+          <div style="font-size:0.7rem;color:#374151;padding:0.25rem 0.45rem 0;font-weight:600;display:flex;align-items:center;gap:0.25rem;"><i class="bi bi-table" style="color:#6b7280;font-size:0.65rem;"></i>${escapeHtml(tName)}</div>
+          <table class="annotate-mini-table"><thead><tr>${thHtml}</tr></thead><tbody>${trHtml}</tbody></table>
+        </div>`;
+    }
+
+    /** Wire column-hover highlighting across desc tokens, code tokens, and table headers in each block. */
+    function wireBlockHovers(annotateEl, blocks) {
+      annotateEl.querySelectorAll(".script-annotate-block").forEach((blockEl, i) => {
+        const cols = blocks[i]?.columns || [];
+        // Wrap column names in the code block after hljs
+        const codeEl = blockEl.querySelector("code.language-python");
+        if (codeEl) wrapColsInCode(codeEl, cols);
+        // Delegated hover: on any mouseover inside block, activate matching col-tok spans
+        blockEl.addEventListener("mouseover", e => {
+          const tok = e.target.closest(".col-tok");
+          blockEl.querySelectorAll(".col-tok.col-active").forEach(el => el.classList.remove("col-active"));
+          if (tok) {
+            const col = tok.dataset.col;
+            blockEl.querySelectorAll(`.col-tok[data-col="${CSS.escape(col)}"]`)
+              .forEach(el => el.classList.add("col-active"));
+          }
+        });
+      });
+    }
+
+    /** Render LLM-returned annotation blocks into HTML (desc has col-tok spans; table from step 1 data). */
+    function buildAnnotateBlocksHtml(blocks) {
+      if (!blocks || blocks.length === 0)
+        return `<div style="padding:0.5rem;color:#6c757d;font-size:0.8rem;">No blocks returned.</div>`;
+      return blocks.map((b, i) => {
+        const cols = b.columns || [];
+        const descHtml = wrapColsInText(b.desc || "", cols);
+        const miniTable = buildMiniTable(cols, b.tables || []);
+        const tableSection = miniTable
+          ? `<div class="annotate-block-section-label">Table</div>${miniTable}`
+          : "";
+        return `
+          <div style="margin-bottom:1rem;">
+            <div style="display:flex;align-items:center;gap:0.45rem;margin-bottom:0.35rem;">
+              <span class="script-annotate-step-badge">${i + 1}</span>
+              <span class="script-nl-label">${escapeHtml(b.label || "")}</span>
+            </div>
+            <div class="script-annotate-block">
+              <div class="script-annotate-block-header">
+                <div class="script-annotate-nl">
+                  <div class="script-nl-desc">${descHtml}</div>
+                </div>
+              </div>
+              <div class="annotate-block-section-label">Code</div>
+              <div class="script-annotate-code">
+                <pre class="python-script-block" style="font-size:0.78rem;padding:0.5rem 0.75rem;"><code class="language-python">${escapeHtml(b.code || "")}</code></pre>
+              </div>
+              ${tableSection}
+            </div>
+          </div>`;
+      }).join("");
+    }
+
+    /** Call /annotate_script, populate annotateEl, highlight code, wire hover interactions. */
+    async function fetchAnnotation(script, annotateEl) {
+      annotateEl.innerHTML = `<div style="padding:0.5rem;color:#6c757d;font-size:0.8rem;"><i class="bi bi-hourglass-split me-1"></i>Annotating…</div>`;
+      try {
+        const resp = await fetch(`${getBackendUrl()}/annotate_script/${_userId}/${_chatId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ script }),
+        });
+        const data = await resp.json();
+        if (data.error) {
+          annotateEl.innerHTML = `<div style="padding:0.5rem;color:#dc3545;font-size:0.8rem;">Annotation error: ${escapeHtml(data.error)}</div>`;
+          return false;
+        }
+        annotateEl.innerHTML = buildAnnotateBlocksHtml(data.blocks);
+        annotateEl.querySelectorAll("code.language-python").forEach(el => hljs.highlightElement(el));
+        wireBlockHovers(annotateEl, data.blocks);
+        return true;
+      } catch (e) {
+        annotateEl.innerHTML = `<div style="padding:0.5rem;color:#dc3545;font-size:0.8rem;">Annotation failed: ${escapeHtml(String(e))}</div>`;
+        return false;
+      }
+    }
+
+    /** Wire an Explain/Raw toggle button to LLM-on-demand annotation. ctaEl is hidden while explanation is shown. */
+    function wireAnnotateButton(btn, plainEl, annotateEl, scriptSrc, ctaEl = null) {
+      let annotated = false;
+      let loaded = false;
+      btn.addEventListener("click", async () => {
+        if (!loaded) {
+          btn.disabled = true;
+          btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>Explaining…';
+          annotateEl.style.display = "block";
+          plainEl.style.display = "none";
+          if (ctaEl) ctaEl.style.display = "none";
+          const ok = await fetchAnnotation(scriptSrc, annotateEl);
+          btn.disabled = false;
+          if (ok) {
+            loaded = true;
+            annotated = true;
+          } else {
+            annotated = true;
+          }
+          btn.innerHTML = '<i class="bi bi-code-slash me-1"></i>Show raw code';
+          return;
+        }
+        annotated = !annotated;
+        plainEl.style.display = annotated ? "none" : "block";
+        annotateEl.style.display = annotated ? "block" : "none";
+        if (ctaEl) ctaEl.style.display = annotated ? "none" : "";
+        btn.innerHTML = annotated
+          ? '<i class="bi bi-code-slash me-1"></i>Show raw code'
+          : '<i class="bi bi-lightbulb me-1"></i>Explain code';
+      });
+    }
+
+    function downloadText(filename, content) {
+      // Use a data URL instead of a blob URL — blob URLs are tied to the
+      // iframe's opaque origin (sandboxed without allow-same-origin) and
+      // cannot be navigated to, while data URLs have no origin restriction.
+      const a = document.createElement("a");
+      a.href = "data:text/plain;charset=utf-8," + encodeURIComponent(content);
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+
+    function downloadUrl(url, filename) {
+      // Navigate the frame to the download URL. The server returns
+      // Content-Disposition: attachment so the browser triggers a download
+      // without navigating away from the srcdoc content. No CORS needed.
+      window.location.href = url;
+    }
+
+    function downloadCsv(filename, headers, rows) {
+      const escape = v => {
+        const s = String(v);
+        return s.includes(",") || s.includes('"') || s.includes("\n")
+          ? '"' + s.replace(/"/g, '""') + '"' : s;
+      };
+      const lines = [
+        headers.map(escape).join(","),
+        ...rows.map(r => r.map(escape).join(",")),
+      ];
+      downloadText(filename, lines.join("\n"));
+    }
+    const $$ = (sel) => document.querySelectorAll(sel);
+    const $id = (id) => document.getElementById(id);
+
+    /** Build an HTML table from headers + rows. */
+    function buildTableHtml(headers, rows, { cssClass = "explore-sample-table", showTypes = false, ellipsis = false, colDescriptions = {} } = {}) {
+      let html = `<table class="${cssClass}"><thead><tr>`;
+      headers.forEach(h => {
+        const name = typeof h === "string" ? h : h.name;
+        const desc = colDescriptions?.[name];
+        const titleAttr = desc ? ` data-tooltip="${escapeHtml(desc)}" style="cursor:help;"` : "";
+        if (showTypes && h.type) {
+          html += `<th${titleAttr}>${name} <span class="col-type">${h.type}</span></th>`;
+        } else {
+          html += `<th${titleAttr}>${name}</th>`;
+        }
+      });
+      html += `</tr></thead><tbody>`;
+      rows.forEach(row => {
+        html += `<tr>${row.map(cell => `<td>${cell}</td>`).join("")}</tr>`;
+      });
+      if (ellipsis) {
+        const colCount = headers.length;
+        html += `<tr class="ellipsis-row"><td colspan="${colCount}">… more rows</td></tr>`;
+      }
+      html += `</tbody></table>`;
+      return html;
+    }
+
+    /** True if the column type or values are numeric. */
+    function isIdColumn(name) {
+      const n = (name || "").toLowerCase().trim();
+      return n === "id" || n.endsWith("_id") || n.endsWith("id") || n.startsWith("id_");
+    }
+
+    function isNumericCol(col, values) {
+      if (col.type && /^(int|integer|bigint|smallint|tinyint|decimal|numeric|float|double|real|number)/i.test(col.type)) return true;
+      const nonEmpty = values.filter(v => v !== "" && v !== "null" && v !== "NULL" && v !== null && v !== undefined);
+      return nonEmpty.length > 0 && nonEmpty.every(v => !isNaN(Number(v)));
+    }
+
+    /** Infer a human-friendly type label from sample cell values. */
+    function inferColType(values) {
+      const nonEmpty = (values || []).filter(v => v !== null && v !== undefined && v !== "" && String(v) !== "null" && String(v) !== "NULL");
+      if (nonEmpty.length === 0) return "text";
+      const strs = nonEmpty.map(v => String(v));
+      // Boolean
+      const boolVals = new Set(["true","false","1","0","yes","no"]);
+      if (strs.every(s => boolVals.has(s.toLowerCase()))) return "boolean";
+      // Integer
+      if (strs.every(s => /^-?\d+$/.test(s))) return "integer";
+      // Decimal
+      if (strs.every(s => !isNaN(Number(s)))) return "decimal";
+      // Date / datetime
+      const dateRe = /^\d{4}-\d{2}-\d{2}/;
+      if (strs.every(s => dateRe.test(s))) return strs.some(s => s.includes("T") || s.includes(" ") && s.length > 10) ? "datetime" : "date";
+      return "text";
+    }
+
+    /** Build a compact column-dictionary table for the target table. */
+    function buildColDictHtml(headers, sampleRowsData, colDescs) {
+      // sampleRowsData: array of record objects (from state.T combined)
+      const hasDescs = headers.some(h => colDescs?.[h]);
+      if (!hasDescs && headers.length === 0) return "";
+      let html = `<table class="col-dict-table"><thead><tr>
+        <th>Column</th><th>Type</th><th>Description</th>
+      </tr></thead><tbody>`;
+      headers.forEach((h, i) => {
+        const colValues = (sampleRowsData || []).map(r => r[h] ?? null);
+        const type = inferColType(colValues);
+        const desc = colDescs?.[h] || "";
+        html += `<tr>
+          <td><code>${escapeHtml(h)}</code></td>
+          <td><span class="col-dict-type col-dict-type-${escapeHtml(type)}">${escapeHtml(type)}</span></td>
+          <td>${escapeHtml(desc) || '<span style="opacity:0.45;">—</span>'}</td>
+        </tr>`;
+      });
+      html += `</tbody></table>`;
+      return html;
+    }
+
+    /** Format a number compactly (no unnecessary decimals). */
+    function fmtNum(n) {
+      if (Number.isInteger(n)) return String(n);
+      return parseFloat(n.toFixed(2)).toString();
+    }
+
+    /** Build a mini vertical histogram for numeric columns from sample data. */
+    function buildHistogramViz(values) {
+      const raw = values.filter(v => v !== null && v !== undefined && v !== "" && v !== "null" && v !== "NULL");
+      const nums = raw.map(Number).filter(n => !isNaN(n));
+      if (nums.length === 0) return `<div style="color:#6c757d;font-size:0.64rem;">No numeric data</div>`;
+      const min = Math.min(...nums);
+      const max = Math.max(...nums);
+      const uniqueCount = new Set(nums.map(String)).size;
+      const uniqueLabel = `<div style="font-size:0.64rem;color:#2563eb;font-weight:600;margin-bottom:0.25rem;">${uniqueCount} unique</div>`;
+      if (min === max) {
+        return uniqueLabel + `<div style="font-size:0.7rem;font-weight:600;color:#374151;text-align:center;margin-top:0.2rem;">${fmtNum(min)}</div>`;
+      }
+      const NUM_BINS = 6;
+      const binSize = (max - min) / NUM_BINS;
+      const bins = Array.from({ length: NUM_BINS }, () => 0);
+      nums.forEach(n => { let i = Math.floor((n - min) / binSize); if (i >= NUM_BINS) i = NUM_BINS - 1; bins[i]++; });
+      const maxCount = Math.max(...bins);
+      const barsHtml = bins.map((count, i) => {
+        const hPct = maxCount > 0 ? Math.max(Math.round((count / maxCount) * 100), 4) : 4;
+        const lo = fmtNum(min + i * binSize);
+        const hi = fmtNum(min + (i + 1) * binSize);
+        return `<div style="flex:1;background:#4d9aff;border-radius:2px 2px 0 0;min-height:2px;height:${hPct}%;" title="${lo}\u2013${hi}: ${count}"></div>`;
+      }).join("");
+      return uniqueLabel +
+        `<div style="display:flex;align-items:flex-end;gap:2px;height:36px;margin-bottom:0.2rem;">${barsHtml}</div>` +
+        `<div style="display:flex;justify-content:space-between;font-size:0.57rem;color:#adb5bd;"><span>${fmtNum(min)}</span><span>${fmtNum(max)}</span></div>`;
+    }
+
+    /** Build vertical bar chart (histogram-style) for categorical columns with <= 12 unique values. */
+    function buildBarChartViz(freq, total, uniqueCount) {
+      const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]);
+      if (sorted.length === 0) return `<div style="font-size:0.64rem;color:#2563eb;font-weight:600;">${uniqueCount} unique</div>`;
+      const maxCount = Math.max(...sorted.map(e => e[1]));
+      // Widen each bar slot when there are few categories
+      const barMaxPx = sorted.length <= 4 ? 26 : sorted.length <= 6 ? 20 : 18;
+      const barsHtml = sorted.map(([val, count]) => {
+        const hPct = maxCount > 0 ? Math.max(Math.round((count / maxCount) * 100), 4) : 4;
+        const tooltip = `${val}: ${count}`;
+        return `<div style="display:flex;flex-direction:column;align-items:center;flex:1;min-width:0;" title="${escapeHtml(tooltip)}">
+          <div style="width:100%;display:flex;align-items:flex-end;justify-content:center;height:36px;">
+            <div style="width:80%;max-width:${barMaxPx}px;background:#4d9aff;border-radius:2px 2px 0 0;min-height:2px;height:${hPct}%;"></div>
+          </div>
+          <div style="font-size:0.52rem;color:#6c757d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;text-align:center;margin-top:1px;">${escapeHtml(val)}</div>
+        </div>`;
+      }).join("");
+      return `<div style="font-size:0.64rem;color:#2563eb;font-weight:600;margin-bottom:0.25rem;">${uniqueCount} unique</div>` +
+        `<div style="display:flex;align-items:flex-end;gap:1px;">${barsHtml}</div>`;
+    }
+
+    /** Build a 2-bar true/false viz for boolean columns. */
+    function buildBooleanViz(freq) {
+      const trueKeys = new Set(["true", "1", "yes", "t", "y"]);
+      let trueCount = 0, falseCount = 0;
+      for (const [k, v] of Object.entries(freq)) {
+        if (trueKeys.has(String(k).toLowerCase())) trueCount += v;
+        else falseCount += v;
+      }
+      const maxC = Math.max(trueCount, falseCount, 1);
+      const tPct = trueCount > 0 ? Math.max(Math.round((trueCount / maxC) * 100), 4) : 0;
+      const fPct = falseCount > 0 ? Math.max(Math.round((falseCount / maxC) * 100), 4) : 0;
+      return `<div style="display:flex;align-items:flex-end;gap:6px;height:36px;margin-bottom:2px;">
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;" title="true: ${trueCount}">
+            <div style="width:65%;background:#4ade80;border-radius:2px 2px 0 0;${tPct ? `height:${tPct}%` : 'height:0'};min-height:${trueCount ? '2' : '0'}px;"></div>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;" title="false: ${falseCount}">
+            <div style="width:65%;background:#f87171;border-radius:2px 2px 0 0;${fPct ? `height:${fPct}%` : 'height:0'};min-height:${falseCount ? '2' : '0'}px;"></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;font-size:0.55rem;text-align:center;">
+          <div style="flex:1;color:#16a34a;font-weight:600;" title="true: ${trueCount}">true</div>
+          <div style="flex:1;color:#dc2626;font-weight:600;" title="false: ${falseCount}">false</div>
+        </div>`;
+    }
+
+    /** For string columns with >12 unique values, just show the unique count. */
+    function buildUniqueCountOnlyViz(uniqueCount) {
+      return `<div style="font-size:0.64rem;color:#2563eb;font-weight:600;">${uniqueCount} unique values</div>`;
+    }
+
+    /** Build histogram from precomputed stats (full dataset). */
+    /**
+     * Aggregate a fine-grained histogram into display bins for a zoomed range.
+     * fineCounts/fineEdges: the precomputed 100-bin histogram from the backend.
+     * zoomLo/zoomHi: the visible range after zoom.
+     * numBins: how many display bins to produce.
+     */
+    function aggregateFineBins(fineCounts, fineEdges, zoomLo, zoomHi, numBins) {
+      const outStep = (zoomHi - zoomLo) / numBins;
+      const counts = new Array(numBins).fill(0);
+      const edges = [];
+      for (let i = 0; i <= numBins; i++) edges.push(zoomLo + i * outStep);
+      // Walk through each fine bin and distribute its count into the output bins
+      for (let f = 0; f < fineCounts.length; f++) {
+        if (fineCounts[f] === 0) continue;
+        const fLo = fineEdges[f], fHi = fineEdges[f + 1];
+        // Skip fine bins completely outside zoom range
+        if (fHi <= zoomLo || fLo >= zoomHi) continue;
+        // Clamp to zoom range
+        const cLo = Math.max(fLo, zoomLo), cHi = Math.min(fHi, zoomHi);
+        const fineWidth = fHi - fLo;
+        const fraction = fineWidth > 0 ? (cHi - cLo) / fineWidth : 1;
+        const contrib = fineCounts[f] * fraction;
+        // Distribute into output bins
+        const oStart = Math.max(0, Math.floor((cLo - zoomLo) / outStep));
+        const oEnd = Math.min(numBins - 1, Math.floor((cHi - zoomLo) / outStep - 0.0001));
+        if (oStart === oEnd) {
+          counts[oStart] += contrib;
+        } else {
+          for (let o = oStart; o <= oEnd; o++) {
+            const oLo = edges[o], oHi = edges[o + 1];
+            const overlap = Math.min(cHi, oHi) - Math.max(cLo, oLo);
+            if (overlap > 0) counts[o] += contrib * (overlap / (cHi - cLo));
+          }
+        }
+      }
+      return { counts: counts.map(c => Math.round(c)), edges };
+    }
+
+    /** Render histogram bars into an existing container element. */
+    function renderHistogramBars(container, counts, edges, isInteger) {
+      const fmtEdge = isInteger ? (v => String(Math.round(v))) : fmtNum;
+      const maxCount = Math.max(...counts);
+      const barsHtml = counts.map((count, i) => {
+        const hPct = maxCount > 0 ? Math.max(Math.round((count / maxCount) * 100), 4) : 4;
+        const lo = fmtEdge(edges[i]);
+        const hi = fmtEdge(edges[i + 1]);
+        return `<div class="hist-bar" style="flex:1;background:#4d9aff;border-radius:2px 2px 0 0;min-height:2px;height:${hPct}%;" title="${lo}\u2013${hi}: ${count}"></div>`;
+      }).join("");
+      const barsEl = container.querySelector('.hist-bars');
+      const axisEl = container.querySelector('.hist-axis');
+      if (barsEl) barsEl.innerHTML = barsHtml;
+      if (axisEl) {
+        axisEl.innerHTML = `<span>${fmtEdge(edges[0])}</span><span>${fmtEdge(edges[edges.length - 1])}</span>`;
+      }
+    }
+
+    let _histIdCounter = 0;
+
+    function buildHistogramFromStats(stats) {
+      const { unique_count, min, max, histogram, histogram_edges, is_integer, fine_histogram, fine_edges } = stats;
+      const histId = 'hist-' + (_histIdCounter++);
+      const uniqueLabel = `<div class="hist-unique" style="font-size:0.64rem;color:#2563eb;font-weight:600;margin-bottom:0.25rem;">${unique_count} unique</div>`;
+      if (min === max) {
+        return uniqueLabel +
+          `<div style="display:flex;align-items:flex-end;gap:2px;height:36px;margin-bottom:0.2rem;"><div style="flex:1;background:#4d9aff;border-radius:2px 2px 0 0;height:100%;" title="${fmtNum(min)}: ${histogram ? histogram[0] : ''}"></div></div>` +
+          `<div style="font-size:0.57rem;color:#adb5bd;text-align:center;">${fmtNum(min)}</div>`;
+      }
+      const maxCount = Math.max(...histogram);
+      const fmtEdge = is_integer ? (v => String(Math.round(v))) : fmtNum;
+      const barsHtml = histogram.map((count, i) => {
+        const hPct = maxCount > 0 ? Math.max(Math.round((count / maxCount) * 100), 4) : 4;
+        const lo = histogram_edges ? fmtEdge(histogram_edges[i]) : fmtNum(min + i * ((max - min) / histogram.length));
+        const hi = histogram_edges ? fmtEdge(histogram_edges[i + 1]) : fmtNum(min + (i + 1) * ((max - min) / histogram.length));
+        return `<div class="hist-bar" style="flex:1;background:#4d9aff;border-radius:2px 2px 0 0;min-height:2px;height:${hPct}%;" title="${lo}\u2013${hi}: ${count}"></div>`;
+      }).join("");
+      const dispMin = histogram_edges ? fmtEdge(histogram_edges[0]) : fmtNum(min);
+      const dispMax = histogram_edges ? fmtEdge(histogram_edges[histogram_edges.length - 1]) : fmtNum(max);
+      // Encode fine-grained histogram as data attributes for zoom
+      const hasFine = fine_histogram && fine_edges && fine_histogram.length > 0;
+      const fhJson = hasFine ? JSON.stringify(fine_histogram) : '';
+      const feJson = hasFine ? JSON.stringify(fine_edges) : '';
+      return uniqueLabel +
+        `<div class="hist-zoom-container" id="${histId}" data-hist-min="${min}" data-hist-max="${max}" data-hist-int="${is_integer ? 1 : 0}"` +
+        (hasFine ? ` data-fine-hist='${fhJson.replace(/'/g, "&#39;")}' data-fine-edges='${feJson.replace(/'/g, "&#39;")}'` : '') +
+        ` style="position:relative;cursor:${hasFine ? 'col-resize' : 'default'};">` +
+          `<div class="hist-bars" style="display:flex;align-items:flex-end;gap:2px;height:36px;margin-bottom:0.2rem;">${barsHtml}</div>` +
+          `<div class="hist-select-overlay" style="display:none;position:absolute;top:0;height:36px;background:rgba(37,99,235,0.15);border:1px solid rgba(37,99,235,0.4);border-radius:2px;pointer-events:none;"></div>` +
+          `<div class="hist-axis" style="display:flex;justify-content:space-between;font-size:0.57rem;color:#adb5bd;"><span>${dispMin}</span><span>${dispMax}</span></div>` +
+          `<div class="hist-reset" style="display:none;font-size:0.5rem;color:#2563eb;text-align:center;cursor:pointer;margin-top:1px;">dbl-click to reset</div>` +
+        `</div>`;
+    }
+
+    /** Attach drag-to-zoom handlers to all .hist-zoom-container elements within a root. */
+    function initHistogramZoom(root) {
+      root.querySelectorAll('.hist-zoom-container').forEach(container => {
+        if (container._histZoomInit) return;
+        container._histZoomInit = true;
+        const barsEl = container.querySelector('.hist-bars');
+        const overlay = container.querySelector('.hist-select-overlay');
+        const resetEl = container.querySelector('.hist-reset');
+        const origMin = parseFloat(container.dataset.histMin);
+        const origMax = parseFloat(container.dataset.histMax);
+        const isInt = container.dataset.histInt === '1';
+        let fineCounts, fineEdges;
+        try { fineCounts = JSON.parse(container.dataset.fineHist); } catch(e) { fineCounts = null; }
+        try { fineEdges = JSON.parse(container.dataset.fineEdges); } catch(e) { fineEdges = null; }
+        if (!fineCounts || !fineEdges || fineCounts.length === 0) return;
+        let viewMin = origMin, viewMax = origMax;
+        let dragging = false, startX = 0;
+
+        function xToVal(x) {
+          const rect = barsEl.getBoundingClientRect();
+          const pct = Math.max(0, Math.min(1, (x - rect.left) / rect.width));
+          return viewMin + pct * (viewMax - viewMin);
+        }
+
+        barsEl.addEventListener('mousedown', e => {
+          e.preventDefault();
+          dragging = true;
+          startX = e.clientX;
+          overlay.style.display = 'block';
+          const rect = barsEl.getBoundingClientRect();
+          overlay.style.left = (e.clientX - rect.left) + 'px';
+          overlay.style.width = '0px';
+        });
+
+        document.addEventListener('mousemove', e => {
+          if (!dragging) return;
+          const rect = barsEl.getBoundingClientRect();
+          const x1 = Math.max(0, Math.min(rect.width, startX - rect.left));
+          const x2 = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+          overlay.style.left = Math.min(x1, x2) + 'px';
+          overlay.style.width = Math.abs(x2 - x1) + 'px';
+        });
+
+        document.addEventListener('mouseup', e => {
+          if (!dragging) return;
+          dragging = false;
+          overlay.style.display = 'none';
+          const dx = Math.abs(e.clientX - startX);
+          if (dx < 5) return; // too small, ignore
+          const v1 = xToVal(Math.min(startX, e.clientX));
+          const v2 = xToVal(Math.max(startX, e.clientX));
+          if (v2 - v1 < (origMax - origMin) * 0.001) return; // too narrow
+          viewMin = v1;
+          viewMax = v2;
+          const { counts, edges } = aggregateFineBins(fineCounts, fineEdges, viewMin, viewMax, 12);
+          renderHistogramBars(container, counts, edges, isInt);
+          resetEl.style.display = 'block';
+        });
+
+        // Double-click to reset zoom
+        container.addEventListener('dblclick', () => {
+          viewMin = origMin;
+          viewMax = origMax;
+          const { counts, edges } = aggregateFineBins(fineCounts, fineEdges, viewMin, viewMax, 12);
+          renderHistogramBars(container, counts, edges, isInt);
+          resetEl.style.display = 'none';
+        });
+      });
+    }
+
+    /** Build an HTML column stats strip using precomputed full-data statistics. */
+    function buildColStatsHtml(columns, sampleRows, colStats) {
+      if (!columns || columns.length === 0) return "";
+      // console.group("[ColStats] Building stats for", columns.length, "columns");
+      // console.log("[ColStats] colStats keys:", Object.keys(colStats || {}));
+      const cards = columns.map((col, colIdx) => {
+        let vizHtml = "";
+        let nullHtml = "";
+        try {
+          const stats = (colStats || {})[col.name];
+          // console.log(`[ColStats] "${col.name}":`, JSON.stringify(stats, null, 2));
+
+          if (stats && stats.unique_count != null) {
+            const uniqueCount = stats.unique_count;
+            // Show missing-data indicator if nulls exist
+            const nullCount = stats.null_count || 0;
+            const totalRows = (stats.total_count || 0) + nullCount;
+            if (nullCount > 0 && totalRows > 0) {
+              const pct = Math.round((nullCount / totalRows) * 100);
+              nullHtml = `<div style="font-size:0.58rem;color:#e67700;font-weight:600;margin-bottom:0.2rem;" title="${nullCount} missing out of ${totalRows} rows"><i class="bi bi-exclamation-circle" style="font-size:0.55rem;"></i> ${nullCount} missing (${pct}%)</div>`;
+            } else if (totalRows > 0) {
+              nullHtml = `<div style="font-size:0.58rem;color:#15803d;font-weight:600;margin-bottom:0.2rem;" title="No missing values in ${totalRows} rows"><i class="bi bi-check-circle-fill" style="font-size:0.55rem;"></i> Complete</div>`;
+            }
+            if (stats.is_boolean && stats.freq) {
+              vizHtml = buildBooleanViz(stats.freq);
+            } else if (stats.is_numeric && stats.histogram) {
+              vizHtml = buildHistogramFromStats(stats);
+            } else if (!stats.is_numeric && uniqueCount <= 12) {
+              vizHtml = buildBarChartViz(stats.freq || {}, stats.total_count || 0, uniqueCount);
+            } else {
+              vizHtml = buildUniqueCountOnlyViz(uniqueCount);
+            }
+          } else {
+            // Fallback: compute from sample rows
+            const rawValues = (sampleRows || []).map(row => row[colIdx]);
+            const nullish = rawValues.filter(v => v === null || v === undefined || v === "" || String(v) === "null" || String(v) === "NULL");
+            const values = rawValues.filter(v => v !== null && v !== undefined && v !== "" && String(v) !== "null" && String(v) !== "NULL");
+            if (nullish.length > 0 && rawValues.length > 0) {
+              const pct = Math.round((nullish.length / rawValues.length) * 100);
+              nullHtml = `<div style="font-size:0.58rem;color:#e67700;font-weight:600;margin-bottom:0.2rem;" title="${nullish.length} missing out of ${rawValues.length} rows"><i class="bi bi-exclamation-circle" style="font-size:0.55rem;"></i> ${nullish.length} missing (${pct}%)</div>`;
+            } else if (rawValues.length > 0) {
+              nullHtml = `<div style="font-size:0.58rem;color:#15803d;font-weight:600;margin-bottom:0.2rem;" title="No missing values in ${rawValues.length} rows"><i class="bi bi-check-circle-fill" style="font-size:0.55rem;"></i> Complete</div>`;
+            }
+            const strValues = values.map(v => String(v));
+            const freq = {};
+            strValues.forEach(v => { freq[v] = (freq[v] || 0) + 1; });
+            const uniqueCount = Object.keys(freq).length;
+            const total = strValues.length;
+            const isBoolFallback = col.type === "BOOLEAN" ||
+              (uniqueCount === 2 && Object.keys(freq).every(k => ["true","false","1","0"].includes(k.toLowerCase())));
+            if (isBoolFallback) {
+              vizHtml = buildBooleanViz(freq);
+            } else if (isNumericCol(col, strValues)) {
+              vizHtml = buildHistogramViz(values);
+            } else if (uniqueCount <= 12) {
+              vizHtml = buildBarChartViz(freq, total, uniqueCount);
+            } else {
+              vizHtml = buildUniqueCountOnlyViz(uniqueCount);
+            }
+          }
+        } catch (e) {
+          vizHtml = `<div style="color:#dc3545;font-size:0.6rem;">Error: ${e.message}</div>`;
+        }
+
+        return `<div style="flex:0 0 auto;width:130px;background:#fff;border:1px solid #e9ecef;border-radius:6px;padding:0.4rem 0.5rem;min-height:50px;">
+          <div style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,monospace;font-weight:700;font-size:0.7rem;color:#1d1d1d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${col.name}">${col.name}</div>
+          <div style="font-size:0.62rem;color:#6c757d;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,monospace;margin-bottom:0.25rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${col.type || ""}</div>
+          ${nullHtml}${vizHtml}
+        </div>`;
+      }).join("");
+      // console.groupEnd();
+      return `<div style="display:flex;flex-wrap:nowrap;overflow-x:auto;gap:0.5rem;padding:0.5rem 0.75rem;background-color:#f8f9fa;border-top:1px solid #e9ecef;border-radius:0 0 8px 8px;">${cards}</div>`;
+    }
+
+    /** Parse a markdown table string into { headers, rows }. */
+    function parseMarkdownTable(md) {
+      const lines = md.trim().split("\n").filter(line => !line.match(/^\|\s*-+/));
+      const parse = line => line.split("|").map(c => c.trim()).filter(c => c);
+      return { headers: parse(lines[0]), rows: lines.slice(1).map(parse) };
+    }
+
+    /** Append rendered HTML into a container element. */
+    function appendHtml(container, html) {
+      const el = document.createElement("div");
+      el.innerHTML = html;
+      while (el.firstChild) container.appendChild(el.firstChild);
+    }
+
+    // =========================================================================
+    // VIEW SWITCHING
+    // =========================================================================
+
+    const detailPanelsWrapper = { classList: { add: () => {}, remove: () => {} } }; // removed in 4-card layout
+    const exploreViews = {
+      tables:   $id("table-explore-view"),
+    };
+
+    // Module-level data set by renderAll, used by showOpDetail and download handlers
+    let _opTableMap = {};
+    let _operations = [];
+    let _pythonScript = "";
+    let _targetTableHeaders = [];
+    let _targetTableRows = [];
+
+
+    const stepMainDivs = {
+      tables:   $id("step1-main"),
+    };
+
+    function showView(viewName) {
+      Object.values(exploreViews).forEach(v => v.classList.remove("visible"));
+      Object.values(stepMainDivs).forEach(d => { if (d) d.style.display = ""; });
+      if (viewName && exploreViews[viewName]) {
+        exploreViews[viewName].classList.add("visible");
+        if (stepMainDivs[viewName]) stepMainDivs[viewName].style.display = "none";
+      }
+    }
+
+    function showDefaultView() {
+      Object.values(exploreViews).forEach(v => v.classList.remove("visible"));
+      Object.values(stepMainDivs).forEach(d => { if (d) d.style.display = ""; });
+    }
+
+    $id("explore-back-btn").addEventListener("click", showDefaultView);
+
+    $id("view-all-tables-btn").addEventListener("click", () => showView("tables"));
+
+    function formatOpDescription(desc) {
+      const plain = (desc || "").replace(/<[^>]+>/g, "").trim();
+      const parts = [];
+      for (const line of plain.split("\n")) {
+        const trimmed = line.replace(/^[-*]\s*/, "").trim();
+        if (!trimmed) continue;
+        const colonIdx = trimmed.indexOf(":");
+        if (colonIdx > 0) {
+          const label = trimmed.slice(0, colonIdx);
+          const rest = trimmed.slice(colonIdx + 1).trim();
+          parts.push(rest
+            ? `<b>${label}:</b> ${rest}`
+            : `<b>${label}:</b>`);
+        } else {
+          parts.push(trimmed);
+        }
+      }
+      return parts.join("<br>");
+    }
+
+    function showOpDetail(idx) {
+      const op = _operations[idx];
+      const container = $id("op-detail-content");
+      if (!container) return;
+
+      const header = $id("op-detail-header");
+      if (header) {
+        header.innerHTML = `<i class="bi ${op.icon} text-primary"></i> ${op.type}`;
+      }
+
+      // --- Shared: used-column detection ---
+      const descPlain = (op.description || "").replace(/<[^>]+>/g, "").toLowerCase();
+
+      const columnDiagramHtml = "";
+
+      // --- Script section: provenance step code (NOT state.S — that belongs to step 3) ---
+      const _scriptSrc        = op.code || "";
+      const _scriptAnnotateId = `op-script-annotated-${idx}`;
+      const _scriptPlainId    = `op-script-plain-${idx}`;
+      const _scriptBtnId      = `op-annotate-btn-${idx}`;
+
+      const splitHtml = `
+        <div class="split-section-header">
+          <i class="bi bi-code-slash text-primary"></i> Script
+          <button id="${_scriptBtnId}" class="btn btn-sm btn-primary ms-auto" style="font-size:0.73rem;padding:0.2rem 0.65rem;" title="Get a plain-English explanation of what this code does">
+            <i class="bi bi-lightbulb me-1"></i>Explain code
+          </button>
+        </div>
+        <div id="${_scriptPlainId}">
+          <pre class="python-script-block"><code class="language-python">${escapeHtml(_scriptSrc || "—")}</code></pre>
+        </div>
+        <div id="${_scriptAnnotateId}" style="display:none;"></div>`;
+
+      // --- Per-table cards: projection viz ---
+      const colSections = (op.tables || []).map(opTable => {
+        const full = _opTableMap[opTable.name];
+        if (!full) return "";
+        const mentionedSet = new Set(
+          full.columns.filter(col => descPlain.includes(col.name.toLowerCase())).map(col => col.name)
+        );
+        const usedSet = mentionedSet.size > 0 ? mentionedSet : new Set(opTable.columns);
+        const usedColObjs = full.columns.filter(col => usedSet.has(col.name));
+        const usedIndices = usedColObjs.map(col => full.columns.indexOf(col));
+        const totalCols = full.columns.length;
+        const usedColCount = usedColObjs.length;
+        const opSafeName = opTable.name.replace(/[^a-z0-9_-]/gi, "_");
+
+        if (!full.sampleRows || full.sampleRows.length === 0) return "";
+        const sample4 = full.sampleRows.slice(0, 4);
+        const tableColDescs = state.column_descriptions?.[opTable.name] || {};
+        // Exact row count: prefer colStats total_count, fall back to sampleRows length
+        const firstColStats = Object.values(full.colStats || {})[0];
+        const totalRowCount = firstColStats?.total_count != null
+          ? firstColStats.total_count
+          : full.sampleRows.length;
+        const rowCountLabel = `${totalRowCount.toLocaleString()} rows`;
+        const shownCount = sample4.length;
+        const moreRowsIndicator = shownCount < totalRowCount
+          ? `<div style="font-size:0.7rem;color:#6c757d;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:4px;padding:0.2rem 0.5rem;margin-top:0.2rem;display:inline-block;">
+               <i class="bi bi-three-dots" style="margin-right:0.2rem;"></i>showing ${shownCount} of ${totalRowCount.toLocaleString()} rows
+             </div>`
+          : "";
+        const allHeader = full.columns.map(col => {
+          const desc = tableColDescs[col.name];
+          return `<th${desc ? ` data-tooltip="${escapeHtml(desc)}" style="cursor:help;"` : ""}>${escapeHtml(String(col.name))}</th>`;
+        }).join("");
+        const allRows = sample4.map(row =>
+          `<tr>${row.map(cell => `<td>${escapeHtml(String(cell ?? ""))}</td>`).join("")}</tr>`
+        ).join("");
+        const usedHeader = usedColObjs.map(col => {
+          const desc = tableColDescs[col.name];
+          return `<th${desc ? ` data-tooltip="${escapeHtml(desc)}" style="cursor:help;"` : ""}>${escapeHtml(String(col.name))}</th>`;
+        }).join("");
+        const usedRows = sample4.map(row =>
+          `<tr>${usedIndices.map(i => `<td>${escapeHtml(String(row[i] ?? ""))}</td>`).join("")}</tr>`
+        ).join("");
+
+        return `
+          <div class="exec-step-card">
+            <div class="exec-step-header">
+              <i class="bi bi-table" style="color:#2563eb;"></i> Input data
+            </div>
+            <div style="padding:0.5rem 0.75rem;display:flex;flex-direction:column;gap:0.4rem;">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:0.4rem;">
+                <span style="font-size:0.72rem;color:#374151;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(opTable.name)}">${escapeHtml(opTable.name)} <span style="font-weight:400;color:#9ca3af;">&middot; ${totalCols} columns &middot; ${rowCountLabel}</span></span>
+                <div style="display:flex;gap:0.4rem;flex-shrink:0;">
+                  <button class="download-btn" data-opdl-sample="${opSafeName}" data-table-name="${opTable.name}" title="Download sample as CSV">
+                    <i class="bi bi-download"></i> sample .csv
+                  </button>
+                  <button class="download-btn" data-opdl-full="${opSafeName}" data-table-name="${opTable.name}" title="Download full dataset as CSV">
+                    <i class="bi bi-download"></i> full .csv
+                  </button>
+                </div>
+              </div>
+              <div class="op-col-sample-scroll"><table class="explore-sample-table"><thead><tr>${allHeader}</tr></thead><tbody>${allRows}</tbody></table></div>
+              ${moreRowsIndicator}
+              <div style="display:flex;align-items:center;gap:0.5rem;">
+                <div style="flex:1;height:1px;background:#e9ecef;"></div>
+                <div style="font-size:0.7rem;color:#6c757d;white-space:nowrap;"><i class="bi bi-arrow-down" style="color:#2563eb;"></i> project: ${totalCols} → ${usedColCount} columns</div>
+                <div style="flex:1;height:1px;background:#e9ecef;"></div>
+              </div>
+              <div style="font-size:0.72rem;font-weight:600;color:#374151;">
+                <i class="bi bi-funnel" style="color:#2563eb;margin-right:0.25rem;"></i>selected columns
+                <span style="font-weight:400;color:#9ca3af;margin-left:0.3rem;">${usedColCount} columns</span>
+              </div>
+              <div class="op-col-sample-scroll"><table class="explore-sample-table"><thead><tr>${usedHeader}</tr></thead><tbody>${usedRows}</tbody></table></div>
+              ${moreRowsIndicator}
+            </div>
+          </div>`;
+      }).join("");
+
+      const colHtml = "";
+
+      // --- Join-specific 3-step process ---
+      let joinHtml = "";
+      if (op.type === "Join" && op.join_detail) {
+        const jd = op.join_detail;
+
+        const colPairsHtml = jd.on_columns.map(p => `
+          <div class="join-col-pair">
+            <span class="join-table-col">${p.left_table}.${p.left_col}</span>
+            <span class="join-eq-sign">=</span>
+            <span class="join-table-col">${p.right_table}.${p.right_col}</span>
+          </div>`).join("");
+
+        const lh = `${jd.on_columns[0].left_table}.${jd.on_columns[0].left_col}`;
+        const rh = `${jd.on_columns[0].right_table}.${jd.on_columns[0].right_col}`;
+        const sampleRowsHtml = jd.sample_pairs.map(p =>
+          `<tr><td>${p.left}</td><td>${p.right}</td></tr>`
+        ).join("");
+
+        const simRowsHtml = jd.similarity_results.map(r => {
+          const sc = r.score >= 0.85 ? "sim-score-high" : r.score >= 0.5 ? "sim-score-med" : "sim-score-low";
+          const bc = r.match_type === "Exact"
+            ? "bg-success-subtle text-success-emphasis"
+            : r.match_type === "Semantic"
+            ? "bg-warning-subtle text-warning-emphasis"
+            : "bg-danger-subtle text-danger-emphasis";
+          return `<tr>
+            <td>${r.left}</td>
+            <td>${r.right ?? "—"}</td>
+            <td class="${sc}">${r.score.toFixed(2)}</td>
+            <td><span class="sim-match-badge badge ${bc}">${r.match_type}</span></td>
+          </tr>`;
+        }).join("");
+
+        joinHtml = `
+          <div class="exec-step-card">
+            <div class="exec-step-header">
+              <i class="bi bi-link-45deg" style="color:#2563eb;"></i> Join process
+            </div>
+            <div style="padding:0.5rem 0.75rem;">
+              <div class="join-steps">
+                <div class="join-step-card">
+                  <div class="join-step-header">
+                    <span class="badge bg-primary-subtle text-primary-emphasis" style="font-size:0.62rem;">1</span>
+                    Join column selection
+                  </div>
+                  <div class="join-step-body">${colPairsHtml}</div>
+                </div>
+                <div class="join-step-card">
+                  <div class="join-step-header">
+                    <span class="badge bg-primary-subtle text-primary-emphasis" style="font-size:0.62rem;">2</span>
+                    Sample values from each table
+                  </div>
+                  <div class="join-step-body">
+                    <table class="sim-table">
+                      <thead><tr><th>${lh}</th><th>${rh}</th></tr></thead>
+                      <tbody>${sampleRowsHtml}</tbody>
+                    </table>
+                  </div>
+                </div>
+                <div class="join-step-card">
+                  <div class="join-step-header">
+                    <span class="badge bg-primary-subtle text-primary-emphasis" style="font-size:0.62rem;">3</span>
+                    Semantic &amp; characteristic similarity
+                  </div>
+                  <div class="join-step-body">
+                    <table class="sim-table">
+                      <thead><tr><th>Left value</th><th>Right value</th><th>Score</th><th>Type</th></tr></thead>
+                      <tbody>${simRowsHtml}</tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>`;
+      }
+
+      appendHtml(container, columnDiagramHtml + splitHtml + colHtml + joinHtml);
+      container.querySelectorAll("code.language-python").forEach(el => hljs.highlightElement(el));
+
+      // Wire up annotate toggle button — calls LLM on first click (step 2)
+      const _annotateBtn = container.querySelector(`#${_scriptBtnId}`);
+      if (_annotateBtn && _scriptSrc.trim()) {
+        const _plainEl    = container.querySelector(`#${_scriptPlainId}`);
+        const _annotateEl = container.querySelector(`#${_scriptAnnotateId}`);
+        wireAnnotateButton(_annotateBtn, _plainEl, _annotateEl, _scriptSrc);
+      }
+
+      // Wire up download buttons for operation tables
+      container.querySelectorAll("[data-opdl-sample]").forEach(btn => {
+        const tName = btn.dataset.tableName;
+        const full = _opTableMap[tName];
+        if (full) {
+          const colNames = full.columns.map(c => c.name);
+          btn.addEventListener("click", () => downloadCsv(`${tName}_sample.csv`, colNames, full.sampleRows));
+        }
+      });
+      container.querySelectorAll("[data-opdl-full]").forEach(btn => {
+        const tName = btn.dataset.tableName;
+        btn.addEventListener("click", () => {
+          const url = `${getBackendUrl()}/download_table/${encodeURIComponent(_userId)}/${encodeURIComponent(_chatId)}/${encodeURIComponent(tName)}`;
+          downloadUrl(url, `${tName}.csv`);
+        });
+      });
+    }
+
+    // =========================================================================
+    // RENDER FUNCTIONS (called after data is loaded)
+    // =========================================================================
+
+    function renderAll({ matched_tables, operations, target_table_markdown, target_total_rows, python_script, final_answer }) {
+      // Provenance charts are loaded async when "More details" panel opens.
+
+      // --- Step 1: Table Chips + Carousel View (exactly like state_view.html retrieved tables) ---
+      const tableNamesContainer = $id("matched-table-names-container");
+      const carouselInnerEl = $id("step1-carousel-inner");
+      const retrievedTableNames = Object.keys(retrievedTables || {});
+      let step1CarouselIndex = 0;
+
+      for (const [tableName, _sampledRows] of Object.entries(retrievedTables || {})) {
+        // Prefer state.T (full materialized data) over retrieved sample rows
+        const rows = (state.T && state.T[tableName]) ? state.T[tableName] : _sampledRows;
+        const tableItemDiv = document.createElement("div");
+        tableItemDiv.className = "carousel-item-table";
+
+        const tableContainer = document.createElement("div");
+        tableContainer.className = "table-container";
+
+        const tableTitle = document.createElement("div");
+        tableTitle.className = "table-title";
+        tableTitle.textContent = tableName;
+        tableContainer.appendChild(tableTitle);
+
+        // Dataset context toggle (before the sample table)
+        const _metaText = (tablesMetadata || {})[tableName];
+        if (_metaText) {
+          const metaToggle = document.createElement("button");
+          metaToggle.style.cssText = "display:inline-flex;align-items:center;gap:0.3rem;font-size:0.72rem;color:#0284c7;background:none;border:1px solid #bae6fd;border-radius:4px;padding:0.2rem 0.5rem;cursor:pointer;margin-bottom:0.5rem;";
+          metaToggle.innerHTML = '<i class="bi bi-info-circle"></i> Dataset context';
+          const metaBody = document.createElement("div");
+          metaBody.style.cssText = "display:none;margin-bottom:0.6rem;padding:0.55rem 0.7rem;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;font-size:0.74rem;color:#0c4a6e;line-height:1.55;white-space:pre-wrap;";
+          metaBody.textContent = _metaText;
+          metaToggle.addEventListener("click", () => {
+            const open = metaBody.style.display !== "none";
+            metaBody.style.display = open ? "none" : "block";
+            metaToggle.innerHTML = open
+              ? '<i class="bi bi-info-circle"></i> Dataset context'
+              : '<i class="bi bi-chevron-up"></i> Hide context';
+            syncStep1Height();
+          });
+          tableContainer.appendChild(metaToggle);
+          tableContainer.appendChild(metaBody);
+        }
+
+        const columns = rows && rows.length > 0 ? Object.keys(rows[0]) : [];
+
+        // Column + row count subtitle under table title
+        const _step1ColStats = (retrievedTablesColStats || {})[tableName] || {};
+        const _step1FirstStat = Object.values(_step1ColStats)[0];
+        const _step1TotalRows = _step1FirstStat?.total_count != null ? _step1FirstStat.total_count : (rows ? rows.length : 0);
+        const _step1HasMore = (rows || []).length < _step1TotalRows;
+        {
+          const sub = document.createElement("div");
+          sub.style.cssText = "font-size:0.72rem;color:#6c757d;margin-bottom:0.4rem;";
+          sub.textContent = `${columns.length} column${columns.length !== 1 ? "s" : ""} · ${_step1TotalRows.toLocaleString()} row${_step1TotalRows !== 1 ? "s" : ""}${_step1HasMore ? ` (showing ${(rows || []).length.toLocaleString()})` : ""}`;
+          tableContainer.appendChild(sub);
+        }
+
+        // Download buttons — above the table
+        {
+          const dlRow = document.createElement("div");
+          dlRow.style.cssText = "display:flex;gap:0.4rem;margin-bottom:0.5rem;";
+          const fullBtn = document.createElement("button");
+          fullBtn.className = "download-btn";
+          fullBtn.title = "Download full table as CSV";
+          fullBtn.innerHTML = `<i class="bi bi-download"></i> full .csv${_step1HasMore ? ` <span style="opacity:0.7;">(${_step1TotalRows.toLocaleString()} rows)</span>` : ""}`;
+          fullBtn.addEventListener("click", () => {
+            const url = `${getBackendUrl()}/download_table/${encodeURIComponent(_userId)}/${encodeURIComponent(_chatId)}/${encodeURIComponent(tableName)}`;
+            downloadUrl(url, `${tableName}.csv`);
+          });
+          dlRow.appendChild(fullBtn);
+          tableContainer.appendChild(dlRow);
+        }
+
+        const colObjs = columns.map(col => ({ name: col, type: inferType((rows[0] || {})[col]) }));
+        const sampleRows = (rows || []).map(row => Object.values(row));
+
+        const scrollWrapper = document.createElement("div");
+        scrollWrapper.className = "markdown-table-wrapper";
+        scrollWrapper.innerHTML = buildTableHtml(columns, sampleRows, { cssClass: "explore-sample-table", ellipsis: _step1HasMore });
+        tableContainer.appendChild(scrollWrapper);
+        const colStatsHtml = buildColStatsHtml(colObjs, sampleRows, _step1ColStats);
+        if (colStatsHtml) {
+          const statsEl = document.createElement("div");
+          statsEl.innerHTML = colStatsHtml;
+          while (statsEl.firstChild) tableContainer.appendChild(statsEl.firstChild);
+        }
+
+        tableItemDiv.appendChild(tableContainer);
+        carouselInnerEl.appendChild(tableItemDiv);
+
+      }
+
+      // Clickable cards for relevant (matched) tables only
+      const matchedTableNames = new Set(matched_tables.map(t => t.name));
+      for (const [tableName, tableIdx] of retrievedTableNames.map((n, i) => [n, i])) {
+        if (!matchedTableNames.has(tableName)) continue;
+        const card = document.createElement("div");
+        card.className = "table-name-card";
+        const _cardRows = retrievedTables[tableName] || [];
+        const _cardCols = _cardRows.length > 0 ? Object.keys(_cardRows[0]).length : 0;
+        const _cardCs = (retrievedTablesColStats || {})[tableName] || {};
+        const _cardFs = Object.values(_cardCs)[0];
+        const _cardTotal = _cardFs?.total_count != null ? _cardFs.total_count : _cardRows.length;
+        card.innerHTML = `<i class="bi bi-table text-primary"></i> ${tableName}<span style="font-size:0.7rem;color:#9ca3af;font-weight:400;margin-left:0.35rem;">${_cardCols} col · ${_cardTotal.toLocaleString()} rows</span>`;
+        card.addEventListener("click", () => {
+          step1CarouselIndex = tableIdx;
+          updateStep1Carousel();
+          showView("tables");
+        });
+        tableNamesContainer.appendChild(card);
+      }
+
+      // Setup Step 1 carousel navigation
+      const step1PrevBtn = $id("step1-carousel-prev");
+      const step1NextBtn = $id("step1-carousel-next");
+      const step1Counter = $id("step1-carousel-counter");
+
+      function syncStep1Height() {
+        const activeItem = carouselInnerEl.children[step1CarouselIndex];
+        if (activeItem) carouselInnerEl.parentElement.style.height = activeItem.scrollHeight + 'px';
+      }
+
+      function updateStep1Carousel() {
+        carouselInnerEl.style.transform = `translateX(${-step1CarouselIndex * 100}%)`;
+        step1PrevBtn.disabled = step1CarouselIndex === 0;
+        step1NextBtn.disabled = step1CarouselIndex >= retrievedTableNames.length - 1;
+        step1Counter.textContent = retrievedTableNames.length > 0
+          ? `${step1CarouselIndex + 1}/${retrievedTableNames.length}`
+          : "0/0";
+        syncStep1Height();
+      }
+
+      step1PrevBtn.addEventListener("click", () => {
+        if (step1CarouselIndex > 0) { step1CarouselIndex--; updateStep1Carousel(); }
+      });
+      step1NextBtn.addEventListener("click", () => {
+        if (step1CarouselIndex < retrievedTableNames.length - 1) { step1CarouselIndex++; updateStep1Carousel(); }
+      });
+
+      if (retrievedTableNames.length > 0) {
+        updateStep1Carousel();
+      } else {
+        step1PrevBtn.disabled = true;
+        step1NextBtn.disabled = true;
+        step1Counter.textContent = "0/0";
+      }
+
+      // Attach drag-to-zoom on histograms in the carousel
+      initHistogramZoom(carouselInnerEl);
+
+      // --- Step 2: Operations with per-operation table context ---
+      const tableMap = {};
+      matched_tables.forEach(t => { tableMap[t.name] = t; });
+      _opTableMap = tableMap;
+      _operations = operations;
+
+      const opsContainer = $id("operations-container");
+      if (opsContainer) operations.forEach((op, opIdx) => {
+        const tableContextHtml = (op.tables || []).map(t => {
+          const colTags = t.columns.map(col =>
+            `<span class="op-col-tag">${col}</span>`
+          ).join("");
+          return `
+            <div class="op-table-row">
+              <span class="op-table-chip" title="${t.name}">
+                <i class="bi bi-table text-primary"></i> ${t.name}
+              </span>
+              <i class="bi bi-arrow-down op-table-arrow"></i>
+              <span class="op-col-tags">${colTags}</span>
+            </div>`;
+        }).join("");
+
+        const html = `
+          <div class="operation-card">
+            <div class="op-header">
+              <span class="op-type-badge"><i class="bi ${op.icon}"></i> ${op.type}</span>
+              <span class="op-header-desc">${op.description}</span>
+            </div>
+            ${tableContextHtml ? `<div class="op-table-context">${tableContextHtml}</div>` : ""}
+            <button class="op-toggle-btn" onclick="showOpDetail(${opIdx})">
+              <i class="bi bi-arrow-right-circle"></i> View details
+            </button>
+          </div>`;
+        appendHtml(opsContainer, html);
+      });
+
+      // --- Step 3: Target Table, Python Script, Script Execution View ---
+      const { headers, rows } = parseMarkdownTable(target_table_markdown);
+      _targetTableHeaders = headers;
+      _targetTableRows = rows;
+      // Show ellipsis only if the sample is smaller than the full dataset
+      const totalRowValues = Object.values(target_total_rows || {});
+      const totalRows = totalRowValues.length > 0 ? Math.max(...totalRowValues) : rows.length;
+      const hasMoreRows = rows.length < totalRows;
+      const allColDescs = Object.values(state.column_descriptions || {}).reduce((acc, descs) => Object.assign(acc, descs), {});
+      const _ttContainer = $id("target-table-container");
+      _ttContainer.innerHTML = "";
+      {
+        const _ttStats = document.createElement("div");
+        _ttStats.style.cssText = "font-size:0.72rem;color:#6c757d;margin-bottom:0.4rem;";
+        const _colCount = headers.length;
+        _ttStats.textContent = `${_colCount} column${_colCount !== 1 ? "s" : ""} · ${totalRows.toLocaleString()} row${totalRows !== 1 ? "s" : ""}${hasMoreRows ? ` (showing ${rows.length.toLocaleString()})` : ""}`;
+        _ttContainer.appendChild(_ttStats);
+      }
+
+      // Column dictionary before the target table
+      {
+        const _ttSampleData = Object.values(state.T || {}).flat();
+        const _dictHtml = buildColDictHtml(headers, _ttSampleData, allColDescs);
+        if (_dictHtml) {
+          const _dictWrap = document.createElement("div");
+          _dictWrap.style.cssText = "margin-bottom:0.75rem;";
+          _dictWrap.innerHTML = `<div class="col-dict-header col-dict-chevron-open" onclick="this.parentElement.querySelector('.col-dict-body').classList.toggle('open');this.querySelector('.col-dict-chevron').classList.toggle('open');">
+            <span><i class="bi bi-list-columns" style="margin-right:0.35rem;opacity:0.7;"></i>Column dictionary</span>
+            <i class="bi bi-chevron-down col-dict-chevron open"></i>
+          </div>
+          <div class="col-dict-body open">${_dictHtml}</div>`;
+          _ttContainer.appendChild(_dictWrap);
+        }
+      }
+      _ttContainer.insertAdjacentHTML("beforeend", buildTableHtml(headers, rows, { cssClass: "explore-sample-table", ellipsis: hasMoreRows, colDescriptions: allColDescs }));
+
+      // Download buttons for target table
+      const ttHeader = $id("step3-table-header");
+      if (ttHeader) {
+        // Full dataset download via backend endpoint
+        const targetTableIds = Object.keys(state.T || {});
+        if (targetTableIds.length > 0) {
+          const fullBtn = document.createElement("button");
+          fullBtn.className = "download-btn";
+          fullBtn.title = "Download full dataset as CSV";
+          fullBtn.innerHTML = `<i class="bi bi-download"></i> full .csv${hasMoreRows ? ` <span style="opacity:0.7;">(${totalRows.toLocaleString()} rows)</span>` : ""}`;
+          fullBtn.addEventListener("click", () => {
+            targetTableIds.forEach(tid => {
+              const url = `${getBackendUrl()}/download_target_table/${encodeURIComponent(_userId)}/${encodeURIComponent(_chatId)}/${encodeURIComponent(tid)}`;
+              downloadUrl(url, `${tid}.csv`);
+            });
+          });
+          ttHeader.appendChild(fullBtn);
+        }
+      }
+
+      _pythonScript = python_script;
+
+      // Wrap plain + annotated views inside the script container (step 3)
+      const pyContainer = $id("python-script-container");
+      pyContainer.innerHTML = `
+        <div id="py-script-plain">
+          <pre class="python-script-block" style="border-radius:6px;margin-bottom:0;"><code class="language-python">${escapeHtml(python_script)}</code></pre>
+        </div>
+        <div id="py-script-annotated" style="display:none;"></div>`;
+      pyContainer.querySelectorAll("code.language-python").forEach(el => hljs.highlightElement(el));
+
+      // Download button in script panel header
+      const pyHeader = $id("step3-script-header");
+      if (pyHeader) {
+        const dlBtn = document.createElement("button");
+        dlBtn.className = "download-btn";
+        dlBtn.title = "Download Python script";
+        dlBtn.innerHTML = '<i class="bi bi-download"></i> .py';
+        dlBtn.addEventListener("click", () => downloadText("script.py", _pythonScript));
+        pyHeader.appendChild(dlBtn);
+      }
+
+      // Wire the "Explain code" button inside the script panel (lazy LLM annotation)
+      const pyExplainBtn = $id("py-explain-btn");
+      if (pyExplainBtn && python_script.trim()) {
+        wireAnnotateButton(
+          pyExplainBtn,
+          $id("py-script-plain"),
+          $id("py-script-annotated"),
+          python_script
+        );
+      } else if (pyExplainBtn) {
+        pyExplainBtn.disabled = true;
+      }
+
+      // --- Edit Script button (transient: changes not persisted) ---
+      (function() {
+        const editBtn = $id("py-edit-btn");
+        const execEditBtn = $id("py-execute-edit-btn");
+        const editNotice = $id("py-edit-notice");
+        if (!editBtn) return;
+
+        // Inject a hidden textarea into the script container
+        const pyContainer = $id("python-script-container");
+        const editArea = document.createElement("textarea");
+        editArea.id = "py-script-edit";
+        editArea.style.cssText = "display:none;width:100%;min-height:260px;font-family:monospace;font-size:0.82rem;padding:0.6rem;border:1px solid #fcd34d;border-radius:6px;resize:vertical;background:#1e1e2e;color:#cdd6f4;outline:none;";
+        pyContainer.appendChild(editArea);
+
+        const plainView = $id("py-script-plain");
+        const annotatedView = $id("py-script-annotated");
+
+        editBtn.addEventListener("click", () => {
+          const inEditMode = editBtn.dataset.mode === "editing";
+          if (!inEditMode) {
+            // Enter edit mode
+            editArea.value = python_script;
+            plainView.style.display = "none";
+            annotatedView.style.display = "none";
+            editArea.style.display = "block";
+            if (editNotice) editNotice.style.display = "block";
+            if (execEditBtn) execEditBtn.style.display = "";
+            editBtn.innerHTML = '<i class="bi bi-x-lg me-1"></i>Exit edit';
+            editBtn.classList.replace("btn-outline-secondary", "btn-outline-danger");
+            editBtn.dataset.mode = "editing";
+          } else {
+            // Exit edit mode — revert display to original script, discard edits
+            editArea.style.display = "none";
+            if (editNotice) editNotice.style.display = "none";
+            if (execEditBtn) execEditBtn.style.display = "none";
+            const editResultEl = $id("step3-exec-result-section");
+            const editStatusEl = $id("step3-execute-status");
+            if (editResultEl) editResultEl.style.display = "none";
+            if (editStatusEl) editStatusEl.textContent = "";
+            plainView.style.display = "block";
+            editBtn.innerHTML = '<i class="bi bi-pencil me-1"></i>Edit';
+            editBtn.classList.replace("btn-outline-danger", "btn-outline-secondary");
+            editBtn.dataset.mode = "";
+          }
+        });
+
+        // "Execute edit" button — runs the textarea content, never saves it
+        if (execEditBtn) {
+          execEditBtn.addEventListener("click", async () => {
+            const script = editArea.value.trim();
+            if (!script) return;
+            const url = `${getBackendUrl()}/execute_custom_code/${encodeURIComponent(_userId)}/${encodeURIComponent(_chatId)}`;
+            execEditBtn.disabled = true;
+            const editStatusEl = $id("step3-execute-status");
+            const editResultEl = $id("step3-exec-result-section");
+            if (editStatusEl) { editStatusEl.textContent = "Executing edit..."; editStatusEl.style.color = "#92400e"; }
+            try {
+              const resp = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ script }) });
+              if (!resp.ok) throw new Error(resp.statusText);
+              const rows = await resp.json();
+              if (editResultEl) editResultEl.innerHTML = "";
+              if (Array.isArray(rows) && rows.length > 0) {
+                const cols = Object.keys(rows[0]);
+                const tableRows = rows.map(r => cols.map(c => r[c] ?? ""));
+                if (editResultEl) {
+                  editResultEl.innerHTML =
+                    `<div style="font-size:0.75rem;font-weight:600;color:#92400e;margin-bottom:0.3rem;"><i class="bi bi-play-circle-fill text-warning"></i> Edit Execution Result <span style="font-weight:400;opacity:0.7;">(not saved)</span></div>` +
+                    buildTableHtml(cols, tableRows, { cssClass: "explore-sample-table" });
+                  editResultEl.style.display = "block";
+                }
+                if (editStatusEl) { editStatusEl.textContent = "Edit executed (not saved)."; editStatusEl.style.color = "#92400e"; }
+              } else {
+                if (editResultEl) editResultEl.style.display = "none";
+                if (editStatusEl) { editStatusEl.textContent = "No results returned."; editStatusEl.style.color = "#92400e"; }
+              }
+            } catch (err) {
+              if (editResultEl) editResultEl.style.display = "none";
+              if (editStatusEl) { editStatusEl.textContent = `Error: ${err.message}`; editStatusEl.style.color = "#dc2626"; }
+            } finally {
+              execEditBtn.disabled = false;
+            }
+          });
+        }
+      })();
+
+      // --- Execute Script button (always runs original stored script) ---
+      const execBtn = $id("execute-script-btn");
+      const step3ExecBtn = $id("step3-execute-script-btn");
+      const execStatus = $id("execute-status");
+      const execResultSection = $id("exec-result-section");
+      const step3ExecStatus = $id("step3-execute-status");
+      const step3ExecResultSection = $id("step3-exec-result-section");
+      if (!python_script || python_script.trim() === "") {
+        if (execBtn) { execBtn.disabled = true; execBtn.title = "No script available"; }
+        if (step3ExecBtn) { step3ExecBtn.disabled = true; step3ExecBtn.title = "No script available"; }
+      }
+      function _showExecResult(rows, statusEl, resultEl, label) {
+        resultEl.innerHTML = "";
+        if (Array.isArray(rows) && rows.length > 0) {
+          const cols = Object.keys(rows[0]);
+          const tableRows = rows.map(r => cols.map(c => r[c] ?? ""));
+          resultEl.innerHTML =
+            `<div style="font-size:0.75rem;font-weight:600;color:#6c757d;margin-bottom:0.3rem;"><i class="bi bi-table text-primary"></i> ${label}</div>` +
+            buildTableHtml(cols, tableRows, { cssClass: "explore-sample-table" });
+          resultEl.style.display = "block";
+          if (statusEl) { statusEl.textContent = "Execution successful!"; statusEl.style.color = "#166534"; }
+        } else {
+          resultEl.style.display = "none";
+          if (statusEl) { statusEl.textContent = "No results returned."; statusEl.style.color = "#92400e"; }
+        }
+      }
+      async function _runExecuteScript(fromStep3) {
+        const url = `${getBackendUrl()}/execute_code/${encodeURIComponent(_userId)}/${encodeURIComponent(_chatId)}`;
+        [execBtn, step3ExecBtn].forEach(b => { if (b) b.disabled = true; });
+        const statusEl = fromStep3 ? step3ExecStatus : execStatus;
+        const resultEl = fromStep3 ? step3ExecResultSection : execResultSection;
+        if (statusEl) { statusEl.textContent = "Executing..."; statusEl.style.color = "#2563eb"; }
+        try {
+          const resp = await fetch(url);
+          if (!resp.ok) throw new Error(resp.statusText);
+          const rows = await resp.json();
+          _showExecResult(rows, statusEl, resultEl, "Execution Result");
+        } catch (err) {
+          resultEl.style.display = "none";
+          if (statusEl) { statusEl.textContent = `Error: ${err.message}`; statusEl.style.color = "#dc2626"; }
+        } finally {
+          [execBtn, step3ExecBtn].forEach(b => { if (b) b.disabled = false; });
+        }
+      }
+      if (execBtn) execBtn.addEventListener("click", () => _runExecuteScript(false));
+      if (step3ExecBtn) step3ExecBtn.addEventListener("click", () => _runExecuteScript(true));
+
+      // --- Step 3: Show/Hide Python Script & Target Table buttons ---
+      (function() {
+        function wireStep3Toggle(btnId, panelId, showIcon, showLabel, hideLabel) {
+          const btn = $id(btnId);
+          const panel = $id(panelId);
+          if (!btn || !panel) return;
+          btn.addEventListener("click", () => {
+            const isOpen = panel.style.display !== "none";
+            panel.style.display = isOpen ? "none" : "block";
+            btn.innerHTML = isOpen
+              ? `<i class="bi ${showIcon} me-1"></i> ${showLabel}`
+              : `<i class="bi bi-chevron-up me-1"></i> ${hideLabel}`;
+          });
+        }
+        wireStep3Toggle("step3-show-script-btn", "step3-script-panel", "bi-code-slash", "Show Python script", "Hide Python script");
+        wireStep3Toggle("step3-show-table-btn",  "step3-table-panel",  "bi-table",      "Show target table",  "Hide target table");
+      })();
+
+      // --- Step 4: Final Answer ---
+      if (final_answer) {
+        $id("result-container").innerHTML = `<div class="final-answer-block">${final_answer}</div>`;
+      }
+
+      [].slice.call($$('[data-bs-toggle="tooltip"]')).forEach(el => new bootstrap.Tooltip(el));
+      document.querySelectorAll("code.language-python").forEach(el => hljs.highlightElement(el));
+    }
+
+    // =========================================================================
+    // INIT — inject real backend data via Jinja2
+    // =========================================================================
+
+    const state = {{ state | tojson | safe }};
+    const retrievedTables = {{ retrieved_tables | tojson | safe }};
+    const retrievedTablesColStats = {{ retrieved_tables_col_stats | tojson | safe }};
+    const tablesMetadata = {{ tables_metadata | tojson | safe }};
+    console.log("[Pneuma] state.column_descriptions:", state.column_descriptions);
+    const provSteps = {{ prov_steps | tojson | safe }};
+    console.log("[DEBUG] provSteps (data preparation steps):", provSteps);
+    const chatMessages = {{ messages | tojson | safe }};
+    const _userId = {{ user_id | tojson | safe }};
+    const _chatId = {{ chat_id | tojson | safe }};
+
+    /** Extract the last user query from the chat messages. */
+    function extractUserQuery(messages) {
+      if (!messages || !messages.length) return "";
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (msg.role !== "user") continue;
+        const contentStr = typeof msg.content === "string" ? msg.content
+          : (Array.isArray(msg.content) ? ((msg.content.find(p => p && p.type === "text") || {}).text || "") : "");
+        if (contentStr && !contentStr.trimStart().startsWith("### Task:")) {
+          return contentStr.trim();
+        }
+      }
+      return "";
+    }
+
+    /** Extract the last assistant message as the final answer. */
+    function extractFinalAnswer(messages) {
+      if (!messages || !messages.length) return "";
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === "assistant" && messages[i].content) {
+          // Strip embedded sidebar HTML blocks injected by the pipe
+          const sidebarRe = new RegExp("```html\\s*<!--\\s*PNEUMA_STATE_START\\s*-->[\\s\\S]*?<!--\\s*PNEUMA_STATE_END\\s*-->\\s*```", "g");
+          const content = messages[i].content.replace(sidebarRe, "").trim();
+          // Skip OpenWebUI internal follow-up suggestion responses (JSON with "follow_ups" key)
+          if (/^\s*\{\s*"follow_ups"\s*:/.test(content)) continue;
+          if (!content) continue;
+          return content;
+        }
+      }
+      return "";
+    }
+
+    /** Convert simple markdown to HTML (bold, numbered lists, newlines). */
+    function simpleMarkdownToHtml(md) {
+      if (!md) return "";
+      let html = escapeHtml(md);
+      // Bold: **text**
+      html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+      // Numbered list items: lines starting with "1. ", "2. ", etc.
+      html = html.replace(/^(\d+)\.\s+(.+)$/gm, '<div style="margin-left:0.5rem;margin-bottom:0.25rem;">$1. $2</div>');
+      // Remaining newlines to <br>
+      html = html.replace(/\n/g, "<br>");
+      // Clean up <br> before/after list items
+      html = html.replace(/<br>\s*<div/g, "<div");
+      html = html.replace(/<\/div>\s*<br>/g, "</div>");
+      return html;
+    }
+
+    /** Infer a simple type string from a JS value. */
+    function inferType(value) {
+      if (value === null || value === undefined) return "NULL";
+      if (typeof value === "number") return Number.isInteger(value) ? "INTEGER" : "FLOAT";
+      if (typeof value === "boolean") return "BOOLEAN";
+      return "TEXT";
+    }
+
+    /**
+     * Convert the backend retrieved_tables dict
+     *   { tableName: [ {col1: val1, col2: val2, ...}, ... ] }
+     * into the matched_tables format expected by renderAll:
+     *   [ { name, columns: [{name, type}], sampleRows: [[...]] } ]
+     */
+    function buildMatchedTables(tables, colStatsMap) {
+      return Object.entries(tables || {}).map(([name, rows]) => {
+        if (!rows || rows.length === 0) {
+          return { name, columns: [], sampleRows: [], colStats: {} };
+        }
+        const colNames = Object.keys(rows[0]);
+        const columns = colNames.map(col => ({
+          name: col,
+          type: inferType(rows[0][col]),
+        }));
+        const sampleRows = rows.map(row => colNames.map(col => row[col] ?? ""));
+        const colStats = (colStatsMap || {})[name] || {};
+        return { name, columns, sampleRows, colStats };
+      });
+    }
+
+    /**
+     * Convert state.T (target tables) into a markdown table string.
+     */
+    function buildTargetTableMarkdown(T) {
+      const allEntries = Object.values(T || {}).filter(rows => rows && rows.length > 0);
+      if (allEntries.length === 0) return "| (no data) |\n| --- |";
+
+      const cols = Object.keys(allEntries[0][0]);
+      const header = "| " + cols.join(" | ") + " |";
+      const sep = "| " + cols.map(() => "---").join(" | ") + " |";
+
+      // Combine rows from all T entries and deduplicate by content
+      const seen = new Set();
+      const uniqueRows = [];
+      for (const rows of allEntries) {
+        for (const row of rows) {
+          const key = JSON.stringify(cols.map(c => row[c] ?? ""));
+          if (!seen.has(key)) { seen.add(key); uniqueRows.push(row); }
+        }
+      }
+
+      const dataRows = uniqueRows.map(row => "| " + cols.map(c => row[c] ?? "").join(" | ") + " |");
+      return [header, sep, ...dataRows].join("\n");
+    }
+
+    /**
+     * Build operations array from provenance steps.
+     * Each prov step is an HTML string with a description and python code block.
+     */
+    function buildOperationsFromProvSteps(steps, allTableNames, allMatchedTables) {
+      return (steps || [])
+        .filter(stepHtml => stepHtml.includes("<code") || stepHtml.includes("<h1"))
+        .map((stepHtml, idx) => {
+          const descMatch = stepHtml.match(/<h1[^>]*>.*?<\/h1>\s*([\s\S]*?)(?:<h2|$)/i);
+          // Use <pre><code> to avoid matching inline code spans in the description
+          const codeMatch = stepHtml.match(/<pre[^>]*>\s*<code[^>]*>([\s\S]*?)<\/code>\s*<\/pre>/i);
+          const rawDesc = descMatch
+            ? descMatch[1].replace(/<[^>]+>/g, "").trim()
+            : "";
+          const code = codeMatch
+            ? codeMatch[1].replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#39;/g, "'").trim()
+            : "";
+
+          // Skip steps that are only import statements (no actual data operations)
+          const isImportOnly = code.length > 0 && code.split("\n")
+            .map(l => l.trim())
+            .filter(l => l.length > 0)
+            .every(l => /^import\s|^from\s/.test(l));
+          if (isImportOnly) return null;
+
+          // Extract all column names mentioned anywhere in the code
+          const allColsInCode = new Set();
+          // Match column names in bracket access: ['col_name'] or ["col_name"]
+          for (const cm of code.matchAll(/\[\s*['"]([a-zA-Z_]\w*)['"]\s*\]/g)) {
+            allColsInCode.add(cm[1]);
+          }
+          // Match column names in list access: [['col1', 'col2']]
+          for (const cm of code.matchAll(/\[\s*\[([^\]]+)\]\s*\]/g)) {
+            cm[1].replace(/['"]/g, "").split(",").map(s => s.trim()).filter(Boolean).forEach(c => allColsInCode.add(c));
+          }
+          // Match on='col' or on=['col1', 'col2'] in merge
+          const onSingleMatch = code.match(/on\s*=\s*['"]([a-zA-Z_]\w*)['"]/);
+          if (onSingleMatch) allColsInCode.add(onSingleMatch[1]);
+          const onListMatch = code.match(/on\s*=\s*\[([^\]]+)\]/);
+          if (onListMatch) {
+            onListMatch[1].replace(/['"]/g, "").split(",").map(s => s.trim()).filter(Boolean).forEach(c => allColsInCode.add(c));
+          }
+
+          const referencedTables = allTableNames
+            .filter(name => code.includes(name) || code.includes(`'${name}'`) || code.includes(`"${name}"`))
+            .map(name => {
+              // Extract selected columns for this table from code like: tables['name'][['col1', 'col2']]
+              const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const colSelectRe = new RegExp(`tables\\[['"]${escaped}['"]\\]\\s*\\[\\s*\\[([^\\]]+)\\]\\s*\\]`);
+              const reprRe = new RegExp(`tables\\[['"]${escaped}['"]\\]\\s*\\[\\s*repr\\(\\[([^\\]]+)\\]\\)`);
+              const m = code.match(colSelectRe) || code.match(reprRe);
+              let columns = [];
+              if (m) {
+                columns = m[1].replace(/'/g, "").replace(/"/g, "").split(",").map(s => s.trim()).filter(Boolean);
+              } else {
+                // Fallback: check which of this table's known columns appear in the code
+                const tableObj = (allMatchedTables || []).find(t => t.name === name);
+                if (tableObj) {
+                  columns = tableObj.columns
+                    .map(c => c.name)
+                    .filter(colName => allColsInCode.has(colName));
+                }
+              }
+              return { name, columns };
+            });
+
+          // Infer operation type from provenance code
+          let type = "Transform";
+          let icon = "bi-gear";
+          let description = rawDesc || `Materialization step ${idx + 1}`;
+
+          if (/Semantically join/i.test(code) || /semantic.*join/i.test(rawDesc) || /\.merge\(/i.test(code) || /pd\.merge/i.test(code)) {
+            type = "Join";
+            icon = "bi-link-45deg";
+            if (!rawDesc) {
+              const tableNames = referencedTables.map(t => t.name);
+              description = tableNames.length >= 2
+                ? `Join <b>${tableNames[0]}</b> with <b>${tableNames[1]}</b>`
+                : "Join tables";
+            }
+            // Extract join columns from comments
+            const leftColMatch = code.match(/Relevant columns in A:\s*\[([^\]]+)\]/);
+            const rightColMatch = code.match(/Relevant columns in B:\s*\[([^\]]+)\]/);
+            if (leftColMatch || rightColMatch) {
+              const leftCols = leftColMatch ? leftColMatch[1].replace(/'/g, "").trim() : "";
+              const rightCols = rightColMatch ? rightColMatch[1].replace(/'/g, "").trim() : "";
+              if (leftCols || rightCols) {
+                description += ` on columns: ${leftCols || rightCols}`;
+              }
+            }
+          } else if (/project/i.test(rawDesc)) {
+            type = "Project";
+            icon = "bi-funnel";
+          } else if (/\[\s*\[/.test(code) || /\[repr\(/.test(code) || /\]\s*$/.test(code.split("\n").pop())) {
+            // Column selection / projection pattern: var = tables["x"][["col1", "col2"]]
+            type = "Select";
+            icon = "bi-funnel";
+            if (!rawDesc) {
+              const colsMatch = code.match(/\[\s*\[([^\]]+)\]\s*\]/);
+              if (colsMatch) {
+                const cols = colsMatch[1].replace(/'/g, "").replace(/"/g, "").split(",").map(s => s.trim());
+                description = `Select ${cols.length} column${cols.length !== 1 ? "s" : ""} from <b>${referencedTables[0]?.name || "table"}</b>`;
+              } else {
+                description = `Select columns from <b>${referencedTables[0]?.name || "table"}</b>`;
+              }
+            }
+          } else if (/Semantically generate/i.test(code) || /semantic.*column/i.test(rawDesc)) {
+            type = "Transform";
+            icon = "bi-stars";
+            if (!rawDesc) {
+              const colMatch = code.match(/new column `([^`]+)`/);
+              description = colMatch
+                ? `Generate semantic column <b>${colMatch[1]}</b>`
+                : "Generate semantic column";
+            }
+          } else if (/pd\.read_csv|read_excel/i.test(code)) {
+            type = "Select";
+            icon = "bi-file-earmark-spreadsheet";
+            if (!rawDesc) {
+              description = `Load table <b>${referencedTables[0]?.name || "data"}</b>`;
+            }
+          }
+
+          return {
+            type,
+            icon,
+            description,
+            explanation: description,
+            code,
+            tables: referencedTables,
+            rawHtml: stepHtml,
+          };
+        })
+        .filter(op => op !== null);
+    }
+
+    /**
+     * Collect the set of table names actually referenced in Step 2.
+     * Checks both operation code (from prov steps) and the full python script.
+     * Only these tables will be shown in Step 1.
+     */
+    function getTablesUsedInOperations(operations, allMatchedTables, pythonScript) {
+      const usedNames = new Set();
+      // Check operation code from provenance steps
+      operations.forEach(op => {
+        (op.tables || []).forEach(t => usedNames.add(t.name));
+      });
+      // Also check the full python script for table references
+      if (pythonScript) {
+        allMatchedTables.forEach(t => {
+          if (pythonScript.includes(t.name) ||
+              pythonScript.includes(`'${t.name}'`) ||
+              pythonScript.includes(`"${t.name}"`)) {
+            usedNames.add(t.name);
+          }
+        });
+      }
+      if (usedNames.size === 0) return allMatchedTables;
+      return allMatchedTables.filter(t => usedNames.has(t.name));
+    }
+
+    /**
+     * Infer a human-readable list of transformations from the Python script.
+     * Parses comments and common pandas/numpy patterns.
+     */
+    function summarizeScript(code) {
+      if (!code || !code.trim()) return [];
+      const steps = [];
+      const lines = code.split("\n");
+
+      // 1) Collect comment blocks as high-level descriptions.
+      //    Merge consecutive comment lines into a single entry.
+      const comments = [];
+      let prevWasComment = false;
+      lines.forEach(line => {
+        const m = line.match(/^\s*#\s*(.+)/);
+        if (m) {
+          const text = m[1].trim();
+          if (text && !text.startsWith("---") && !/^import /i.test(text)) {
+            // If the previous line was also a comment, merge as continuation
+            if (prevWasComment && comments.length > 0) {
+              comments[comments.length - 1] += " " + text;
+            } else {
+              comments.push(text);
+            }
+            prevWasComment = true;
+            return;
+          }
+        }
+        prevWasComment = false;
+      });
+
+      // 2) Detect specific pandas / numpy operations from the code
+      const ops = [];
+      const codeFlat = code.replace(/\n/g, " ");
+
+      if (/pd\.merge\(|\.merge\(/.test(codeFlat)) {
+        // Try to extract what columns are merged on
+        const onMatch = codeFlat.match(/\.merge\([^)]*on\s*=\s*['"]([^'"]+)['"]/);
+        ops.push(onMatch
+          ? `Merge tables on <b>${escapeHtml(onMatch[1])}</b>`
+          : "Merge tables together");
+      }
+      if (/\.groupby\(/.test(codeFlat)) {
+        const gbMatch = codeFlat.match(/\.groupby\(\s*\[?['"]([^'"]+)['"]/);
+        ops.push(gbMatch
+          ? `Group data by <b>${escapeHtml(gbMatch[1])}</b>`
+          : "Group and aggregate data");
+      }
+      if (/\.sort_values\(/.test(codeFlat)) {
+        const svMatch = codeFlat.match(/\.sort_values\(\s*(?:by\s*=\s*)?['"]([^'"]+)['"]/);
+        ops.push(svMatch
+          ? `Sort by <b>${escapeHtml(svMatch[1])}</b>`
+          : "Sort the data");
+      }
+      if (/\.filter\(|\.query\(/.test(codeFlat)) {
+        ops.push("Filter rows based on conditions");
+      }
+      if (/\.pivot|pivot_table/.test(codeFlat)) {
+        ops.push("Pivot the data");
+      }
+      if (/\.idxmax\(|\.idxmin\(/.test(codeFlat)) {
+        ops.push(codeFlat.includes("idxmax") ? "Find the maximum value" : "Find the minimum value");
+      }
+      if (/\.sum\(\)|\.mean\(\)|\.count\(\)|\.median\(\)/.test(codeFlat)) {
+        const aggMatch = codeFlat.match(/\.(sum|mean|count|median)\(\)/);
+        ops.push(`Compute <b>${aggMatch[1]}</b> aggregation`);
+      }
+      if (/\.head\(|\.tail\(|\.nlargest\(|\.nsmallest\(/.test(codeFlat)) {
+        ops.push("Select top/bottom rows");
+      }
+
+      // 3) Build final summary: prefer comments for high-level intent,
+      //    augment with detected operations for specificity
+      comments.forEach(c => steps.push(c));
+      ops.forEach(o => {
+        // Only add if not already covered by a comment
+        if (!steps.some(s => s.toLowerCase().includes(o.replace(/<[^>]+>/g, "").toLowerCase().slice(0, 15)))) {
+          steps.push(o);
+        }
+      });
+
+      return steps;
+    }
+
+    /**
+     * Parse the Python script (S) into execution step blocks for the
+     * "Script Execution Steps" view.
+     *
+     * Each block is a logical chunk: a comment header + the code lines that
+     * follow it, or a standalone statement group.  The last step always shows
+     * the final result table from state.T.
+     *
+     * Returns: [ { label, description, code, tableHeaders, tableRows } ]
+     */
+    function buildScriptExecSteps(pythonScript, targetState) {
+      if (!pythonScript || !pythonScript.trim()) return [];
+
+      // --- 1. Split script into logical blocks (comment + code) ---
+      const lines = pythonScript.split("\n");
+      const blocks = [];   // { comment: string|null, codeLines: string[] }
+      let current = { comment: null, codeLines: [] };
+
+      lines.forEach(line => {
+        const commentMatch = line.match(/^\s*#\s*(.+)/);
+        if (commentMatch) {
+          // If we already have code accumulated, flush the block
+          if (current.codeLines.length > 0) {
+            blocks.push(current);
+            current = { comment: null, codeLines: [] };
+          }
+          // Start or append comment
+          if (current.comment) {
+            current.comment += " " + commentMatch[1].trim();
+          } else {
+            current.comment = commentMatch[1].trim();
+          }
+        } else if (line.trim()) {
+          current.codeLines.push(line);
+        }
+      });
+      if (current.codeLines.length > 0 || current.comment) {
+        blocks.push(current);
+      }
+
+      // If no meaningful blocks, treat the whole script as one block
+      if (blocks.length === 0) {
+        blocks.push({ comment: null, codeLines: lines.filter(l => l.trim()) });
+      }
+
+      // --- 2. Build the target table data for the final step ---
+      let finalTableHeaders = [];
+      let finalTableRows = [];
+      if (targetState && targetState.T) {
+        const entries = Object.entries(targetState.T);
+        if (entries.length > 0) {
+          const [, rows] = entries[0];
+          if (rows && rows.length > 0) {
+            finalTableHeaders = Object.keys(rows[0]).map(col => ({ name: col, type: inferType(rows[0][col]) }));
+            finalTableRows = rows.map(row => finalTableHeaders.map(h => row[h.name] ?? ""));
+          }
+        }
+      }
+
+      // --- 3. Infer a label for each block from its code ---
+      function inferLabel(code, comment) {
+        const flat = code.replace(/\n/g, " ");
+        if (/^\s*(import\s+\w|from\s+\w+\s+import)/m.test(code)) return "Import Libraries";
+        if (/\.nlargest\(/.test(flat)) return "Select Top Rows";
+        if (/\.nsmallest\(/.test(flat)) return "Select Bottom Rows";
+        if (/\.head\(/.test(flat)) return "Take First Rows";
+        if (/\.tail\(/.test(flat)) return "Take Last Rows";
+        if (/\.merge\(|pd\.merge/.test(flat)) return "Merge Tables";
+        if (/\.groupby\(/.test(flat)) return "Group & Aggregate";
+        if (/\.sort_values\(/.test(flat)) return "Sort Data";
+        if (/\.filter\(|\.query\(/.test(flat)) return "Filter Rows";
+        if (/\.pivot|pivot_table/.test(flat)) return "Pivot Data";
+        if (/\.rename\(/.test(flat)) return "Rename Columns";
+        if (/\.drop\(/.test(flat)) return "Drop Columns/Rows";
+        if (/\.fillna\(/.test(flat)) return "Handle Missing Values";
+        if (/result\s*=/.test(flat)) return "Produce Result";
+        if (comment) return comment.length > 40 ? comment.slice(0, 37) + "..." : comment;
+        return "Process Data";
+      }
+
+      // --- 4. Build exec steps ---
+      return blocks.map((block, idx) => {
+        const code = block.codeLines.join("\n");
+        const isLast = idx === blocks.length - 1;
+        const label = inferLabel(code, block.comment);
+        const description = block.comment || label;
+
+        return {
+          label,
+          description,
+          code: code || "# " + (block.comment || ""),
+          tableHeaders: isLast ? finalTableHeaders : [],
+          tableRows: isLast ? finalTableRows.slice(0, 10) : [],
+        };
+      });
+    }
+
+    // Build the data object from real backend state
+    const userQuery = extractUserQuery(chatMessages);
+    const allMatchedTables = buildMatchedTables(retrievedTables, retrievedTablesColStats);
+    const allTableNames = allMatchedTables.map(t => t.name);
+    const operations = buildOperationsFromProvSteps(provSteps, allTableNames, allMatchedTables);
+    const targetTableMarkdown = buildTargetTableMarkdown(state.T);
+    const pythonScript = (typeof state.S === "string") ? state.S : (state.S ? String(state.S) : "");
+
+    // Only show tables that are actually used in Step 2 operations or the python script
+    const matchedTables = getTablesUsedInOperations(operations, allMatchedTables, pythonScript);
+
+    // --- Populate dynamic step text ---
+    const step1DetailDesc = document.getElementById("step1-detail-desc");
+    const step1DetailDesc2 = document.getElementById("step1-detail-desc-2");
+    const step2DetailDesc = document.getElementById("step2-detail-desc");
+    const tableNamesList = matchedTables.map(t => `<b>${t.name}</b>`).join(", ");
+
+    const totalRetrieved = Object.keys(retrievedTables || {}).length;
+    if (step1DetailDesc) {
+      const queryPart = userQuery ? ` for <em>"${escapeHtml(userQuery)}"</em>` : "";
+      step1DetailDesc.innerHTML =
+        `Pneuma takes the user input${queryPart} and searches its indices, identifying <b>${totalRetrieved}</b> table${totalRetrieved !== 1 ? "s" : ""}.`;
+    }
+    if (step1DetailDesc2) {
+      step1DetailDesc2.innerHTML =
+        `Of these, <b>${matchedTables.length}</b> table${matchedTables.length !== 1 ? "s" : ""} ${matchedTables.length !== 1 ? "were" : "was"} identified as relevant:`;
+      step1DetailDesc2.style.display = "";
+    }
+
+    if (step2DetailDesc && operations.length > 0) {
+      step2DetailDesc.innerHTML =
+        `This section shows how source data was used to prepare for the target table. ` +
+        `The system applies <b>${operations.length}</b> operation${operations.length !== 1 ? "s" : ""} to prepare the data.`;
+    }
+
+    // --- Populate Step 3 with script summary + clickable highlights ---
+    const step3DetailDesc = document.getElementById("step3-detail-desc");
+    const scriptSteps = summarizeScript(pythonScript);
+    {
+      const tableLink = `<span class="step3-desc-link" data-target="table" style="cursor:pointer;color:#0d6efd;text-decoration:underline;text-decoration-style:dotted;font-weight:500;">target table</span>`;
+      const scriptLink = `<span class="step3-desc-link" data-target="script" style="cursor:pointer;color:#0d6efd;text-decoration:underline;text-decoration-style:dotted;font-weight:500;">Python script</span>`;
+      let descHtml;
+      if (scriptSteps.length > 0) {
+        descHtml = `The system produced a ${tableLink} and a ${scriptLink}. The script ` +
+          scriptSteps.map(s => s.replace(/<[^>]+>/g, "").toLowerCase()).join(", then ") + ".";
+      } else {
+        descHtml = `The system constructed a ${tableLink} and generated a ${scriptLink} to produce the result.`;
+      }
+      if (step3DetailDesc) {
+        step3DetailDesc.innerHTML = descHtml;
+        step3DetailDesc.querySelectorAll(".step3-desc-link").forEach(span => {
+          span.addEventListener("click", () => {
+            const isTable = span.dataset.target === "table";
+            const panelId = isTable ? "step3-table-panel" : "step3-script-panel";
+            const btnId   = isTable ? "step3-show-table-btn" : "step3-show-script-btn";
+            const hideLabel = isTable ? "Hide target table" : "Hide Python script";
+            const panel = $id(panelId);
+            const btn   = $id(btnId);
+            if (panel && panel.style.display === "none") {
+              panel.style.display = "block";
+              if (btn) btn.innerHTML = `<i class="bi bi-chevron-up me-1"></i> ${hideLabel}`;
+            }
+            panel?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          });
+        });
+      }
+    }
+
+    // --- Populate Step 4: describe the final operation on the target table ---
+    const step4DetailDesc = document.getElementById("step4-detail-desc");
+    {
+      // Infer a context-specific description of what the script does on the target table
+      function describeScriptGoal(code) {
+        if (!code || !code.trim()) return null;
+        const flat = code.replace(/\n/g, " ");
+
+        // Detect all operations present in the script
+        const has = {
+          merge:      /\.merge\(|pd\.merge/.test(flat),
+          groupby:    /\.groupby\(/.test(flat),
+          sortDesc:   /\.sort_values\(/.test(flat) && /ascending\s*=\s*False/.test(flat),
+          sortAsc:    /\.sort_values\(/.test(flat) && !/ascending\s*=\s*False/.test(flat),
+          nlargest:   /\.nlargest\(/.test(flat),
+          nsmallest:  /\.nsmallest\(/.test(flat),
+          head:       /\.head\(/.test(flat),
+          tail:       /\.tail\(/.test(flat),
+          idxmax:     /\.idxmax\(/.test(flat),
+          idxmin:     /\.idxmin\(/.test(flat),
+          max:        /\.max\(\)/.test(flat),
+          min:        /\.min\(\)/.test(flat),
+          sum:        /\.sum\(\)/.test(flat),
+          mean:       /\.mean\(\)/.test(flat),
+          median:     /\.median\(\)/.test(flat),
+          count:      /\.count\(\)/.test(flat),
+          diff:       /\]\s*-\s*result\[|_df\[/.test(flat) || /\['[^']+'\]\s*-\s*\w+\['/.test(flat),
+          pivot:      /\.pivot|pivot_table/.test(flat),
+          filter:     /\.filter\(|\.query\(/.test(flat),
+          loc:        /\.loc\b/.test(flat),
+        };
+
+        // Try to extract the computed column name (e.g. result['increase'] = ...)
+        const computedColMatch = flat.match(/result\s*\[\s*['"]([^'"]+)['"]\s*\]\s*=/);
+        const computedCol = computedColMatch ? computedColMatch[1] : null;
+
+        // Try to extract sort-by column
+        const sortByMatch = flat.match(/sort_values\s*\(\s*(?:by\s*=\s*)?['"]([^'"]+)['"]/);
+        const sortByCol = sortByMatch ? sortByMatch[1] : null;
+
+        // --- Composite patterns (combine operations for intent) ---
+
+        // Compute difference + sort descending → "find the largest increase/difference"
+        if (has.diff && (has.sortDesc || has.nlargest)) {
+          const col = computedCol || sortByCol || "difference";
+          return `find the largest ${col.replace(/_/g, " ")}`;
+        }
+        if (has.diff && (has.sortAsc || has.nsmallest)) {
+          const col = computedCol || sortByCol || "difference";
+          return `find the smallest ${col.replace(/_/g, " ")}`;
+        }
+
+        // idxmax / idxmin
+        if (has.idxmax) return "find the row with the maximum value";
+        if (has.idxmin) return "find the row with the minimum value";
+
+        // .loc with max/min
+        if (has.max && has.loc) return "pick the maximum";
+        if (has.min && has.loc) return "pick the minimum";
+
+        // nlargest / nsmallest
+        if (has.nlargest) {
+          const m = flat.match(/\.nlargest\(\s*(\d+)/);
+          return m ? `pick the top ${m[1]} entries` : "pick the top entries";
+        }
+        if (has.nsmallest) {
+          const m = flat.match(/\.nsmallest\(\s*(\d+)/);
+          return m ? `pick the bottom ${m[1]} entries` : "pick the bottom entries";
+        }
+
+        // groupby + aggregation
+        if (has.groupby) {
+          const gbm = flat.match(/\.groupby\(\s*\[?['"]([^'"]+)['"]/);
+          const by = gbm ? gbm[1] : null;
+          if (has.sum)   return by ? `compute total per ${by}` : "compute totals by group";
+          if (has.mean)  return by ? `compute average per ${by}` : "compute averages by group";
+          if (has.count) return by ? `count entries per ${by}` : "count entries by group";
+          return by ? `aggregate data by ${by}` : "aggregate the data by group";
+        }
+
+        // sort descending (head(1) → pick the top)
+        if (has.sortDesc && has.head) {
+          const col = sortByCol ? sortByCol.replace(/_/g, " ") : null;
+          return col ? `find the entry with the highest ${col}` : "find the top entry";
+        }
+        if (has.sortAsc && has.head) {
+          const col = sortByCol ? sortByCol.replace(/_/g, " ") : null;
+          return col ? `find the entry with the lowest ${col}` : "find the bottom entry";
+        }
+
+        // standalone aggregations
+        if (has.sum) return "compute the total";
+        if (has.mean) return "compute the average";
+        if (has.median) return "compute the median";
+        if (has.count) return "count the entries";
+        if (has.max) return "find the maximum";
+        if (has.min) return "find the minimum";
+
+        // sort only
+        if (has.sortDesc) {
+          const col = sortByCol ? sortByCol.replace(/_/g, " ") : null;
+          return col ? `rank by ${col} from highest to lowest` : "rank from highest to lowest";
+        }
+        if (has.sortAsc) return "sort the results";
+
+        // other operations
+        if (has.diff) {
+          const col = computedCol ? computedCol.replace(/_/g, " ") : "difference";
+          return `compute the ${col}`;
+        }
+        if (has.pivot) return "pivot the data";
+        if (has.filter) return "filter matching rows";
+        if (has.merge) return "combine the tables";
+
+        // Fall back to the last comment
+        const commentMatches = code.match(/^\s*#\s*(.+)/gm);
+        if (commentMatches && commentMatches.length > 0) {
+          const lastComment = commentMatches[commentMatches.length - 1].replace(/^\s*#\s*/, "").trim();
+          if (lastComment.length < 60) return lastComment.toLowerCase();
+        }
+        return null;
+      }
+
+      const goalDesc = describeScriptGoal(pythonScript);
+      if (step4DetailDesc) {
+        step4DetailDesc.innerHTML = goalDesc
+          ? `The script runs on the target table to <b>${goalDesc}</b>, then formats the output as a user-facing response.`
+          : `The script runs on the target table and formats the output as a user-facing response.`;
+      }
+    }
+
+    const finalAnswerRaw = extractFinalAnswer(chatMessages);
+    const finalAnswerHtml = simpleMarkdownToHtml(finalAnswerRaw);
+
+    const realData = {
+      matched_tables: matchedTables,
+      operations,
+      target_table_markdown: targetTableMarkdown,
+      target_total_rows: state.T_total_rows || {},
+      python_script: pythonScript,
+      final_answer: finalAnswerHtml,
+    };
+
+    renderAll(realData);
+
+    // --- Step 1: Edit relevant tables ---
+    (function() {
+      const editBtn       = $id("step1-edit-relevance-btn");
+      const editPanel     = $id("step1-edit-panel");
+      const checklist     = $id("step1-relevance-checklist");
+      const saveBtn       = $id("step1-save-relevance-btn");
+      const cancelBtn     = $id("step1-cancel-relevance-btn");
+      const toastEl       = $id("step1-feedback-toast");
+      const toastBody     = $id("step1-toast-body");
+      if (!editBtn || !editPanel || !checklist) return;
+
+      let toastTimer = null;
+      function showToast(sent) {
+        if (toastTimer) clearTimeout(toastTimer);
+        toastBody.innerHTML = sent
+          ? `<i class="bi bi-check-circle-fill" style="color:#16a34a;flex-shrink:0;"></i><span style="color:#166534;"><strong>Sent to chat!</strong> Also copied to clipboard.</span>`
+          : `<i class="bi bi-clipboard-check-fill" style="color:#1d4ed8;flex-shrink:0;"></i><span style="color:#1e3a5f;"><strong>Copied!</strong> Paste into chat to send.</span>`;
+        toastEl.style.display = "block";
+        toastEl.style.opacity = "1";
+        toastTimer = setTimeout(() => {
+          toastEl.style.opacity = "0";
+          setTimeout(() => { toastEl.style.display = "none"; }, 300);
+        }, 2500);
+      }
+
+      const allTableNames   = Object.keys(retrievedTables || {});
+      const matchedNames    = new Set(matchedTables.map(t => t.name));
+
+      // Build checklist rows: one per retrieved table
+      function buildChecklist() {
+        checklist.innerHTML = "";
+        allTableNames.forEach(name => {
+          const row = document.createElement("label");
+          row.style.cssText = "display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.8rem;padding:0.3rem 0.4rem;border-radius:5px;background:#fff;border:1px solid #e5e7eb;";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.dataset.table = name;
+          cb.checked = matchedNames.has(name);
+          cb.style.cssText = "width:1rem;height:1rem;cursor:pointer;accent-color:#3b82f6;";
+          const label = document.createElement("span");
+          label.textContent = name;
+          label.style.fontFamily = "ui-monospace,SFMono-Regular,Menlo,Monaco,monospace";
+          const badge = document.createElement("span");
+          badge.style.cssText = "font-size:0.62rem;margin-left:auto;padding:0.1rem 0.4rem;border-radius:4px;" +
+            (cb.checked
+              ? "background:#dcfce7;color:#166534;"
+              : "background:#f3f4f6;color:#9ca3af;");
+          badge.textContent = cb.checked ? "relevant" : "not relevant";
+          cb.addEventListener("change", () => {
+            badge.textContent = cb.checked ? "relevant" : "not relevant";
+            badge.style.background = cb.checked ? "#dcfce7" : "#f3f4f6";
+            badge.style.color = cb.checked ? "#166534" : "#9ca3af";
+          });
+          row.appendChild(cb);
+          row.appendChild(label);
+          row.appendChild(badge);
+          checklist.appendChild(row);
+        });
+      }
+
+      editBtn.addEventListener("click", () => {
+        buildChecklist();
+        editPanel.style.display = "block";
+        editBtn.style.display = "none";
+        editPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
+
+      cancelBtn.addEventListener("click", () => {
+        editPanel.style.display = "none";
+        editBtn.style.display = "";
+      });
+
+      saveBtn.addEventListener("click", () => {
+        const nowRelevant    = [];
+        const nowIrrelevant  = [];
+        checklist.querySelectorAll("input[type=checkbox]").forEach(cb => {
+          (cb.checked ? nowRelevant : nowIrrelevant).push(cb.dataset.table);
+        });
+
+        // Build the feedback message
+        const parts = [];
+        const added   = nowRelevant.filter(t => !matchedNames.has(t));
+        const removed = nowIrrelevant.filter(t => matchedNames.has(t));
+        if (added.length > 0)   parts.push(`I believe ${added.map(t => `"${t}"`).join(", ")} ${added.length > 1 ? "are" : "is"} relevant to my question.`);
+        if (removed.length > 0) parts.push(`I believe ${removed.map(t => `"${t}"`).join(", ")} ${removed.length > 1 ? "are" : "is"} not relevant to my question.`);
+
+        let msg;
+        if (parts.length === 0) {
+          msg = "I reviewed the retrieved tables and agree with the current relevance assessment.";
+        } else {
+          msg = parts.join(" ");
+        }
+
+        editPanel.style.display = "none";
+        editBtn.style.display = "";
+
+        // Always copy to clipboard as a silent fallback
+        navigator.clipboard?.writeText(msg).catch(() => {});
+
+        // Send via postMessage if we're inside an iframe.
+        // Use window.parent (not window.top) — window.parent correctly
+        // traverses to the actual parent even in sandboxed iframes that
+        // lack allow-same-origin, because the "sandboxed top-level browsing
+        // context" flag only affects window.top, not window.parent.
+        if (window.parent !== window) {
+          window.parent.postMessage({ type: "input:prompt:submit", text: msg }, "*");
+          showToast(true);
+        } else {
+          showToast(false);
+        }
+      });
+    })();
+
+    // --- Step progress tracking ---
+    (function() {
+      const steps = [
+        { bodyId: "step1Body", iconId: "step1-visited", segId: "seg1" },
+        { bodyId: "step2Body", iconId: "step2-visited", segId: "seg2" },
+        { bodyId: "step3Body", iconId: "step3-visited", segId: "seg3" },
+        { bodyId: "step4Body", iconId: "step4-visited", segId: "seg4" },
+      ];
+      const visited = new Set(["step1Body"]);
+
+      function updateProgress() {
+        steps.forEach(({ bodyId, iconId, segId }) => {
+          const isVisited = visited.has(bodyId);
+
+          // Vertical line segment
+          const seg = $id(segId);
+          if (seg) seg.style.background = isVisited ? "#22c55e" : "#e5e7eb";
+
+          // Per-step card header checkmark
+          const icon = $id(iconId);
+          if (!icon) return;
+          if (isVisited) {
+            icon.className = "bi bi-check-circle-fill";
+            icon.style.color = "#22c55e";
+          } else {
+            icon.className = "bi bi-circle";
+            icon.style.color = "#d1d5db";
+          }
+        });
+      }
+
+      steps.forEach(({ bodyId }) => {
+        const el = $id(bodyId);
+        if (el) el.addEventListener("show.bs.collapse", () => {
+          visited.add(bodyId);
+          updateProgress();
+        });
+      });
+
+      updateProgress();
+    })();
+
+    // --- Provenance charts: LLM returns structured JSON, frontend renders ---
+
+    // Render pipeline as SVG from [{ type:"source"|"operation"|"result", ... }]
+    function renderPipeline(pipeline, container) {
+      const steps = pipeline || [];
+      if (!steps.length) { container.innerHTML = "<em style='color:#9ca3af;font-size:0.75rem;'>No data.</em>"; return; }
+
+      // --- helpers ---
+      function esc(s) {
+        return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      }
+      function trunc(s, n) { s = String(s||""); return s.length > n ? s.slice(0, n-1) + "…" : s; }
+      function sRect(x, y, w, h, r, fill, stroke) {
+        return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`;
+      }
+      function sText(x, y, t, color, size, bold, anchor) {
+        return `<text x="${x}" y="${y}" text-anchor="${anchor||"middle"}" font-size="${size}" font-family="system-ui,sans-serif" fill="${color}"${bold?' font-weight="600"':""} dominant-baseline="middle">${esc(t)}</text>`;
+      }
+      // Draw a mini pill (rounded rect + text)
+      function sPill(x, y, label, bg, tc) {
+        const w = Math.min(label.length * 5.8 + 8, 72);
+        const d = trunc(label, 12);
+        return `<rect x="${x}" y="${y}" width="${w}" height="13" rx="3" fill="${bg}"/>` +
+               `<text x="${x + w/2}" y="${y+6.5}" text-anchor="middle" dominant-baseline="middle" font-size="8.5" font-family="monospace" fill="${tc}">${esc(d)}</text>`;
+      }
+      // Lay out pills in rows, returns {svg, height}
+      function pillRows(cols, x, y, bg, tc, maxPerRow, maxRows) {
+        const PILL_W = 74, PILL_H = 13, PILL_GAP_X = 3, PILL_GAP_Y = 3;
+        let out = "", row = 0, col = 0;
+        const shown = cols.slice(0, maxPerRow * maxRows);
+        shown.forEach(c => {
+          out += sPill(x + col * (PILL_W + PILL_GAP_X), y + row * (PILL_H + PILL_GAP_Y), c, bg, tc);
+          col++;
+          if (col >= maxPerRow) { col = 0; row++; }
+        });
+        const overflow = cols.length - shown.length;
+        if (overflow > 0) {
+          out += sText(x, y + (row + (col > 0 ? 1 : 0)) * (PILL_H + PILL_GAP_Y) + 6,
+                       `+${overflow} more`, "#9ca3af", 8.5, false, "start");
+        }
+        const usedRows = row + (col > 0 ? 1 : 0) + (overflow > 0 ? 1 : 0);
+        return { svg: out, h: usedRows * (PILL_H + PILL_GAP_Y) };
+      }
+
+      // --- layout constants ---
+      const NW = 160, PAD = 9, TITLE_H = 18, ARROW_W = 36, VGAP = 6, R = 6;
+      const COLS_PER_ROW = 2, MAX_COL_ROWS = 3;
+      const C = {
+        src:  { fill:"#e8f0fe", stroke:"#93b4f7", title:"#1e3a8a", pill:"#dbeafe", ptxt:"#1e40af" },
+        op:   { fill:"#fef3c7", stroke:"#fcd34d", title:"#92400e", in_p:"#e0e7ff", in_t:"#3730a3", out_p:"#fef9c3", out_t:"#78350f" },
+        res:  { fill:"#d1fae5", stroke:"#6ee7b7", title:"#065f46", pill:"#bbf7d0", ptxt:"#065f46" },
+        arr:  "#9ca3af",
+      };
+
+      // Compute height of each step column
+      function stepH(step) {
+        const pillRowH = (n) => Math.ceil(n / COLS_PER_ROW) * 16;
+        if (step.type === "source") {
+          return (step.tables||[]).reduce((s,t,i) => {
+            const pr = pillRowH(Math.min((t.cols||[]).length, COLS_PER_ROW * MAX_COL_ROWS));
+            return s + PAD*2 + TITLE_H + (pr||0) + (i>0?VGAP:0);
+          }, 0) || (PAD*2 + TITLE_H);
+        }
+        if (step.type === "operation") {
+          const inR  = pillRowH(Math.min((step.input_cols||[]).length, COLS_PER_ROW * MAX_COL_ROWS));
+          const outR = pillRowH(Math.min((step.output_cols||[]).length, COLS_PER_ROW * MAX_COL_ROWS));
+          const sep  = (step.input_cols||[]).length && (step.output_cols||[]).length ? 14 : 0;
+          return PAD*2 + TITLE_H + (inR||0) + sep + (outR||0);
+        }
+        const pr = pillRowH(Math.min((step.cols||[]).length, COLS_PER_ROW * MAX_COL_ROWS));
+        return PAD*2 + TITLE_H + (pr||0);
+      }
+
+      const heights = steps.map(stepH);
+      const totalH  = Math.max(...heights, 60);
+      const totalW  = steps.length * NW + (steps.length - 1) * ARROW_W + 2;
+
+      let body = "";
+      let cx = 0;
+
+      steps.forEach((step, si) => {
+        const sh = heights[si];
+        const yOff = Math.round((totalH - sh) / 2);
+
+        if (step.type === "source") {
+          let y = yOff;
+          (step.tables||[{name:"(source)", cols:[]}]).forEach((t, ti) => {
+            const cols = t.cols || [];
+            const pr = pillRows(cols, cx + PAD, y + PAD + TITLE_H + 2, C.src.pill, C.src.ptxt, COLS_PER_ROW, MAX_COL_ROWS);
+            const nh = PAD*2 + TITLE_H + (pr.h || 0);
+            body += sRect(cx, y, NW, nh, R, C.src.fill, C.src.stroke);
+            body += sText(cx + NW/2, y + PAD + TITLE_H/2, trunc(t.name, 20), C.src.title, 11, true);
+            body += pr.svg;
+            y += nh + VGAP;
+          });
+
+        } else if (step.type === "operation") {
+          const inCols  = step.input_cols  || [];
+          const outCols = step.output_cols || [];
+          const inPR  = pillRows(inCols,  cx + PAD, yOff + PAD + TITLE_H + 2, C.op.in_p,  C.op.in_t,  COLS_PER_ROW, MAX_COL_ROWS);
+          const hasSep = inCols.length > 0 && outCols.length > 0;
+          const sepY   = yOff + PAD + TITLE_H + 2 + inPR.h + 2;
+          const outY   = sepY + (hasSep ? 14 : 0);
+          const outPR  = pillRows(outCols, cx + PAD, outY, C.op.out_p, C.op.out_t, COLS_PER_ROW, MAX_COL_ROWS);
+          body += sRect(cx, yOff, NW, sh, R, C.op.fill, C.op.stroke);
+          body += sText(cx + NW/2, yOff + PAD + TITLE_H/2, trunc(step.op||"Transform", 24), C.op.title, 10, true);
+          body += inPR.svg;
+          if (hasSep) {
+            body += `<line x1="${cx+PAD}" y1="${sepY+6}" x2="${cx+NW-PAD}" y2="${sepY+6}" stroke="#fcd34d" stroke-width="0.8" stroke-dasharray="3,2"/>`;
+            body += sText(cx + NW/2, sepY + 7, "↓", "#b45309", 9, false);
+          }
+          body += outPR.svg;
+
+        } else if (step.type === "result") {
+          const cols = step.cols || [];
+          const pr   = pillRows(cols, cx + PAD, yOff + PAD + TITLE_H + 2, C.res.pill, C.res.ptxt, COLS_PER_ROW, MAX_COL_ROWS);
+          body += sRect(cx, yOff, NW, sh, R, C.res.fill, C.res.stroke);
+          body += sText(cx + NW/2, yOff + PAD + TITLE_H/2, trunc(step.name||"Result", 20), C.res.title, 11, true);
+          body += pr.svg;
+        }
+
+        // Arrow →
+        if (si < steps.length - 1) {
+          const ax1 = cx + NW + 2, ax2 = cx + NW + ARROW_W - 4, ay = totalH / 2;
+          body += `<line x1="${ax1}" y1="${ay}" x2="${ax2}" y2="${ay}" stroke="${C.arr}" stroke-width="1.5" marker-end="url(#pArrMk)"/>`;
+        }
+        cx += NW + ARROW_W;
+      });
+
+      const svgEl = `<svg xmlns="http://www.w3.org/2000/svg" width="${totalW}" height="${totalH + 4}" style="display:block;">
+        <defs><marker id="pArrMk" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 Z" fill="${C.arr}"/>
+        </marker></defs>
+        ${body}
+      </svg>`;
+      container.innerHTML = `<div style="overflow-x:auto;padding:0.5rem 0.25rem;">${svgEl}</div>`;
+    }
+
+    // Render column-level flow from { sources: [{table,cols}], ops: [string], result_cols: [string] }
+    function renderColFlow(flow, container) {
+      const sources = flow.sources || [];
+      const ops     = flow.ops     || [];
+      const resCols = flow.result_cols || [];
+
+      const pill = (name, bg, color) =>
+        `<span style="display:inline-block;background:${bg};color:${color};border-radius:3px;padding:1px 7px;margin:2px 2px;font-size:0.71rem;font-family:monospace;white-space:nowrap;">${escapeHtml(name)}</span>`;
+
+      const srcBlocks = sources.slice(0, 6).map(s => {
+        const colPills = (s.cols || []).slice(0, 12).map(c => pill(c, "#e8f0fe", "#1e3a8a")).join("");
+        const more = s.cols && s.cols.length > 12 ? `<span style="font-size:0.7rem;color:#9ca3af;margin-left:3px;">+${s.cols.length - 12} more</span>` : "";
+        return `<div style="margin-bottom:0.55rem;">
+          <div style="font-size:0.74rem;font-weight:600;color:#374151;margin-bottom:2px;">${escapeHtml(s.table)}</div>
+          <div style="line-height:1.8;">${colPills || "<em style='color:#9ca3af;font-size:0.72rem;'>—</em>"}${more}</div>
+        </div>`;
+      }).join("");
+
+      const opsHtml = ops.map(o =>
+        `<div style="font-size:0.7rem;color:#92400e;background:#fef3c7;border:1px solid #fcd34d;border-radius:4px;padding:3px 8px;margin-bottom:4px;white-space:nowrap;">${escapeHtml(o)}</div>`
+      ).join("");
+
+      const resPills = resCols.slice(0, 16).map(c => pill(c, "#d1fae5", "#065f46")).join("");
+      const resMore  = resCols.length > 16 ? `<span style="font-size:0.7rem;color:#9ca3af;margin-left:3px;">+${resCols.length - 16} more</span>` : "";
+
+      container.innerHTML = `
+        <div style="display:flex;align-items:flex-start;gap:14px;padding:0.25rem 0.1rem;overflow-x:auto;">
+          <div style="flex:1;min-width:120px;">${srcBlocks || "<em style='color:#9ca3af;font-size:0.75rem;'>no source columns</em>"}</div>
+          <div style="display:flex;flex-direction:column;align-items:center;padding-top:0.3rem;flex-shrink:0;min-width:80px;">
+            <div style="font-size:0.68rem;font-weight:600;color:#6b7280;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Operations</div>
+            ${opsHtml || "<div style='font-size:0.7rem;color:#9ca3af;'>→</div>"}
+          </div>
+          <div style="flex:1;min-width:120px;">
+            <div style="font-size:0.74rem;font-weight:600;color:#374151;margin-bottom:2px;">Result</div>
+            <div style="line-height:1.8;">${resPills || "<em style='color:#9ca3af;font-size:0.75rem;'>—</em>"}${resMore}</div>
+          </div>
+        </div>`;
+    }
+
+    // Client-side fallbacks using matchedTables / operations / state.T
+    function buildPipelineFallback(srcTables, ops, stateT) {
+      const pipeline = [];
+      // Source step
+      pipeline.push({
+        type: "source",
+        tables: srcTables.slice(0, 6).map(t => ({
+          name: t.name,
+          cols: t.columns.slice(0, 10).map(c => c && typeof c === "object" ? c.name : String(c)),
+        })),
+      });
+      // Operation steps — use description text (strip HTML tags), include referenced cols as input_cols
+      ops.forEach(op => {
+        const label = (op.description || op.type || "Transform").replace(/<[^>]+>/g, "").trim();
+        const input_cols = (op.tables || []).flatMap(t => (t.columns || []).slice(0, 4).map(c => c && typeof c === "object" ? c.name : String(c)));
+        pipeline.push({ type: "operation", op: label, input_cols: [...new Set(input_cols)].slice(0, 5), output_cols: [] });
+      });
+      // Result step
+      const result_cols = [];
+      for (const rows of Object.values(stateT || {})) {
+        if (Array.isArray(rows) && rows.length > 0)
+          Object.keys(rows[0]).slice(0, 12).forEach(c => { if (!result_cols.includes(c)) result_cols.push(c); });
+      }
+      const resultName = Object.keys(stateT || {})[0] || "Result";
+      pipeline.push({ type: "result", name: resultName, cols: result_cols });
+      return pipeline;
+    }
+
+    function buildColFlowFallback(srcTables, ops, stateT) {
+      const MAX = 12;
+      const sources = srcTables.slice(0, 5).map(t => ({
+        table: t.name,
+        cols: t.columns.slice(0, MAX).map(c => (c && typeof c === "object" ? c.name : String(c))),
+      }));
+      const opLabels = [...new Set(ops.map(o => o.type || "Transform"))];
+      const result_cols = [];
+      for (const rows of Object.values(stateT || {})) {
+        if (Array.isArray(rows) && rows.length > 0)
+          Object.keys(rows[0]).slice(0, MAX).forEach(c => { if (!result_cols.includes(c)) result_cols.push(c); });
+      }
+      return { sources, ops: opLabels, result_cols };
+    }
+
+
+    // --- Step 2: Render provenance steps carousel (matches state_view Provenance of T) ---
+    const step2ProvInner = document.getElementById("step2-prov-inner");
+    const step2ProvPrev  = document.getElementById("step2-prov-prev");
+    const step2ProvNext  = document.getElementById("step2-prov-next");
+    const step2ProvCounter = document.getElementById("step2-prov-counter");
+    let step2ProvIndex = 0;
+    let step2OpenDetailIdx = -1; // tracks which operation's detail is currently expanded
+    // Use operations (which carry rawHtml) so each carousel item maps 1-to-1 with an operation
+    const carouselOps = operations.length > 0 ? operations : [];
+
+    step2ProvInner.innerHTML = "";
+    carouselOps.forEach((op, idx) => {
+      const stepHtml = op.rawHtml || "";
+      const item = document.createElement("div");
+      item.className = "step2-prov-item";
+      const panel = document.createElement("div");
+      panel.className = "step2-prov-panel";
+      panel.setAttribute("role", "group");
+      panel.setAttribute("aria-label", `Operation ${idx + 1}`);
+      panel.innerHTML = typeof stepHtml === "string" ? stepHtml : String(stepHtml);
+      // Rename "Step X" headings to "Operation X" to avoid confusion with outer Steps 1/2/3
+      panel.querySelectorAll("h1, h2, h3").forEach(h => {
+        h.textContent = h.textContent.replace(/\bStep\s+(\d+)\b/gi, "Operation $1");
+      });
+      // Hide Python code blocks, their label headings, and trailing separators
+      panel.querySelectorAll("pre").forEach(pre => { pre.style.display = "none"; });
+      panel.querySelectorAll("hr").forEach(hr => { hr.style.display = "none"; });
+      panel.querySelectorAll("h1, h2, h3, h4, h5, h6, p, strong").forEach(el => {
+        if (/^\s*(python\s*)?(code|script)\s*$/i.test(el.textContent.trim())) {
+          el.style.display = "none";
+          // Also hide any immediately following sibling that contained the code (e.g. a wrapper div)
+          let next = el.nextElementSibling;
+          while (next && next.tagName !== "H1" && next.tagName !== "H2" && next.tagName !== "H3") {
+            next.style.display = "none";
+            next = next.nextElementSibling;
+          }
+        }
+      });
+      item.appendChild(panel);
+      step2ProvInner.appendChild(item);
+    });
+
+    // "Show code" button below the carousel
+    const showCodeBtn = $id("step2-show-code-btn");
+    let _codeOpen     = false;
+
+    function updateDetailPanel() {
+      const detailPanel = $id("step2-op-detail-panel");
+      detailPanel.style.display = _codeOpen ? "block" : "none";
+      $id("op-detail-content").style.display = _codeOpen ? "block" : "none";
+    }
+
+    function openCode(idx) {
+      $id("op-detail-content").innerHTML = "";
+      showOpDetail(idx);
+      _codeOpen = true;
+      step2OpenDetailIdx = idx;
+      showCodeBtn.innerHTML = '<i class="bi bi-chevron-up me-1"></i> Hide code';
+      updateDetailPanel();
+      $id("step2-op-detail-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+    function closeCode() {
+      _codeOpen = false;
+      step2OpenDetailIdx = -1;
+      showCodeBtn.innerHTML = '<i class="bi bi-code-slash me-1"></i> Show code';
+      updateDetailPanel();
+    }
+
+    function closeOpDetail() {
+      _codeOpen = false;
+      step2OpenDetailIdx = -1;
+      if (showCodeBtn) showCodeBtn.innerHTML = '<i class="bi bi-code-slash me-1"></i> Show code';
+      $id("step2-op-detail-panel").style.display = "none";
+    }
+
+    if (showCodeBtn) {
+      showCodeBtn.addEventListener("click", () => {
+        if (_codeOpen && step2OpenDetailIdx === step2ProvIndex) {
+          closeCode();
+        } else {
+          openCode(step2ProvIndex);
+        }
+      });
+    }
+
+    // "Show table diagram" button — lazy LLM call to /prov_col_flow on first click
+    const showDiagramBtn = $id("step2-show-diagram-btn");
+    const diagramPanel   = $id("step2-diagram-panel");
+    let _diagramLoaded   = false;
+    let _diagramOpen     = false;
+
+    const OP_COLORS = {
+      filter:     { bg: "#fff7ed", border: "#fb923c", text: "#9a3412", icon: "bi-funnel" },
+      join:       { bg: "#f5f3ff", border: "#a78bfa", text: "#5b21b6", icon: "bi-intersect" },
+      aggregate:  { bg: "#ecfdf5", border: "#34d399", text: "#065f46", icon: "bi-calculator" },
+      select:     { bg: "#eff6ff", border: "#60a5fa", text: "#1e40af", icon: "bi-list-check" },
+      sort:       { bg: "#fdf4ff", border: "#c084fc", text: "#6b21a8", icon: "bi-sort-alpha-down" },
+      rename:     { bg: "#fefce8", border: "#fbbf24", text: "#78350f", icon: "bi-pencil" },
+      add_column: { bg: "#f0fdf4", border: "#4ade80", text: "#14532d", icon: "bi-plus-square" },
+      union:      { bg: "#f0f9ff", border: "#38bdf8", text: "#0c4a6e", icon: "bi-layers" },
+      other:      { bg: "#f9fafb", border: "#9ca3af", text: "#374151", icon: "bi-gear" },
+    };
+
+    function renderColFlowDiagram(ops) {
+      if (!ops || !ops.length) return '<div style="padding:0.5rem;color:#6c757d;font-size:0.8rem;">No operations recorded yet.</div>';
+
+      // table/column name: monospace block, full name wraps to 2 lines
+      const pill = (name, bg, color) =>
+        `<span style="display:inline-block;background:${bg};color:${color};border-radius:3px;padding:2px 7px;font-size:0.70rem;font-family:monospace;word-break:break-all;max-width:160px;border:1px solid ${color}33;line-height:1.35;">${escapeHtml(name)}</span>`;
+
+      const arrow = `<div style="display:flex;align-items:center;padding:0 5px;color:#9ca3af;font-size:1rem;align-self:center;">&#8594;</div>`;
+
+      return ops.map(op => {
+        const c = OP_COLORS[op.op_type] || OP_COLORS.other;
+        const inputs = (op.input_tables || []).map(t => pill(t, "#f3f4f6", "#4b5563")).join(" ");
+        const output = pill(op.output_label || "result", "#d1fae5", "#065f46");
+        // op label styled as a keyword: monospace uppercase, solid left accent bar, no border-radius rounding
+        return `
+          <div style="display:flex;align-items:center;gap:4px;margin-bottom:8px;flex-wrap:wrap;">
+            <div style="display:flex;flex-wrap:wrap;gap:3px;align-items:center;">${inputs}</div>
+            ${arrow}
+            <div title="${escapeHtml(op.short_label || op.op_type)}" style="background:${c.bg};border-left:4px solid ${c.border};border-radius:2px;padding:3px 10px;max-width:220px;cursor:default;">
+              <div style="font-size:0.62rem;font-family:monospace;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;color:${c.border};margin-bottom:1px;">${escapeHtml(op.op_type)}</div>
+              <div style="font-size:0.75rem;color:${c.text};font-weight:600;line-height:1.3;word-break:break-word;">${escapeHtml(op.short_label || op.op_type)}</div>
+            </div>
+            ${arrow}
+            ${output}
+          </div>`;
+      }).join("");
+    }
+
+    let _allOps = null; // cached from /prov_col_flow/
+
+    function renderCurrentOp() {
+      if (!_allOps) return;
+      // step field is 1-indexed; carousel index is 0-indexed
+      const op = _allOps.find(o => o.step === step2ProvIndex + 1) || _allOps[step2ProvIndex];
+      diagramPanel.innerHTML = `<div style="padding:0.5rem 0.25rem;">${renderColFlowDiagram(op ? [op] : [])}</div>`;
+    }
+
+    if (showDiagramBtn) {
+      showDiagramBtn.addEventListener("click", async () => {
+        if (!_diagramLoaded) {
+          showDiagramBtn.disabled = true;
+          showDiagramBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>Loading…';
+          diagramPanel.style.display = "block";
+          diagramPanel.innerHTML = '<div style="padding:0.5rem;color:#6c757d;font-size:0.8rem;"><i class="bi bi-hourglass-split me-1"></i>Loading table diagram…</div>';
+          try {
+            const resp = await fetch(`${getBackendUrl()}/prov_col_flow/${encodeURIComponent(_userId)}/${encodeURIComponent(_chatId)}`);
+            const data = await resp.json();
+            _allOps = data.ops || [];
+            renderCurrentOp();
+          } catch (e) {
+            diagramPanel.innerHTML = `<div style="padding:0.5rem;color:#dc3545;font-size:0.8rem;">Error loading diagram: ${escapeHtml(String(e))}</div>`;
+          }
+          _diagramLoaded = true;
+          _diagramOpen = true;
+          showDiagramBtn.disabled = false;
+          showDiagramBtn.innerHTML = '<i class="bi bi-diagram-3 me-1"></i> Hide table diagram';
+          return;
+        }
+        _diagramOpen = !_diagramOpen;
+        diagramPanel.style.display = _diagramOpen ? "block" : "none";
+        showDiagramBtn.innerHTML = _diagramOpen
+          ? '<i class="bi bi-diagram-3 me-1"></i> Hide table diagram'
+          : '<i class="bi bi-diagram-3 me-1"></i> Show table diagram';
+      });
+    }
+
+    function updateStep2ProvCarousel() {
+      step2ProvInner.style.transform = `translateX(${-step2ProvIndex * 100}%)`;
+      const total = carouselOps.length;
+      step2ProvPrev.disabled = step2ProvIndex === 0;
+      step2ProvNext.disabled = step2ProvIndex >= total - 1;
+      step2ProvCounter.textContent = total > 0 ? `${step2ProvIndex + 1}/${total}` : "0/0";
+    }
+
+    step2ProvPrev.addEventListener("click", () => {
+      if (step2ProvIndex > 0) {
+        step2ProvIndex--;
+        closeOpDetail();
+        updateStep2ProvCarousel();
+        if (_diagramOpen) renderCurrentOp();
+      }
+    });
+    step2ProvNext.addEventListener("click", () => {
+      if (step2ProvIndex < carouselOps.length - 1) {
+        step2ProvIndex++;
+        closeOpDetail();
+        updateStep2ProvCarousel();
+        if (_diagramOpen) renderCurrentOp();
+      }
+    });
+
+    if (carouselOps.length > 0) {
+      updateStep2ProvCarousel();
+    } else {
+      step2ProvPrev.disabled = true;
+      step2ProvNext.disabled = true;
+      step2ProvCounter.textContent = "0/0";
+    }
+  </script>
+</body>
+
+</html>

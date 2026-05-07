@@ -39,6 +39,11 @@ Script (S) to be run over T (is executed yet? {self.is_S_executed}):
                 table_id: serialize_dataframe(table_doc.content, nrows)
                 for table_id, table_doc in self.T.items()
             },
+            "T_total_rows": {
+                table_id: len(table_doc.content)
+                for table_id, table_doc in self.T.items()
+                if table_doc.content is not None
+            },
             "is_T_materialized": self.is_T_materialized,
             "column_descriptions": self.column_descriptions,
             "S": self.S,

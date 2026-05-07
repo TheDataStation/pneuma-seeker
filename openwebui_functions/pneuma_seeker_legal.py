@@ -1,4 +1,4 @@
-# frontend: OpenWebUI Pipe (Python side)
+# frontend: OpenWebUI Pipe (Python side) — Legal dataset
 import json
 import time
 import httpx
@@ -61,7 +61,7 @@ class Pipe:
                     "files": files,
                     "user_id": user_id,
                     "chat_id": chat_id,
-                    "dataset": "environment",
+                    "dataset": "legal",
                 },
             ) as response:
                 async for line in response.aiter_lines():
@@ -93,28 +93,28 @@ class Pipe:
                             {"type": "chat:message:delta", "data": {"content": text.replace("~", "\\~")}}
                         )
                     elif sender == "done":
-                        # try:
-                        #     sidebar_resp = await client.post(
-                        #         f"http://pneuma-seeker:8000/combined/html/{user_id}/{chat_id}",
-                        #         json=body,
-                        #         timeout=30.0,
-                        #     )
-                        #     if sidebar_resp.status_code == 200:
-                        #         launcher_html = sidebar_resp.text
-                        #         launcher_html = launcher_html.replace("<body", '<body style="min-height:800px;"')
-                        #         launcher_html = launcher_html.replace("```", "`\u200b``")
-                        #         html_block = (
-                        #             "```html\n"
-                        #             "<!-- PNEUMA_STATE_START -->\n"
-                        #             f"{launcher_html}\n"
-                        #             "<!-- PNEUMA_STATE_END -->\n"
-                        #             "```"
-                        #         )
-                        #         await __event_emitter__(
-                        #             {"type": "chat:message:delta", "data": {"content": "\n\n" + html_block}}
-                        #         )
-                        # except Exception:
-                        #     pass
+                        try:
+                            sidebar_resp = await client.post(
+                                f"http://pneuma-seeker:8000/combined/html/{user_id}/{chat_id}",
+                                json=body,
+                                timeout=30.0,
+                            )
+                            if sidebar_resp.status_code == 200:
+                                launcher_html = sidebar_resp.text
+                                launcher_html = launcher_html.replace("<body", '<body style="min-height:800px;"')
+                                launcher_html = launcher_html.replace("```", "`\u200b``")
+                                html_block = (
+                                    "```html\n"
+                                    "<!-- PNEUMA_STATE_START -->\n"
+                                    f"{launcher_html}\n"
+                                    "<!-- PNEUMA_STATE_END -->\n"
+                                    "```"
+                                )
+                                await __event_emitter__(
+                                    {"type": "chat:message:delta", "data": {"content": "\n\n" + html_block}}
+                                )
+                        except Exception:
+                            pass
 
                         elapsed = end_initialization - start
                         await __event_emitter__(
