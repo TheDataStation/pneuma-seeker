@@ -28,6 +28,8 @@ def get_llm(config: Config) -> Type[AbstractModel]:
         if config.USE_AZURE_LLM:
             return AzureOpenAILLM
         return OpenAILLM
+    elif "gemini" in normalized_model_path:
+        return GeminiLLM
     elif "mock" in normalized_model_path:
         return MockLLM
     elif "ollama" in normalized_model_path:

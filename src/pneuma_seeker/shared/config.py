@@ -26,6 +26,12 @@ class Config:
             getenv("USE_AZURE_EMBED_MODEL", "true").lower() == "true"
         )
 
+        # Gemini Settings
+        self.GEMINI_API_KEY = getenv("GEMINI_API_KEY", "")
+
+        # Claude Settings
+        self.ANTHROPIC_API_KEY = getenv("ANTHROPIC_API_KEY", "")
+
         # Frontend-Backend Interaction Settings        
         self.ALLOWED_ORIGINS = getenv("ALLOWED_ORIGINS", "*").split(",")
         self.OPENWEBUI_BASE_URL = getenv("OPENWEBUI_BASE_URL", "http://0.0.0.0:8080/")
