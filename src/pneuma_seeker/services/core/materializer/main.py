@@ -1,4 +1,6 @@
 # src/pneuma_seeker/core/materializer/main.py
+from collections import deque
+from json import dumps
 from logging import Logger
 from typing import Any
 
@@ -69,6 +71,8 @@ class Materializer:
         self.llm_messages: list[LLMMessage] = []
         self.last_intermediate_table_ids: set[str] = set()
 
+        self.premade_plans = deque()
+
     def materialize_T(
         self,
         T: dict[str, DataFrame],
@@ -134,7 +138,7 @@ class Materializer:
 
             self.llm_messages.append(
                 LLMMessage(
-                    role=Role.SYSTEM.value,
+                    role=Role.USER.value,
                     content=self.prompt_factory.get_context_prompt(
                         self.state.retrieved_tables,
                         list(self.state.intermediate_tables),
@@ -150,11 +154,15 @@ class Materializer:
             )
             last_env_state_idx = len(self.llm_messages) - 1
 
-            llm_response = "".join(
-                self.language_model_api.chat(
-                    self.llm_messages, LLMOption(json_mode=True, max_new_tokens=2500)
+            if self.premade_plans:
+                llm_response = self.premade_plans.popleft()
+            else:
+                llm_response = "".join(
+                    self.language_model_api.chat(
+                        self.llm_messages,
+                        LLMOption(json_mode=True, max_new_tokens=2500),
+                    )
                 )
-            )
             self.llm_messages.append(
                 LLMMessage(
                     role=Role.ASSISTANT.value,
@@ -1524,9 +1532,7 @@ class Materializer:
                 # could drop useful data (e.g., wide sample columns like s001..s153).
                 if missing_cols:
                     is_complete = False
-                    issue_msg = (
-                        f"- For table `{target_table_id}`: missing columns {sorted(missing_cols)}."
-                    )
+                    issue_msg = f"- For table `{target_table_id}`: missing columns {sorted(missing_cols)}."
                     column_issues.append(issue_msg)
 
                 if extra_cols:

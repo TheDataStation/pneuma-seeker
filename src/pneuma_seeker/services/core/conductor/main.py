@@ -1,3 +1,5 @@
+from collections import deque
+from json import dumps
 from logging import Logger
 from time import time
 from typing import Any, cast
@@ -83,6 +85,7 @@ class Conductor:
         self.is_user_facing_response = False
         self.actions: list[str] = []
         self.llm_messages: list[LLMMessage] = []
+        self.premade_plans = deque()
 
     def set_prov_graph(self, prov_graph: ProvenanceGraph) -> None:
         """Replace the provenance graph and propagate it to subcomponents.
@@ -157,7 +160,7 @@ class Conductor:
             )
             self.llm_messages.append(
                 LLMMessage(
-                    role=Role.SYSTEM.value,
+                    role=Role.USER.value,
                     content=self.prompt_factory.get_env_state_prompt(
                         current_step,
                         self.state,
@@ -176,14 +179,19 @@ class Conductor:
             last_env_state_idx = len(self.llm_messages) - 1
 
             try:
-                full_response = "".join(
-                    self.language_model_api.chat(
-                        self.llm_messages,
-                        LLMOption(json_mode=True, stream=True, top_p=0.1),
+                if self.premade_plans:
+                    full_response = self.premade_plans.popleft()
+                else:
+                    full_response = "".join(
+                        self.language_model_api.chat(
+                            self.llm_messages,
+                            LLMOption(json_mode=True, stream=True, top_p=0.1),
+                        )
                     )
-                )
             except Exception as exc:
-                error_msg = f"An unexpected error occurred while generating the plan: {exc}."
+                error_msg = (
+                    f"An unexpected error occurred while generating the plan: {exc}."
+                )
                 self.__log(error_msg)
                 yield f"LOG: {error_msg}"
                 raise exc
@@ -246,17 +254,22 @@ class Conductor:
                         == ActionNames.USER_FACING_COMMUNICATION.value
                     ):
                         user_facing_communication_part_of_plan = True
-                    if (
-                        action_plan.get("action")
-                        == ActionNames.MATERIALIZER.value
-                    ):
+                    if action_plan.get("action") == ActionNames.MATERIALIZER.value:
                         materializer_part_of_plan = True
                     if action_plan.get("action") == ActionNames.TABLE_RETRIEVE.value:
                         table_retrieve_part_of_plan = True
-                    if action_plan.get("action") == ActionNames.CONTEXT_EXTRACTION.value:
+                    if (
+                        action_plan.get("action")
+                        == ActionNames.CONTEXT_EXTRACTION.value
+                    ):
                         assumption_check_part_of_plan = True
                 # Ensure there is no user-facing communication in the same plan as code execution (simply remove the user-facing part)
-                if (executor_part_of_plan or materializer_part_of_plan or table_retrieve_part_of_plan or assumption_check_part_of_plan) and user_facing_communication_part_of_plan:
+                if (
+                    executor_part_of_plan
+                    or materializer_part_of_plan
+                    or table_retrieve_part_of_plan
+                    or assumption_check_part_of_plan
+                ) and user_facing_communication_part_of_plan:
                     self.__log(
                         "==> Removing user-facing communication from plan due to presence of code execution or materialization or table retrieval or assumption check."
                     )
@@ -396,14 +409,12 @@ class Conductor:
                     self.__log(f"=> {error_msg}")
                     return error_msg, ActionExecutionStatus.ERROR
 
-                self.retrieved_tables = (
-                    self.action_set.retrieve_multi_topic_documents(
-                        action_args["prompts"],
-                        RetrieverType.PNEUMA_RETRIEVER,
-                        10,
-                        True,
-                        3,
-                    )
+                self.retrieved_tables = self.action_set.retrieve_multi_topic_documents(
+                    action_args["prompts"],
+                    RetrieverType.PNEUMA_RETRIEVER,
+                    10,
+                    True,
+                    3,
                 )
 
                 self.__log(
@@ -504,14 +515,12 @@ class Conductor:
                     self.__log(f"=> {error_msg}")
                     return error_msg, ActionExecutionStatus.ERROR
 
-                self.enumerated_tables = (
-                    self.action_set.retrieve_multi_topic_documents(
-                        action_args["patterns"],
-                        RetrieverType.ENUMERATOR,
-                        20,
-                        True,
-                        2,
-                    )
+                self.enumerated_tables = self.action_set.retrieve_multi_topic_documents(
+                    action_args["patterns"],
+                    RetrieverType.ENUMERATOR,
+                    20,
+                    True,
+                    2,
                 )
                 success_msg = f"Enumerated table IDs based on these patterns: {action_args['patterns']}. If there are any matches, the IDs will be reflected in `OTHER TABLE IDS WITH SIMILAR NAMING PATTERNS`."
                 self.__log(success_msg)
