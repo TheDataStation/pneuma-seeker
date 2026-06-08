@@ -107,7 +107,7 @@ class TestChatRouter(unittest.TestCase):
         mock_session_manager.get_chat_session.return_value.conductor = mock_conductor
 
         # Act
-        response = self.client.get("/chat/execute_code/user_999/session_001")
+        response = self.client.get("/chat/execute_code/session_001")
 
         # Assert
         self.assertEqual(response.status_code, 200)
@@ -139,7 +139,7 @@ class TestChatRouter(unittest.TestCase):
         mock_session_manager.get_chat_session.return_value.conductor = mock_conductor
 
         # Act
-        response = self.client.get("/chat/state/user_999/session_001")
+        response = self.client.get("/chat/state/session_001")
 
         # Assert
         self.assertEqual(response.status_code, 200)
@@ -157,7 +157,7 @@ class TestChatRouter(unittest.TestCase):
         mock_session_manager.get_chat_session.return_value = mock_chat_session
 
         # Act
-        response = self.client.get("/chat/chat/user_999/session_001/history")
+        response = self.client.get("/chat/chat/session_001/history")
 
         # Assert
         self.assertEqual(response.status_code, 200)
@@ -174,7 +174,7 @@ class TestChatRouter(unittest.TestCase):
         mock_session_manager.get_chat_session.return_value.conductor = mock_conductor
 
         # Act
-        response = self.client.get("/chat/target_views/user_999/session_001")
+        response = self.client.get("/chat/target_views/session_001")
 
         # Assert
         self.assertEqual(response.status_code, 404)
@@ -191,7 +191,7 @@ class TestChatRouter(unittest.TestCase):
         mock_session_manager.get_chat_session.return_value = mock_chat_session
 
         # Act
-        response = self.client.get("/chat/e2e_script/user_999/session_001")
+        response = self.client.get("/chat/e2e_script/session_001")
 
         # Assert
         self.assertEqual(response.status_code, 200)
@@ -220,7 +220,7 @@ class TestChatRouter(unittest.TestCase):
         )
 
         # Act
-        response = self.client.get("/chat/provenance_nodes/user_999/session_001")
+        response = self.client.get("/chat/provenance_nodes/session_001")
 
         # Assert
         self.assertEqual(response.status_code, 200)

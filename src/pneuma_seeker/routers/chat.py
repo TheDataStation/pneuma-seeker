@@ -153,14 +153,15 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
     )
 
 
-@router.get("/execute_code/{user_id}/{chat_id}")
+@router.get("/execute_code/{chat_id}")
 async def execute_code(
-    user_id: str,
     chat_id: str,
+    current_user: UserRecord = Depends(get_current_user),
 ):
     """
     Endpoint to trigger execution of Python code (S) on target tables (T) for a given user and chat.
     """
+    user_id = current_user.user_id
     conductor = session_manager.get_chat_session(user_id, chat_id).conductor
     try:
         try:
@@ -187,11 +188,13 @@ async def execute_code(
 
 
 @router.get(
-    "/state/{user_id}/{chat_id}",
+    "/state/{chat_id}",
     response_class=JSONResponse,
 )
-async def get_state(user_id: str, chat_id: str):
-    conductor = session_manager.get_chat_session(user_id, chat_id).conductor
+async def get_state(chat_id: str, current_user: UserRecord = Depends(get_current_user)):
+    conductor = session_manager.get_chat_session(
+        current_user.user_id, chat_id
+    ).conductor
     state = conductor.state.get_current_state_instance(config.TABLE_MAX_ROWS_DISPLAY)
 
     prov_steps: list[str] = ["**T** is not materialized yet."]
@@ -218,8 +221,11 @@ async def get_state(user_id: str, chat_id: str):
     )
 
 
-@router.get("/chat/{user_id}/{chat_id}/history")
-async def get_chat_history(user_id: str, chat_id: str):
+@router.get("/chat/{chat_id}/history")
+async def get_chat_history(
+    chat_id: str, current_user: UserRecord = Depends(get_current_user)
+):
+    user_id = current_user.user_id
     chat_session = session_manager.get_chat_session(user_id, chat_id)
     return {
         "user_id": user_id,
@@ -228,13 +234,15 @@ async def get_chat_history(user_id: str, chat_id: str):
     }
 
 
-@router.get("/target_views/{user_id}/{chat_id}")
-def get_target_views(user_id: str, chat_id: str):
+@router.get("/target_views/{chat_id}")
+def get_target_views(
+    chat_id: str, current_user: UserRecord = Depends(get_current_user)
+):
     """
     Download target views (CSV files) for a given user and chat as a ZIP file.
     Example: /tables/u123/c45/all
     """
-
+    user_id = current_user.user_id
     conductor = session_manager.get_chat_session(user_id, chat_id).conductor
     target_table_ids = list(conductor.state.T.keys()) if conductor.state.T else []
 
@@ -273,11 +281,12 @@ def get_target_views(user_id: str, chat_id: str):
     )
 
 
-@router.get("/e2e_script/{user_id}/{chat_id}")
-def get_e2e_script(user_id: str, chat_id: str):
+@router.get("/e2e_script/{chat_id}")
+def get_e2e_script(chat_id: str, current_user: UserRecord = Depends(get_current_user)):
     """
     Downloads Materializer code (.py) generated for a given user and chat.
     """
+    user_id = current_user.user_id
     chat_session = session_manager.get_chat_session(user_id, chat_id)
     materializer_code = chat_session.conductor.materializer.prov_graph.get_graph_code()
 
@@ -294,16 +303,18 @@ def get_e2e_script(user_id: str, chat_id: str):
 
 
 @router.get(
-    "/provenance_nodes/{user_id}/{chat_id}",
+    "/provenance_nodes/{chat_id}",
     response_class=JSONResponse,
 )
 async def get_provenance_nodes(
-    user_id: str,
     chat_id: str,
+    current_user: UserRecord = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Return all nodes of the provenance graph for a given user and chat.
     """
+    user_id = current_user.user_id
+
     # Get the provenance graph instance
     chat_session = session_manager.get_chat_session(user_id, chat_id)
     prov_graph = chat_session.conductor.materializer.prov_graph
