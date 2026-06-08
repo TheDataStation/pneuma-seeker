@@ -102,5 +102,5 @@ class PythonExecutor(Action, Executable):
         exec(code, env)
 
         return self.db_api.execute_query(
-            self.user_id, self.chat_id, f"SELECT * FROM {result_table_id} LIMIT 10;"
+            self.user_id, self.chat_id, f"SELECT * FROM {result_table_id} LIMIT 100;"
         )

@@ -10,7 +10,7 @@ from typing import Any
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from anyio import to_thread
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import (
     FileResponse,
@@ -21,17 +21,10 @@ from fastapi.responses import (
 from fastapi.templating import Jinja2Templates
 from markdown import markdown
 from markdown2 import markdown as markdown_2
-from pandas import DataFrame
 
-from pneuma_seeker.model import (
-    DatasetMetadataResponse,
-    EndpointTag,
-    IndexDatasetRequest,
-    IndexDatasetResponse,
-)
-from pneuma_seeker.routers import auth
+from pneuma_seeker.model import EndpointTag
+from pneuma_seeker.routers import auth, indexing
 from pneuma_seeker.services.db.users.manager import UserRecord
-from pneuma_seeker.services.indexing.main import IndexingService
 from pneuma_seeker.session_manager import SessionManager
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import setup_logger
@@ -41,6 +34,7 @@ from pneuma_seeker.shared.table_serializer import serialize_dataframe
 app = FastAPI(title="Pneuma-Seeker")
 
 app.include_router(auth.router)
+app.include_router(indexing.router)
 
 logger = setup_logger()
 config = Config("../../.env")
@@ -54,10 +48,6 @@ app.add_middleware(
 )
 
 session_manager = SessionManager(
-    config,
-    logger,
-)
-indexing_service = IndexingService(
     config,
     logger,
 )
@@ -237,21 +227,70 @@ async def read_combined_html(request: Request, user_id: str, chat_id: str, data:
     )
 
 
+@app.get(
+    "/combined/state/{user_id}/{chat_id}",
+    response_class=JSONResponse,
+    tags=[EndpointTag.CORE],
+)
+async def read_combined_state(user_id: str, chat_id: str):
+    conductor = session_manager.get_chat_session(user_id, chat_id).conductor
+    state = conductor.state.get_current_state_instance(config.TABLE_MAX_ROWS_DISPLAY)
+    if hasattr(state, "model_dump"):
+        state_payload = state.model_dump()
+    elif hasattr(state, "dict"):
+        state_payload = state.dict()
+    else:
+        state_payload = state
+
+    prov_steps: list[str] = ["**T** is not materialized yet."]
+    if conductor.state.is_T_materialized:
+        prov_explanation_steps_markdown = (
+            conductor.materializer.prov_graph.get_graph_explanation()
+        )
+        if prov_explanation_steps_markdown:
+            prov_steps = [str(step_md) for step_md in prov_explanation_steps_markdown]
+        else:
+            prov_steps = ["No materialization steps recorded for **T**."]
+
+    retrieved_tables = {
+        doc.doc_id: serialize_dataframe(doc.content, config.TABLE_MAX_ROWS_DISPLAY)
+        for doc in conductor.retrieved_tables
+    }
+
+    return JSONResponse(
+        content={
+            "state": state_payload,
+            "prov_steps": prov_steps,
+            "retrieved_tables": retrieved_tables,
+        }
+    )
+
+
 @app.post("/chat", tags=[EndpointTag.CORE])
-async def chat(request: Request):
+async def chat(request: Request, current_user: UserRecord = Depends(auth.get_current_user)):
     body: dict[str, Any] = await request.json()
-    user_id: str = body.get("user_id", "default_user")
-    chat_id: str = body.get("chat_id", "default_chat")
+    user_id = current_user.user_id
+    chat_id = body.get("chat_id", "default_chat")
+    user_group_id = current_user.group_id
     data_source: str | None = body.get("data_source")
-    messages = body.get("messages", [])
+    messages = body.get("messages")
+    latest_user_message: str | None = (
+        body.get("message") or body.get("user_message") or body.get("content")
+    )
     files = body.get("files", [])
 
     if data_source:
         config.DATA_SOURCES = [data_source]
 
-    llm_messages: list[LLMMessage] = []
-    for msg in messages:
-        llm_messages.append(LLMMessage(role=msg["role"], content=msg["content"]))
+    llm_messages: list[LLMMessage] | None = None
+    if latest_user_message is None and messages is not None:
+        llm_messages = [
+            LLMMessage(role=msg["role"], content=msg["content"])
+            for msg in messages
+        ]
+
+    if latest_user_message is None and llm_messages is None:
+        raise HTTPException(status_code=400, detail="Missing user message")
 
     chat_session = session_manager.get_chat_session(user_id, chat_id)
 
@@ -263,9 +302,17 @@ async def chat(request: Request):
 
         response_queue: Queue[str | None] = Queue()
 
+        def iter_chat_responses():
+            if latest_user_message is not None:
+                return chat_session.chat(
+                    external_data_paths=files,
+                    latest_user_message=latest_user_message,
+                )
+            return chat_session.chat(llm_messages, files)
+
         def run_chat():
             try:
-                for msg in chat_session.chat(llm_messages, files):
+                for msg in iter_chat_responses():
                     response_queue.put(msg)
             finally:
                 response_queue.put(None)
@@ -293,7 +340,7 @@ async def chat(request: Request):
             peak_rss = baseline_rss
 
             try:
-                for msg in chat_session.chat(llm_messages, files):
+                for msg in iter_chat_responses():
                     cur = rss_mb()
                     peak_rss = max(peak_rss, cur)
                     logger.info(f"[MEM] RSS now: {cur:.2f} MB")
@@ -347,6 +394,16 @@ async def chat(request: Request):
         event_stream(),
         media_type="application/x-ndjson",
     )
+
+
+@app.get("/chat/{user_id}/{chat_id}/history", tags=[EndpointTag.CORE])
+async def get_chat_history(user_id: str, chat_id: str):
+    chat_session = session_manager.get_chat_session(user_id, chat_id)
+    return {
+        "user_id": user_id,
+        "chat_id": chat_id,
+        "messages": chat_session.messages,
+    }
 
 
 @app.get("/all_tables/{user_id}/{chat_id}", tags=[EndpointTag.CORE])
@@ -412,65 +469,6 @@ def download_materializer_code(user_id: str, chat_id: str):
         media_type="application/octet-stream",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
-
-
-@app.post("/index", response_model=IndexDatasetResponse, tags=[EndpointTag.INDEXING])
-def index_dataset(
-    payload: IndexDatasetRequest,
-    background_tasks: BackgroundTasks,
-) -> IndexDatasetResponse:
-    schema_summaries_df: DataFrame | None = None
-    if payload.schema_summaries is not None:
-        schema_summaries_df = DataFrame(payload.schema_summaries)
-
-    try:
-        run_id = indexing_service.start_indexing_run(
-            dataset_name=payload.dataset_name,
-            connector_config=payload.connector_config,
-        )
-    except ValueError as exception:
-        raise HTTPException(status_code=400, detail=str(exception)) from exception
-    except RuntimeError as exception:
-        raise HTTPException(status_code=502, detail=str(exception)) from exception
-    except Exception as exception:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to start indexing: {exception}"
-        ) from exception
-
-    background_tasks.add_task(
-        indexing_service.run_indexing_job,
-        dataset_name=payload.dataset_name,
-        connector_config=payload.connector_config,
-        run_id=run_id,
-        schema_summaries=schema_summaries_df,
-        overwrite=payload.overwrite,
-    )
-
-    return IndexDatasetResponse(
-        run_id=run_id,
-        dataset_name=payload.dataset_name,
-        latest_metadata=indexing_service.get_latest_index_metadata(
-            payload.dataset_name
-        ),
-    )
-
-
-@app.get(
-    "/index/{dataset_name}/latest",
-    response_model=DatasetMetadataResponse,
-    tags=[EndpointTag.INDEXING],
-)
-def get_latest_metadata_endpoint(
-    dataset_name: str,
-) -> DatasetMetadataResponse:
-    metadata = indexing_service.get_latest_index_metadata(dataset_name)
-    if metadata is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No indexing metadata found for dataset '{dataset_name}'.",
-        )
-
-    return DatasetMetadataResponse(dataset_name=dataset_name, latest_metadata=metadata)
 
 
 def stream_payload(sender: str, text: str) -> str:
