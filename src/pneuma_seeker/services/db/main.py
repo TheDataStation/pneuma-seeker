@@ -64,20 +64,24 @@ class PneumaDB:
 
     @property
     def dataset_db_path(self) -> Path:
+        """Gets the path to the dataset database directory."""
         return self._dataset_db_path
 
     @dataset_db_path.setter
     def dataset_db_path(self, value: str | Path) -> None:
+        """Sets the path to the dataset database directory and updates the dataset manager."""
         self._dataset_db_path = Path(value)
         if hasattr(self, "dataset_manager"):
             self.dataset_manager.dataset_db_path = self._dataset_db_path
 
     @property
     def workspace_db_path(self) -> Path:
+        """Gets the path to the workspace database directory."""
         return self._workspace_db_path
 
     @workspace_db_path.setter
     def workspace_db_path(self, value: str | Path) -> None:
+        """Sets the path to the workspace database directory and updates the workspace manager."""
         self._workspace_db_path = Path(value)
         if hasattr(self, "workspace_manager"):
             self.workspace_manager.workspace_db_path = self._workspace_db_path
@@ -86,6 +90,7 @@ class PneumaDB:
     # Dataset Management
     # ------------------------------------------------------------------
     def get_dataset_connection(self, dataset_name: str, read_only: bool = True):
+        """Gets a connection to the specified dataset."""
         return self.dataset_manager.get_dataset_connection(dataset_name, read_only)
 
     def ingest_dataset(
@@ -95,19 +100,23 @@ class PneumaDB:
         metadata_path: str | None = None,
         overwrite: bool = True,
     ) -> None:
+        """Ingests a dataset from the specified path, with optional metadata."""
         self.dataset_manager.ingest_dataset(
             dataset_name, dataset_path, metadata_path, overwrite
         )
 
     def get_table_description(self, dataset_name: str, table_name: str) -> str:
+        """Gets the description of a table in the specified dataset."""
         return self.dataset_manager.get_table_description(dataset_name, table_name)
 
     def register_postgres_dataset(
         self, dataset_name: str, connection_string: str
     ) -> None:
+        """Registers a PostgreSQL dataset with the specified name and connection string."""
         self.dataset_manager.register_postgres_dataset(dataset_name, connection_string)
 
     def link_dataset_tables(self, user_id: str, chat_id: str, dataset_name: str):
+        """Links tables from the specified dataset into the user's workspace for the current chat session."""
         self.dataset_manager.link_dataset_tables(
             user_id, chat_id, dataset_name, self.get_ws_db_connection
         )
@@ -116,12 +125,15 @@ class PneumaDB:
     # Workspace DB Management
     # ------------------------------------------------------------------
     def get_ws_db_connection(self, user_id: str, chat_id: str):
+        """Gets a connection to the user's workspace database for the current chat session."""
         return self.workspace_manager.get_ws_db_connection(user_id, chat_id)
 
     def close_workspace_connection(self, user_id: str, chat_id: str):
+        """Closes the connection to the user's workspace database for the current chat session."""
         self.workspace_manager.close_workspace_connection(user_id, chat_id)
 
     def close_all_connections(self):
+        """Closes all database connections managed by the workspace manager."""
         self.workspace_manager.close_all_connections()
 
     # ------------------------------------------------------------------
@@ -130,6 +142,7 @@ class PneumaDB:
     def execute_query(
         self, user_id: str, chat_id: str, sql: str, sql_params: tuple = ()
     ) -> DataFrame:
+        """Executes a SQL query against the user's WS database for the current chat session and returns the results as a DataFrame."""
         return self.workspace_manager.execute_query(user_id, chat_id, sql, sql_params)
 
     # ------------------------------------------------------------------
@@ -138,6 +151,7 @@ class PneumaDB:
     def register_temporary_df(
         self, user_id: str, chat_id: str, df: DataFrame, table_name: str
     ):
+        """Registers a temporary DataFrame in the user's workspace database for the current chat session."""
         self.workspace_manager.register_temporary_df(user_id, chat_id, df, table_name)
 
     def persist_df(
@@ -148,6 +162,7 @@ class PneumaDB:
         table_name: str,
         overwrite_content: bool,
     ):
+        """Persists a DataFrame as a table in the user's workspace database for the current chat session, with an option to overwrite existing content."""
         self.workspace_manager.persist_df(
             user_id, chat_id, df, table_name, overwrite_content
         )
@@ -166,6 +181,7 @@ class PneumaDB:
         web_crawl_result: AbstractDocument | None = None,
         join_paths: str | None = None,
     ):
+        """Persists the current chat session state, including user input, system response, conductor state, provenance graph, retrieved tables, enumerated tables, web search results, web crawl results, and join paths."""
         self.workspace_manager.persist_session(
             user_id,
             chat_id,
@@ -181,6 +197,7 @@ class PneumaDB:
         )
 
     def load_chat_history(self, user_id: str, chat_id: str) -> list[LLMMessage]:
+        """Loads the chat history for the specified user and chat session, returning a list of LLMMessage objects representing the conversation history."""
         return self.workspace_manager.load_chat_history(user_id, chat_id)
 
     def load_session(
@@ -197,4 +214,5 @@ class PneumaDB:
         AbstractDocument | None,
         str | None,
     ]:
+        """Loads the entire chat session state for the specified user and chat session, including chat history, conductor state, provenance graph, retrieved tables, enumerated tables, web search results, web crawl results, and join paths."""
         return self.workspace_manager.load_session(user_id, chat_id)
