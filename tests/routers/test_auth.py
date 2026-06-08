@@ -33,17 +33,19 @@ class TestAuthRouter(unittest.TestCase):
             self.logger,
             (Path(self.tmpdir) / "users.db").as_posix(),
         )
+        self.test_user_db.init_db()
 
         self.app = FastAPI()
         self.app.include_router(auth.router)
 
-        self.app.dependency_overrides[auth.get_user_db] = lambda: self.test_user_db
+        self.original_user_db = auth.user_db
+        auth.user_db = self.test_user_db
 
         self.client = TestClient(self.app)
 
     def tearDown(self):
         self.app.dependency_overrides.clear()
-        
+        auth.user_db = self.original_user_db
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _register_and_login(self, email="user@example.com", password="password123"):

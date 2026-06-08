@@ -18,6 +18,121 @@ from pneuma_seeker.services.db.main import PneumaDB
 from pneuma_seeker.shared.config import Config
 
 
+class TestWorkspaceSessionDiscovery(unittest.TestCase):
+    """Tests for discovering, reading metadata, and paginating historical chat sessions."""
+
+    def setUp(self):
+        self.config = Config()
+        self.logger = logging.getLogger("test")
+        self.tmpdir = tempfile.mkdtemp()
+        
+        # PneumaDB wraps WorkspaceManager internally
+        self.db = PneumaDB(
+            logger=self.logger,
+            config=self.config,
+            dataset_db_path=(Path(self.tmpdir) / "datasets").as_posix(),
+            workspace_db_path=(Path(self.tmpdir) / "workspaces").as_posix(),
+        )
+
+    def tearDown(self):
+        self.db.close_all_connections()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _create_mock_session(self, user_id: str, chat_id: str, first_message: str):
+        """Helper to explicitly seed a workspace session with historical messages."""
+        state = ConductorState()
+        self.db.persist_session(
+            user_id=user_id,
+            chat_id=chat_id,
+            new_user_input=first_message,
+            new_system_response="Understood, executing processing pipeline.",
+            conductor_state=state,
+            provenance_graph=ProvenanceGraph(self.logger),
+            retrieved_tables=[],
+            enumerated_tables=[],
+        )
+        # Force close the connection so it does not reside in the active cache
+        self.db.close_workspace_connection(user_id, chat_id)
+
+    def test_get_user_chat_sessions_returns_metadata_sorted_by_recency(self):
+        """Tests that session discovery extracts correct titles and sorts descending by activity."""
+        user_id = "user_discovery_test"
+        
+        # 1. Seed historical sessions sequentially to guarantee distinct timestamps
+        self._create_mock_session(user_id, "chat_old", "Short prompt")
+        self._create_mock_session(user_id, "chat_new", "An exceptionally long prompt that exceeds twenty characters")
+
+        # 2. Discover sessions
+        result = self.db.get_user_chat_sessions(user_id=user_id, limit=10, offset=0)
+        chats = result["chats"]
+
+        # 3. Verify sorting, truncation, and structure
+        self.assertEqual(len(chats), 2)
+        self.assertFalse(result["has_more"])
+        self.assertIsNone(result["next_offset"])
+
+        # The most recently written session must appear first
+        self.assertEqual(chats[0]["id"], "chat_new")
+        self.assertEqual(chats[0]["title"], "An exceptionally lon...") # Verifies 20-character truncation logic
+        self.assertTrue(chats[0]["lastActive"].endswith("Z") or "T" in chats[0]["lastActive"])
+
+        # The older session must appear second
+        self.assertEqual(chats[1]["id"], "chat_old")
+        self.assertEqual(chats[1]["title"], "Short prompt")
+
+    def test_get_user_chat_sessions_pagination_boundaries(self):
+        """Tests that limit and offset windowing correctly segments results and reports remaining items."""
+        user_id = "user_pagination_test"
+        
+        # Seed three distinct sessions
+        self._create_mock_session(user_id, "chat_alpha", "First message text")
+        self._create_mock_session(user_id, "chat_beta", "Second message text")
+        self._create_mock_session(user_id, "chat_gamma", "Third message text")
+
+        # Page 1: Request a slice of size 2
+        page_1 = self.db.get_user_chat_sessions(user_id=user_id, limit=2, offset=0)
+        self.assertEqual(len(page_1["chats"]), 2)
+        self.assertTrue(page_1["has_more"])
+        self.assertEqual(page_1["next_offset"], 2)
+
+        # Page 2: Request the remainder using the next_offset
+        page_2 = self.db.get_user_chat_sessions(user_id=user_id, limit=2, offset=page_1["next_offset"])
+        self.assertEqual(len(page_2["chats"]), 1)
+        self.assertFalse(page_2["has_more"])
+        self.assertIsNone(page_2["next_offset"])
+
+        # Ensure no duplicate elements crossed the pagination boundary
+        page_1_ids = {session["id"] for session in page_1["chats"]}
+        page_2_ids = {session["id"] for session in page_2["chats"]}
+        self.assertTrue(page_1_ids.isdisjoint(page_2_ids))
+
+    def test_get_user_chat_sessions_handles_empty_or_corrupted_directories(self):
+        """Tests that scanning handles missing paths, empty directories, or invalid DB files without raising exceptions."""
+        user_id = "user_empty_test"
+
+        # Case A: User directory completely missing from disk
+        missing_result = self.db.get_user_chat_sessions(user_id=user_id)
+        self.assertEqual(missing_result["chats"], [])
+        self.assertFalse(missing_result["has_more"])
+
+        # Create the user directory for isolation
+        user_dir = self.db.workspace_db_path / user_id
+        user_dir.mkdir(parents=True, exist_ok=True)
+
+        # Case B: Chat subdirectories exist but contain no ws.db files, or contain zero bytes
+        empty_chat_dir = user_dir / "chat_empty"
+        empty_chat_dir.mkdir(exist_ok=True)
+        
+        corrupted_chat_dir = user_dir / "chat_corrupted"
+        corrupted_chat_dir.mkdir(exist_ok=True)
+        (corrupted_chat_dir / "ws.db").write_text("INVALID_DUCKDB_BINARY_DATA")
+
+        # Validate execution completes cleanly by passing over structural anomalies
+        resilience_result = self.db.get_user_chat_sessions(user_id=user_id)
+        self.assertEqual(resilience_result["chats"], [])
+        self.assertFalse(resilience_result["has_more"])
+
+
 class TestWorkspaceConnections(unittest.TestCase):
     """Tests for workspace database connection management."""
 

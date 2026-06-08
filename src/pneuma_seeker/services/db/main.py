@@ -1,6 +1,7 @@
 import os
 from logging import Logger
 from pathlib import Path
+from typing import Any
 
 from pandas import DataFrame
 
@@ -216,3 +217,7 @@ class PneumaDB:
     ]:
         """Loads the entire chat session state for the specified user and chat session, including chat history, conductor state, provenance graph, retrieved tables, enumerated tables, web search results, web crawl results, and join paths."""
         return self.workspace_manager.load_session(user_id, chat_id)
+
+    def get_user_chat_sessions(self, user_id: str, limit: int = 10, offset: int = 0) -> dict[str, Any]:
+        """Gets a list of chat sessions for the specified user."""
+        return self.workspace_manager.get_user_chat_sessions(user_id, limit, offset)

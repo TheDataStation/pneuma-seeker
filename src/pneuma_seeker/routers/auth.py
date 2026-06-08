@@ -3,7 +3,15 @@ from logging import Logger
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from pneuma_seeker.models import EndpointTag, GroupCreateRequest, GroupResponse, LoginRequest, RegisterRequest, TokenResponse, UserResponse
+from pneuma_seeker.models import (
+    EndpointTag,
+    GroupCreateRequest,
+    GroupResponse,
+    LoginRequest,
+    RegisterRequest,
+    TokenResponse,
+    UserResponse,
+)
 from pneuma_seeker.services.db.users.manager import GroupRecord, UserDB, UserRecord
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import setup_logger
@@ -15,23 +23,9 @@ router = APIRouter(
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
-
-def get_config() -> Config:
-    """Returns a Config instance initialized from the .env file."""
-    return Config("../../../.env")
-
-
-def get_logger() -> Logger:
-    """Returns a Logger instance for the Auth Router."""
-    return setup_logger("Auth Router")
-
-
-def get_user_db(
-    config: Config = Depends(get_config), 
-    logger: Logger = Depends(get_logger)
-) -> UserDB:
-    """Returns a UserDB instance initialized with the provided Config and Logger."""
-    return UserDB(config, logger)
+config = Config("../../../.env")
+logger = setup_logger("Auth Router")
+user_db = UserDB(config, logger)
 
 
 def _group_to_response(group: GroupRecord | None) -> GroupResponse | None:
@@ -75,8 +69,7 @@ def _get_token(
 
 
 def get_current_user(
-    token: str = Depends(_get_token), 
-    user_db: UserDB = Depends(get_user_db)
+    token: str = Depends(_get_token),
 ) -> UserRecord:
     """Validates the token and returns the associated user, or raises an HTTPException if invalid."""
     user = user_db.get_user_by_token(token)
@@ -89,7 +82,9 @@ def get_current_user(
 
 
 @router.post("/register", response_model=UserResponse)
-def register(payload: RegisterRequest, user_db: UserDB = Depends(get_user_db)):
+def register(
+    payload: RegisterRequest,
+):
     """Registers a new user, ensuring the email is unique and the group (if provided) exists."""
     if payload.group_id:
         group = user_db.get_group_by_id(payload.group_id)
@@ -112,7 +107,9 @@ def register(payload: RegisterRequest, user_db: UserDB = Depends(get_user_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, user_db: UserDB = Depends(get_user_db)):
+def login(
+    payload: LoginRequest,
+):
     """Authenticates the user and returns a session token if successful, or raises an HTTPException if invalid."""
     user = user_db.verify_user(payload.email, payload.password)
     if not user:
@@ -133,7 +130,6 @@ def login(payload: LoginRequest, user_db: UserDB = Depends(get_user_db)):
 def logout(
     token: str = Depends(_get_token),
     _user: UserRecord = Depends(get_current_user),
-    user_db: UserDB = Depends(get_user_db),
 ):
     """Revokes the user's session token, effectively logging them out."""
     user_db.revoke_token(token)
@@ -142,8 +138,7 @@ def logout(
 
 @router.get("/me", response_model=UserResponse)
 def me(
-    current_user: UserRecord = Depends(get_current_user), 
-    user_db: UserDB = Depends(get_user_db)
+    current_user: UserRecord = Depends(get_current_user),
 ):
     """Returns the current authenticated user's information, or raises an HTTPException if the token is invalid."""
     return _user_to_response(current_user, user_db)
@@ -153,7 +148,6 @@ def me(
 def create_group(
     payload: GroupCreateRequest,
     _current_user: UserRecord = Depends(get_current_user),
-    user_db: UserDB = Depends(get_user_db),
 ):
     """Creates a new group, ensuring the parent group (if provided) exists, and returns the created group's information."""
     if payload.parent_group_id:
@@ -182,7 +176,6 @@ def create_group(
 @router.get("/groups", response_model=list[GroupResponse])
 def list_groups(
     _current_user: UserRecord = Depends(get_current_user),
-    user_db: UserDB = Depends(get_user_db),
 ):
     """Returns a list of all groups, or raises an HTTPException if the user is not authenticated."""
     return [_group_to_response(group) for group in user_db.list_groups()]

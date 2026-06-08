@@ -1,6 +1,7 @@
 import os
 from logging import Logger
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 import duckdb
@@ -687,6 +688,86 @@ class WorkspaceManager:
             web_crawl_result,
             join_paths,
         )
+
+    def get_user_chat_sessions(
+        self, user_id: str, limit: int = 10, offset: int = 0
+    ) -> dict[str, Any]:
+        """
+        Scans the user directory for active chat databases, inspects their 
+        metadata from the chat_history table, and returns a paginated list 
+        ordered by the most recent activity.
+        """
+        user_dir = self.workspace_db_path / user_id
+        if not user_dir.exists() or not user_dir.is_dir():
+            return {"chats": [], "has_more": False, "next_offset": None}
+
+        all_sessions = []
+
+        # Iterate over all chat_id directories for the given user
+        for chat_dir in user_dir.iterdir():
+            if chat_dir.is_dir():
+                db_file = chat_dir / "ws.db"
+                if db_file.exists():
+                    chat_id = chat_dir.name
+                    try:
+                        # Open connection transiently to read metadata
+                        con = None
+                        try:
+                            con = duckdb.connect(database=db_file.as_posix())
+                            
+                            # Fetch the first message content for the title and the max timestamp for activity
+                            query = """
+                                SELECT 
+                                    (SELECT content FROM chat_history ORDER BY creation_timestamp ASC LIMIT 1) as first_msg,
+                                    (SELECT MAX(creation_timestamp) FROM chat_history) as last_active
+                                FROM chat_history 
+                                LIMIT 1;
+                            """
+                            res = con.execute(query).fetchone()
+                        finally:
+                            if con:
+                                con.close()
+
+                        if res and res[0] is not None:
+                            content = res[0]
+                            # Mimic the frontend title generation logic
+                            title = f"{content[:20]}..." if len(content) > 20 else content
+                            
+                            # Standardize timestamp to ISO 8601 string format
+                            last_active_dt = res[1]
+                            last_active_str = (
+                                last_active_dt.isoformat() + "Z" 
+                                if hasattr(last_active_dt, "isoformat") 
+                                else str(last_active_dt)
+                            )
+
+                            all_sessions.append({
+                                "id": chat_id,
+                                "title": title,
+                                "lastActive": last_active_str,
+                                "_sort_ts": last_active_dt # Keep datetime reference for sorting
+                            })
+                    except Exception as e:
+                        self.__log(f"Failed to extract session metadata from {db_file}: {e}")
+                        continue
+
+        # Sort all sessions descending by their last active timestamp
+        all_sessions.sort(key=lambda x: x["_sort_ts"], reverse=True)
+
+        # Clean up internal sorting helpers before slicing
+        for session in all_sessions:
+            session.pop("_sort_ts", None)
+
+        # Apply pagination slicing
+        sliced_sessions = all_sessions[offset : offset + limit]
+        has_more = len(all_sessions) > (offset + limit)
+        next_offset = offset + limit if has_more else None
+
+        return {
+            "chats": sliced_sessions,
+            "has_more": has_more,
+            "next_offset": next_offset,
+        }
 
     def __load_documents_by_role(
         self,

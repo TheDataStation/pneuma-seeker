@@ -16,6 +16,7 @@ from fastapi.responses import (
 
 from pneuma_seeker.models import EndpointTag
 from pneuma_seeker.routers.auth import get_current_user
+from pneuma_seeker.services.db.main import PneumaDB
 from pneuma_seeker.services.db.users.models import UserRecord
 from pneuma_seeker.session_manager import SessionManager
 from pneuma_seeker.shared.config import Config
@@ -29,9 +30,11 @@ router = APIRouter(
 
 config = Config("../../../.env")
 logger = setup_logger("Chat Router")
+pneuma_db = PneumaDB(config, logger)
 session_manager = SessionManager(
     config,
     logger,
+    pneuma_db,
 )
 
 
@@ -343,6 +346,32 @@ async def get_provenance_nodes(
             "nodes": nodes_json,
         }
     )
+
+
+@router.get("/sessions", response_class=JSONResponse)
+async def list_chats(
+    limit: int = 10,
+    offset: int = 0,
+    current_user: UserRecord = Depends(get_current_user),
+):
+    """
+    Endpoint to retrieve a paginated list of chat sessions for the authenticated user,
+    ordered by their last active timestamp.
+    """
+    logger.info(f"Listing chat sessions for user {current_user.user_id} with limit={limit} and offset={offset}")
+    try:
+        result = pneuma_db.get_user_chat_sessions(
+            user_id=current_user.user_id,
+            limit=limit,
+            offset=offset,
+        )
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.info(f"Error listing chat sessions: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="An error occurred while retrieving chat sessions.",
+        )
 
 
 def stream_payload(sender: str, text: str) -> str:

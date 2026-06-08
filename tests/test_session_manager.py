@@ -19,7 +19,8 @@ class SessionManagerTests(unittest.TestCase):
         self._orig_chat_session = getattr(sm_mod, "ChatSession", None)
         sm_mod.ChatSession = MagicMock(side_effect=lambda *a, **k: MagicMock())
 
-        self.sm = SessionManager(self.cfg, self.logger)
+        self.pneuma_db = MagicMock()
+        self.sm = SessionManager(self.cfg, self.logger, self.pneuma_db)
 
     def test_get_chat_session_returns_same_instance_for_same_keys(self):
         s1 = self.sm.get_chat_session("user1", "chat1")
