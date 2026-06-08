@@ -3,7 +3,7 @@ from logging import Logger
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from pneuma_seeker.model import EndpointTag, GroupCreateRequest, GroupResponse, LoginRequest, RegisterRequest, TokenResponse, UserResponse
+from pneuma_seeker.models import EndpointTag, GroupCreateRequest, GroupResponse, LoginRequest, RegisterRequest, TokenResponse, UserResponse
 from pneuma_seeker.services.db.users.manager import GroupRecord, UserDB, UserRecord
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import setup_logger

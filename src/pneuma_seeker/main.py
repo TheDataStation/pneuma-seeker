@@ -22,7 +22,7 @@ from fastapi.templating import Jinja2Templates
 from markdown import markdown
 from markdown2 import markdown as markdown_2
 
-from pneuma_seeker.model import EndpointTag
+from pneuma_seeker.models import EndpointTag
 from pneuma_seeker.routers import auth, indexing
 from pneuma_seeker.services.db.users.manager import UserRecord
 from pneuma_seeker.session_manager import SessionManager

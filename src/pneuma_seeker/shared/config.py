@@ -91,3 +91,9 @@ class Config:
         self.ENABLE_FINE_GRAINED_STATE_CHANGE_TRACKING = (
             getenv("ENABLE_FINE_GRAINED_STATE_CHANGE_TRACKING", "false").lower() == "true"
         )
+
+        # Auth Settings
+        self.AUTH_TOKEN_TTL_SECONDS = int(getenv("AUTH_TOKEN_TTL_SECONDS", "36000"))
+        self.AUTH_PASSWORD_HASH_ITERATIONS = int(
+            getenv("AUTH_PASSWORD_HASH_ITERATIONS", "200000")
+        )

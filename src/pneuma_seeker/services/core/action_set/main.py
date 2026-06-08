@@ -410,7 +410,7 @@ class ActionSet:
         top_k: int = 3,
         delimiter: str = " [SEP] ",
         embed_batch_size: int = 30,
-        syntactic_sim_metric: SyntacticSimMetric = SyntacticSimMetric.EDIT_DIST,
+        syntactic_sim_metric: SyntacticSimMetric = SyntacticSimMetric.JACCARD_QGRAM,
         use_llm: bool = False,
     ) -> DataFrame:
         return self.semantic_join.apply(

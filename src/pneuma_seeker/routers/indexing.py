@@ -3,7 +3,7 @@ from logging import Logger
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pandas import DataFrame
 
-from pneuma_seeker.model import DatasetMetadataResponse, EndpointTag, IndexDatasetRequest, IndexDatasetResponse
+from pneuma_seeker.models import DatasetMetadataResponse, EndpointTag, IndexDatasetRequest, IndexDatasetResponse
 from pneuma_seeker.services.indexing.main import IndexingService
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import setup_logger

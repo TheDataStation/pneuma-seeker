@@ -134,6 +134,10 @@ class DBAPI:
             join_paths,
         )
 
+    def load_chat_history(self, user_id: str, chat_id: str) -> list[LLMMessage]:
+        """Loads persisted chat messages for the workspace."""
+        return self.pneuma_db.load_chat_history(user_id, chat_id)
+
     def load_session(
         self,
         user_id: str,
