@@ -21,8 +21,8 @@ def get_config() -> Config:
 
 
 def get_logger() -> Logger:
-    """Returns a Logger instance for the Auth Router."""
-    return setup_logger("Auth Router")
+    """Returns a Logger instance for the Indexing Router."""
+    return setup_logger("Indexing Router")
 
 
 def get_indexing_service(
