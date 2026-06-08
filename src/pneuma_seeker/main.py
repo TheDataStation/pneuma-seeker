@@ -10,7 +10,7 @@ from typing import Any
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from anyio import to_thread
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import (
     FileResponse,
@@ -29,6 +29,8 @@ from pneuma_seeker.model import (
     IndexDatasetRequest,
     IndexDatasetResponse,
 )
+from pneuma_seeker.routers import auth
+from pneuma_seeker.services.db.users.manager import UserRecord
 from pneuma_seeker.services.indexing.main import IndexingService
 from pneuma_seeker.session_manager import SessionManager
 from pneuma_seeker.shared.config import Config
@@ -37,6 +39,9 @@ from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.table_serializer import serialize_dataframe
 
 app = FastAPI(title="Pneuma-Seeker")
+
+app.include_router(auth.router)
+
 logger = setup_logger()
 config = Config("../../.env")
 

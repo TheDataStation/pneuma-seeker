@@ -106,6 +106,7 @@ class UserDB:
 
     def _ensure_default_group(self) -> str:
         """Ensures the default group exists and returns its ID."""
+        self.__log("Ensuring default group exists")
         existing = self.get_group_by_name("default")
         if existing:
             return existing.group_id
@@ -113,6 +114,7 @@ class UserDB:
 
     def _hash_password(self, password: str) -> tuple[str, str, int]:
         """Hashes the password using PBKDF2 with a random salt and returns the hash, salt, and iteration count."""
+        self.__log("Hashing password")
         iterations = max(100_000, self.config.AUTH_PASSWORD_HASH_ITERATIONS)
         salt = secrets.token_bytes(16)
         derived = pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
@@ -122,6 +124,7 @@ class UserDB:
         self, password: str, hash_hex: str, salt_hex: str, iterations: int
     ) -> bool:
         """Verifies the password by hashing it with the provided salt and iterations, and comparing it to the stored hash."""
+        self.__log(f"Verifying password")
         derived = pbkdf2_hmac(
             "sha256",
             password.encode("utf-8"),
@@ -132,10 +135,12 @@ class UserDB:
 
     def _normalize_email(self, email: str) -> str:
         """Normalizes the email by stripping whitespace and converting to lowercase."""
+        self.__log(f"Normalizing email: {email}")
         return email.strip().lower()
 
     def create_group(self, name: str, parent_group_id: str | None = None) -> str:
         """Creates a new group, ensuring the parent group (if provided) exists, and returns the created group's ID. The group name must be unique (case-insensitive), and cannot be empty or whitespace."""
+        self.__log(f"Creating group with name: {name}")
         name = name.strip()
         if not name:
             raise ValueError("Group name is required")
@@ -162,6 +167,7 @@ class UserDB:
 
     def get_group_by_name(self, name: str) -> GroupRecord | None:
         """Returns the group's record by name, or None if not found."""
+        self.__log(f"Retrieving group by name: {name}")
         con = self._get_connection()
         try:
             row = con.execute(
@@ -180,6 +186,7 @@ class UserDB:
 
     def get_group_by_id(self, group_id: str) -> GroupRecord | None:
         """Returns the group's record by ID, or None if not found."""
+        self.__log(f"Retrieving group by ID: {group_id}")
         con = self._get_connection()
         try:
             row = con.execute(
@@ -198,6 +205,7 @@ class UserDB:
 
     def list_groups(self) -> list[GroupRecord]:
         """Returns a list of all groups."""
+        self.__log("Listing all groups")
         con = self._get_connection()
         try:
             rows = con.execute(
@@ -216,6 +224,7 @@ class UserDB:
 
     def list_group_ancestors(self, group_id: str) -> list[GroupRecord]:
         """Returns the group lineage from root-most parent to the requested group."""
+        self.__log(f"Listing group ancestors for group_id: {group_id}")
         lineage: list[GroupRecord] = []
         seen: set[str] = set()
         current = self.get_group_by_id(group_id)
@@ -235,6 +244,7 @@ class UserDB:
         self, group_id: str, permission_key: str, permission_value: str
     ) -> GroupPermissionRecord:
         """Sets a permission for the given group, creating or updating the record as needed. The group_id must exist, and the permission_key must be a non-empty string."""
+        self.__log(f"Setting permission for group_id: {group_id}")
         if not self.get_group_by_id(group_id):
             raise ValueError("Group not found")
         permission_key = permission_key.strip()
@@ -266,6 +276,7 @@ class UserDB:
 
     def get_group_permissions(self, group_id: str) -> dict[str, str]:
         """Returns the permissions directly assigned to the given group as a dictionary of key-value pairs."""
+        self.__log(f"Retrieving permissions for group_id: {group_id}")
         con = self._get_connection()
         try:
             rows = con.execute(
@@ -288,6 +299,7 @@ class UserDB:
         Parent permissions are applied first; child permissions with the same key
         override their ancestors.
         """
+        self.__log(f"Calculating effective permissions for group_id: {group_id}")
         effective: dict[str, str] = {}
         for group in self.list_group_ancestors(group_id):
             effective.update(self.get_group_permissions(group.group_id))
@@ -301,6 +313,7 @@ class UserDB:
         group_id: str | None = None,
     ) -> UserRecord:
         """Creates a new user with the given email and password, optionally assigning them to a group. The email must be unique (case-insensitive), and the group_id must exist if provided. The password is hashed securely before storage."""
+        self.__log(f"Creating user with email: {email}")
         email = self._normalize_email(email)
         username = username or email
         group_id = group_id or self._ensure_default_group()
@@ -350,6 +363,7 @@ class UserDB:
 
     def get_user_by_email(self, email: str) -> UserRecord | None:
         """Returns the user's record by email, or None if not found."""
+        self.__log(f"Retrieving user with email: {email}")
         email = self._normalize_email(email)
         con = self._get_connection()
         try:
@@ -375,6 +389,7 @@ class UserDB:
 
     def get_user_with_password(self, email: str) -> dict[str, Any] | None:
         """Returns the user's record including password hash and salt, or None if not found."""
+        self.__log(f"Retrieving user with email: {email}")
         email = self._normalize_email(email)
         con = self._get_connection()
         try:
@@ -403,6 +418,7 @@ class UserDB:
 
     def verify_user(self, email: str, password: str) -> UserRecord | None:
         """Verifies the user's credentials and returns their record if valid, or None if invalid."""
+        self.__log(f"Verifying user with email: {email}")
         record = self.get_user_with_password(email)
         if not record:
             return None
@@ -425,6 +441,7 @@ class UserDB:
 
     def create_session_token(self, user_id: str) -> dict[str, Any]:
         """Creates a new session token for the user, stores it in the database with an expiration time, and returns the token information."""
+        self.__log(f"Creating session token for user_id: {user_id}")
         token = secrets.token_urlsafe(32)
         expires_at = datetime.now(UTC) + timedelta(
             seconds=self.config.AUTH_TOKEN_TTL_SECONDS
@@ -448,6 +465,7 @@ class UserDB:
 
     def get_user_by_token(self, token: str) -> UserRecord | None:
         """Returns the user associated with the given session token if it's valid and not expired, or None if the token is invalid or expired. Expired tokens are also removed from the database."""
+        self.__log(f"Validating token: {token}")
         now = datetime.now(UTC)
         con = self._get_connection()
         try:
@@ -481,8 +499,13 @@ class UserDB:
 
     def revoke_token(self, token: str) -> None:
         """Revokes the given session token by removing it from the database."""
+        self.__log(f"Revoking token: {token}")
         con = self._get_connection()
         try:
             con.execute("DELETE FROM auth_tokens WHERE token = ?;", (token,))
         finally:
             con.close()
+
+    def __log(self, message: str):
+        """Helper logging method."""
+        self.logger.info(f"[UserDB] {message}")
