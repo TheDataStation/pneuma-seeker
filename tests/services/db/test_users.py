@@ -89,8 +89,6 @@ class TestUserDBUsers(unittest.TestCase):
 
         assert record is not None
 
-        print(f"DEBUGGY; password_hash: {record['password_hash']}")
-
         self.assertNotEqual(record["password_hash"], "password123")
         self.assertIsNotNone(self.db.verify_user("hash@example.com", "password123"))
         self.assertIsNone(self.db.verify_user("hash@example.com", "wrong-password"))
