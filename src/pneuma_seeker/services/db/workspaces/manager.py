@@ -117,6 +117,7 @@ class WorkspaceManager:
                     );
                 """
             )
+            
             con.execute(
                 """
                     CREATE TABLE IF NOT EXISTS document_metadata (
@@ -128,6 +129,7 @@ class WorkspaceManager:
                     );
                 """
             )
+            
             con.execute(
                 """
                     CREATE TABLE IF NOT EXISTS state_document_roles (
@@ -191,7 +193,7 @@ class WorkspaceManager:
         self, user_id: str, chat_id: str, sql: str, sql_params: tuple = ()
     ) -> DataFrame:
         """
-        Execute SQL in the context of the workspace DB connection.
+        Executes SQL in the context of the workspace DB connection.
         Note: workspace connection is cached so ATTACH persists between calls.
         """
         ws_db_con = self.get_ws_db_connection(user_id, chat_id)
