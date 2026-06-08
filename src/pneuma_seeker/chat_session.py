@@ -1,4 +1,4 @@
-# backend/services/core-service/src/core_service/chat_session.py
+# src/pneuma_seeker/chat_session.py
 from logging import Logger
 
 from pneuma_seeker.provenance.graph import ProvenanceGraph
@@ -31,9 +31,6 @@ class ChatSession:
         self.db_api = db_api
         self.language_model_api = language_model_api
         self.messages: list[LLMMessage] = []
-        self.__last_user_input: str = ""
-        self.__last_system_response: str = ""
-
         self.conductor = Conductor(
             self.user_id,
             self.chat_id,
@@ -69,41 +66,52 @@ class ChatSession:
 
     def chat(
         self,
-        messages: list[LLMMessage] | None = None,
+        latest_user_message: str,
         external_data_paths: list[str] | None = None,
     ):
         """Processes chat messages and yields responses from the Conductor."""
         external_data_paths = external_data_paths or []
         interaction_history: list[UserConductorInteraction] = []
 
-        if not messages and len(self.messages) == 0:
-            raise ValueError("No messages provided for chat session.")
-        if not messages:
-            messages = self.messages
-        else:
-            self.messages = messages
+        latest_user_message = latest_user_message.strip()
+        if not latest_user_message:
+            raise ValueError("No user message provided for chat session.")
+        
+        self.messages.append(
+            LLMMessage(
+                role=Role.USER.value,
+                content=latest_user_message,
+            )
+        )
 
-        self.__last_user_input = messages[-1]["content"]
-        for i in range(0, len(messages) - 1, 2):
+        for i in range(0, len(self.messages) - 1, 2):
             if (
-                messages[i]["role"] == Role.USER.value
-                and messages[i + 1]["role"] == Role.ASSISTANT.value
+                self.messages[i]["role"] == Role.USER.value
+                and self.messages[i + 1]["role"] == Role.ASSISTANT.value
             ):
                 interaction_history.append(
                     UserConductorInteraction(
-                        messages[i]["content"],
-                        messages[i + 1]["content"],
+                        self.messages[i]["content"],
+                        self.messages[i + 1]["content"],
                     )
                 )
 
+        full_response = ""
         for conductor_response in self.conductor.chat(
-            messages[-1]["content"],
+            latest_user_message,
             interaction_history,
             external_data_paths,
         ):
-            self.__last_system_response = conductor_response
+            full_response = conductor_response
             yield conductor_response
 
+        if full_response:
+            self.messages.append(
+                LLMMessage(
+                    role=Role.ASSISTANT.value,
+                    content=full_response,
+                )
+            )
         yield "DONE"
 
     def persist_session(self):
@@ -111,11 +119,24 @@ class ChatSession:
         try:
             self.__log(f"Persisting session...")
             self.__log(f"=> Number of provenance nodes: {len(self.conductor.prov_graph.nodes)}")
+
+            last_user_input = ""
+            last_system_response = ""
+            if self.messages:
+                # If the last message is from the assistant, the one before it was the user prompt
+                if self.messages[-1]["role"] == Role.ASSISTANT.value:
+                    last_system_response = self.messages[-1]["content"]
+                    if len(self.messages) > 1:
+                        last_user_input = self.messages[-2]["content"]
+                # If it cut off right after the user sent something, but before assistant finished
+                elif self.messages[-1]["role"] == Role.USER.value:
+                    last_user_input = self.messages[-1]["content"]
+
             self.db_api.persist_session(
                 self.user_id,
                 self.chat_id,
-                self.__last_user_input,
-                self.__last_system_response,
+                last_user_input,
+                last_system_response,
                 self.conductor.state,
                 self.conductor.prov_graph,
                 self.conductor.retrieved_tables,
