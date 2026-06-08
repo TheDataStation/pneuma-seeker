@@ -27,6 +27,7 @@ class TestUserDBUsers(unittest.TestCase):
         self.tmpdir = tempfile.mkdtemp()
         self.users_db_path = Path(self.tmpdir) / "users.db"
         self.db = UserDB(self.config, self.logger, self.users_db_path.as_posix())
+        self.db.init_db()
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
@@ -122,6 +123,7 @@ class TestUserDBGroups(unittest.TestCase):
             self.logger,
             (Path(self.tmpdir) / "users.db").as_posix(),
         )
+        self.db.init_db()
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
@@ -196,6 +198,7 @@ class TestUserDBTokens(unittest.TestCase):
             self.logger,
             (Path(self.tmpdir) / "users.db").as_posix(),
         )
+        self.db.init_db()
         self.user = self.db.create_user("token@example.com", "password123")
 
     def tearDown(self):

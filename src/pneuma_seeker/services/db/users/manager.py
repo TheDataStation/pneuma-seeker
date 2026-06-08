@@ -33,6 +33,9 @@ class UserDB:
             self.users_db_path = Path(__file__).resolve().parent / "users.db"
 
         os.makedirs(self.users_db_path.parent, exist_ok=True)
+    
+    def init_db(self) -> None:
+        """Initializes schema and default settings. Call this ONLY once on app startup."""
         self._init_schema()
 
     def _get_connection(self) -> duckdb.DuckDBPyConnection:
