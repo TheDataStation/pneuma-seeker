@@ -6,6 +6,8 @@ from pneuma_seeker.services.language_model.impl.azure_openai_embed_model import 
 )
 from pneuma_seeker.services.language_model.impl.azure_openai_llm import AzureOpenAILLM
 from pneuma_seeker.services.language_model.impl.embed_model import EmbeddingModel
+from pneuma_seeker.services.language_model.impl.claude_llm import ClaudeLLM
+from pneuma_seeker.services.language_model.impl.gemini_llm import GeminiLLM
 from pneuma_seeker.services.language_model.impl.mock_embed_model import MockEmbedModel
 from pneuma_seeker.services.language_model.impl.mock_llm import MockLLM
 from pneuma_seeker.services.language_model.impl.ollama_embed_model import OllamaEmbedModel
@@ -30,6 +32,8 @@ def get_llm(config: Config) -> Type[AbstractModel]:
         return OpenAILLM
     elif "gemini" in normalized_model_path:
         return GeminiLLM
+    elif "claude" in normalized_model_path:
+        return ClaudeLLM
     elif "mock" in normalized_model_path:
         return MockLLM
     elif "ollama" in normalized_model_path:

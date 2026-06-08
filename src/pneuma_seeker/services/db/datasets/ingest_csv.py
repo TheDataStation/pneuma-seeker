@@ -9,6 +9,7 @@ from tqdm import tqdm
 
 def clean_column_table_name(name):
     """Cleans and normalizes column/table names."""
+    name = name.strip()
     name = name.lower()
     # Semantic replacements
     name = name.replace("$", "usd")
@@ -40,7 +41,7 @@ def dedupe_columns(cols):
     return result
 
 
-DATASET_NAME = "legal"
+DATASET_NAME = "proc_spend"
 DATASET_PATH = f"../../../../../data_src/{DATASET_NAME}/dataset"
 OVERWRITE_DB = True
 
@@ -77,15 +78,20 @@ else:
                 cleaned_cols = dedupe_columns(
                     [clean_column_table_name(c) for c in original_cols]
                 )
-                select_clause = ", ".join(
-                    f'"{orig}" AS "{cleaned}"'
-                    for orig, cleaned in zip(original_cols, cleaned_cols)
+
+                # 1. Create a clean mapping dictionary for DuckDB to use
+                #    e.g., {'School_ID': 'school_id', 'Legacy_Unit_ID': 'legacy_unit_id'}
+                mapping_dict = dict(zip(original_cols, cleaned_cols))
+
+                # 2. Use DuckDB's RENAME modifier to map original names to cleaned names
+                rename_clause = ", ".join(
+                    f'"{orig}" AS "{cleaned}"' for orig, cleaned in mapping_dict.items()
                 )
 
                 dataset_con.execute(
                     f"""
                     CREATE OR REPLACE TABLE "{cleaned_table_name}" AS
-                    SELECT {select_clause}
+                    SELECT * RENAME ({rename_clause})
                     FROM read_csv_auto(
                         '{file_path}',
                         HEADER=TRUE,
