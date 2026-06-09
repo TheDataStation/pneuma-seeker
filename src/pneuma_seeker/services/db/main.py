@@ -121,6 +121,10 @@ class PneumaDB:
         self.dataset_manager.link_dataset_tables(
             user_id, chat_id, dataset_name, self.get_ws_db_connection
         )
+    
+    def get_accessible_local_datasets(self, is_admin: bool, group_permissions: dict[str, str]) -> list[str]:
+        """Gets a list of local datasets accessible to the user based on their admin status and group permissions."""
+        return self.dataset_manager.get_accessible_local_datasets(is_admin, group_permissions)
 
     # ------------------------------------------------------------------
     # Workspace DB Management

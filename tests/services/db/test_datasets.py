@@ -1,3 +1,4 @@
+# tests/services/db/test_datasets.py
 import csv
 import logging
 import os
@@ -14,6 +15,7 @@ sys.path.insert(
     0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../src"))
 )
 
+from pneuma_seeker.models import PermissionKey
 from pneuma_seeker.services.db.main import PneumaDB
 from pneuma_seeker.shared.config import Config
 
@@ -418,6 +420,76 @@ class TestPostgresDatasetLinking(unittest.TestCase):
 
         with self.assertRaises(FileNotFoundError):
             self.db.link_dataset_tables("u", "c", "local_ds")
+
+
+class TestGetAccessibleLocalDatasets(unittest.TestCase):
+    """Tests for the get_accessible_local_datasets function."""
+
+    def setUp(self):
+        self.config = Config()
+        self.logger = logging.getLogger("test")
+        self.tmpdir = tempfile.mkdtemp()
+        self.db = PneumaDB(logger=self.logger, config=self.config)
+        self.db.dataset_db_path = Path(self.tmpdir) / "datasets"
+        self.db.dataset_db_path.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.db.close_all_connections()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _create_mock_dataset_db(self, dataset_name: str):
+        """Helper to physically create a dummy .db file structure."""
+        ds_dir = self.db.dataset_db_path / dataset_name
+        ds_dir.mkdir(parents=True, exist_ok=True)
+        db_file = ds_dir / f"{dataset_name}.db"
+        db_file.write_text("dummy sqlite/duckdb content")
+        return db_file
+
+    def test_admin_returns_all_existing_datasets(self):
+        """Tests that an admin user can see all datasets that have a matching .db file."""
+        self._create_mock_dataset_db("ds_alpha")
+        self._create_mock_dataset_db("ds_beta")
+        
+        # Create an empty directory without a .db file to ensure it's filtered out
+        (self.db.dataset_db_path / "empty_dir").mkdir(parents=True, exist_ok=True)
+
+        accessible = self.db.get_accessible_local_datasets(is_admin=True, group_permissions={})
+        
+        self.assertEqual(len(accessible), 2)
+        self.assertIn("ds_alpha", accessible)
+        self.assertIn("ds_beta", accessible)
+        self.assertNotIn("empty_dir", accessible)
+
+    def test_non_admin_with_valid_permissions(self):
+        """Tests that a non-admin user only sees datasets they have explicit prefix matching permissions for."""
+        self._create_mock_dataset_db("ds_allowed")
+        self._create_mock_dataset_db("ds_denied")
+
+        group_perms = {
+            f"{PermissionKey.DATASET_ACCESS_PREFIX.value}:ds_allowed": "read",
+            "other_unrelated_permission": "write"
+        }
+
+        accessible = self.db.get_accessible_local_datasets(is_admin=False, group_permissions=group_perms)
+
+        self.assertEqual(accessible, ["ds_allowed"])
+
+    def test_non_admin_with_valid_permission_but_missing_db_file(self):
+        """Tests that even if a user has a permission key, the dataset is omitted if the file doesn't exist."""
+        # Permission exists, but the physical file does NOT
+        group_perms = {
+            f"{PermissionKey.DATASET_ACCESS_PREFIX.value}:ds_ghost": "read"
+        }
+
+        accessible = self.db.get_accessible_local_datasets(is_admin=False, group_permissions=group_perms)
+        self.assertEqual(accessible, [])
+
+    def test_non_admin_with_no_permissions(self):
+        """Tests that a non-admin user with empty permissions gets an empty list back."""
+        self._create_mock_dataset_db("ds_alpha")
+        
+        accessible = self.db.get_accessible_local_datasets(is_admin=False, group_permissions={})
+        self.assertEqual(accessible, [])
 
 
 if __name__ == "__main__":
