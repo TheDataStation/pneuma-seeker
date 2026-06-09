@@ -109,6 +109,74 @@ class TestUserDBUsers(unittest.TestCase):
 
         self.assertIsNone(self.db.verify_user("inactive@example.com", "password123"))
 
+    def test_update_user_fields_succeeds(self):
+        """Updating valid single or multiple fields on an existing user should apply changes correctly."""
+        user = self.db.create_user("update_test@example.com", "password123")
+        new_group_id = self.db.create_group("managers")
+
+        # Perform a multi-field update
+        updated = self.db.update_user(
+            user_id=user.user_id,
+            username="UpdatedName",
+            group_id=new_group_id,
+            is_active=False
+        )
+        self.assertTrue(updated)
+
+        # Verify database reflected updates accurately
+        updated_record = self.db.get_user_by_email("update_test@example.com")
+        assert updated_record is not None
+        self.assertEqual(updated_record.username, "UpdatedName")
+        self.assertEqual(updated_record.group_id, new_group_id)
+        self.assertFalse(updated_record.is_active)
+
+    def test_update_user_partial_arguments(self):
+        """Updating only a subset of profile properties should leave remaining values intact."""
+        user = self.db.create_user("partial@example.com", "password123")
+        
+        # Pass no modifications (should handle cleanly without database mutation noise)
+        self.assertFalse(self.db.update_user(user_id=user.user_id))
+
+        # Update only status
+        updated = self.db.update_user(user_id=user.user_id, is_active=False)
+        self.assertTrue(updated)
+        
+        record = self.db.get_user_by_email("partial@example.com")
+        assert record is not None
+        self.assertFalse(record.is_active)
+        self.assertEqual(record.username, "partial@example.com") # Should preserve untouched defaults
+
+    def test_update_user_rejects_unknown_group(self):
+        """Attempting to assign a user to a non-existent group_id should raise a ValueError."""
+        user = self.db.create_user("invalid_group_test@example.com", "password123")
+        
+        with self.assertRaises(ValueError):
+            self.db.update_user(user_id=user.user_id, group_id="non-existent-group-uuid")
+
+    def test_update_user_missing_id_returns_false(self):
+        """Updating fields on a user ID that does not exist should safely return False."""
+        updated = self.db.update_user(user_id="non-existent-user-id", username="Ghost")
+        self.assertFalse(updated)
+
+    def test_update_password_hashes_and_verifies(self):
+        """Updating a user password should store it hashed, invalidate the old password, and confirm via verification."""
+        user = self.db.create_user("pass_update@example.com", "old_password")
+
+        # Execute password modification
+        updated = self.db.update_password(user_id=user.user_id, new_password="new_shiny_password")
+        self.assertTrue(updated)
+
+        # Validate old password fails authentication
+        self.assertIsNone(self.db.verify_user("pass_update@example.com", "old_password"))
+
+        # Validate new password authenticates correctly
+        self.assertIsNotNone(self.db.verify_user("pass_update@example.com", "new_shiny_password"))
+
+    def test_update_password_missing_id_returns_false(self):
+        """Attempting to update a password on a non-existent user ID should return False."""
+        updated = self.db.update_password(user_id="non-existent-user-id", new_password="secret_pass")
+        self.assertFalse(updated)
+
 
 class TestUserDBGroups(unittest.TestCase):
     """Tests for group hierarchy and inherited permissions."""

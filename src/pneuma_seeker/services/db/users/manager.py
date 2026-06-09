@@ -36,14 +36,7 @@ class UserDB:
     
     def init_db(self) -> None:
         """Initializes schema and default settings. Call this ONLY once on app startup."""
-        self._init_schema()
-
-    def _get_connection(self) -> duckdb.DuckDBPyConnection:
-        """Returns a new connection to the DuckDB database."""
-        return duckdb.connect(self.users_db_path.as_posix(), read_only=False)
-
-    def _init_schema(self) -> None:
-        """Initializes the database schema if it doesn't already exist, and ensures the default group is present."""
+        self.__log("Initializing user database schema")
         con = self._get_connection()
         try:
             con.begin()
@@ -104,16 +97,28 @@ class UserDB:
             raise
         finally:
             con.close()
+        self._init_group()
 
-        self._ensure_default_group()
+    def _get_connection(self) -> duckdb.DuckDBPyConnection:
+        """Returns a new connection to the DuckDB database."""
+        return duckdb.connect(self.users_db_path.as_posix(), read_only=False)
 
-    def _ensure_default_group(self) -> str:
-        """Ensures the default group exists and returns its ID."""
-        self.__log("Ensuring default group exists")
-        existing = self.get_group_by_name("default")
-        if existing:
-            return existing.group_id
-        return self.create_group("default")
+    def _init_group(self):
+        """Initializes both the default group and the admin group if they don't already exist. The admin group is created as a child of the default group."""
+
+        self.__log("Initializing default and admin groups")
+
+        default = self.get_group_by_name("default")
+        if default is None:
+            self.create_group("default")
+            default = self.get_group_by_name("default")
+
+        if default is None:
+            raise RuntimeError("Failed to create default group")
+
+        admin = self.get_group_by_name("admin")
+        if admin is None:
+            self.create_group("admin", default.group_id)
 
     def _hash_password(self, password: str) -> tuple[str, str, int]:
         """Hashes the password using PBKDF2 with a random salt and returns the hash, salt, and iteration count."""
@@ -319,7 +324,13 @@ class UserDB:
         self.__log(f"Creating user with email: {email}")
         email = self._normalize_email(email)
         username = username or email
-        group_id = group_id or self._ensure_default_group()
+
+        if group_id is None:
+            default_group = self.get_group_by_name("default")
+            if default_group is None:
+                raise RuntimeError("Default group not found")
+            group_id = default_group.group_id
+
         if not self.get_group_by_id(group_id):
             raise ValueError("Group not found")
         password_hash, password_salt, iterations = self._hash_password(password)
@@ -363,6 +374,85 @@ class UserDB:
             group_id=group_id,
             is_active=True,
         )
+
+    def update_user(
+        self,
+        user_id: str,
+        username: str | None = None,
+        group_id: str | None = None,
+        is_active: bool | None = None,
+    ) -> bool:
+        """Updates one or more profile fields for a user. Returns True if updated, False if user not found."""
+        self.__log(f"Updating user profile for ID: {user_id}")
+        
+        # 1. Validate group if it's being updated
+        if group_id is not None and not self.get_group_by_id(group_id):
+            raise ValueError("Group not found")
+
+        # 2. Dynamically build the query based on what was provided
+        updates = []
+        params = []
+        
+        if username is not None:
+            updates.append("username = ?")
+            params.append(username)
+        if group_id is not None:
+            updates.append("group_id = ?")
+            params.append(group_id)
+        if is_active is not None:
+            updates.append("is_active = ?")
+            params.append(1 if is_active else 0)
+
+        # If nothing was passed to update, just return early
+        if not updates:
+            return False
+
+        # Append user_id for the WHERE clause
+        params.append(user_id)
+        query = f"UPDATE users SET {', '.join(updates)} WHERE user_id = ?;"
+
+        con = self._get_connection()
+        try:
+            # First, check if user exists to ensure we return correct boolean status
+            user_exists = con.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,)).fetchone()
+            if not user_exists:
+                return False
+
+            con.execute(query, tuple(params))
+            
+            con.commit()
+            return True
+        finally:
+            con.close()
+
+    def update_password(self, user_id: str, new_password: str) -> bool:
+        """Securely hashes and updates a user's password."""
+        self.__log(f"Updating password for user ID: {user_id}")
+        
+        # Reuse your secure hashing logic
+        password_hash, password_salt, iterations = self._hash_password(new_password)
+        
+        con = self._get_connection()
+        try:
+            # Check if user exists
+            user_exists = con.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,)).fetchone()
+            if not user_exists:
+                return False
+
+            con.execute(
+                """
+                UPDATE users 
+                SET password_hash = ?, password_salt = ?, password_iterations = ?
+                WHERE user_id = ?;
+                """,
+                (password_hash, password_salt, iterations, user_id),
+            )
+            
+            con.commit()
+            
+            return True
+        finally:
+            con.close()
 
     def get_user_by_email(self, email: str) -> UserRecord | None:
         """Returns the user's record by email, or None if not found."""
