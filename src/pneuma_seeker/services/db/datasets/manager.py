@@ -1,3 +1,4 @@
+# src/pneuma_seeker/services/db/datasets/manager.py
 import csv
 import os
 from logging import Logger
@@ -7,6 +8,7 @@ import duckdb
 from pandas import isna, read_csv
 from tqdm import tqdm
 
+from pneuma_seeker.models import PermissionKey
 from pneuma_seeker.shared.str_processor import clean_column_table_name
 
 
@@ -174,6 +176,25 @@ class DatasetManager:
     def register_postgres_dataset(self, dataset_name: str, connection_string: str) -> None:
         """Registers a PostgreSQL-backed dataset by storing its connection string."""
         self._pg_registry[dataset_name] = connection_string
+    
+    def get_accessible_local_datasets(self, is_admin: bool, group_permissions: dict[str, str]) -> list[str]:
+        """
+        Returns a list of local datasets accessible to the user based on their admin status and group membership.
+        """
+        accessible_datasets = []
+        if is_admin:
+            for dataset_name in os.listdir(self.dataset_db_path):
+                dataset_db_file = self.dataset_db_path / dataset_name / f"{dataset_name}.db"
+                if dataset_db_file.exists():
+                    accessible_datasets.append(dataset_name)
+        elif group_permissions:
+            for permission_key, _ in group_permissions.items():
+                if permission_key.startswith(PermissionKey.DATASET_ACCESS_PREFIX.value):
+                    dataset_name = permission_key.split(f"{PermissionKey.DATASET_ACCESS_PREFIX.value}:")[1]
+                    dataset_db_file = self.dataset_db_path / dataset_name / f"{dataset_name}.db"
+                    if dataset_db_file.exists():
+                        accessible_datasets.append(dataset_name)
+        return accessible_datasets
 
     def link_dataset_tables(
         self,

@@ -83,6 +83,24 @@ def get_current_user(
     return user
 
 
+def get_current_user_group(
+    current_user: UserRecord = Depends(get_current_user),
+) -> GroupRecord | None:
+    """Returns the group record for the current user, or None if the user has no group."""
+    if not current_user.group_id:
+        return None
+    return user_db.get_group_by_id(current_user.group_id)
+
+
+def get_current_user_permissions(
+    current_user: UserRecord = Depends(get_current_user),
+) -> dict[str, str]:
+    """Returns the effective permissions for the current user's group, or an empty dict if no group."""
+    if not current_user.group_id:
+        return {}
+    return user_db.get_effective_group_permissions(current_user.group_id)
+
+
 @router.post("/register", response_model=UserResponse)
 def register(
     payload: RegisterRequest,
