@@ -769,6 +769,28 @@ class WorkspaceManager:
             "has_more": has_more,
             "next_offset": next_offset,
         }
+    
+    def delete_chat_session(self, user_id: str, chat_id: str) -> None:
+        """
+        Deletes a specific chat session by closing active connections and 
+        permanently removing the corresponding workspace directory.
+        Raises FileNotFoundError if the chat session directory does not exist.
+        """
+        chat_dir = self.workspace_db_path / user_id / chat_id
+        if not chat_dir.exists() or not chat_dir.is_dir():
+            raise FileNotFoundError(
+                f"Chat session with ID '{chat_id}' for user '{user_id}' not found."
+            )
+
+        self.close_workspace_connection(user_id, chat_id)
+
+        try:
+            from shutil import rmtree
+            rmtree(chat_dir)
+            self.__log(f"Successfully deleted chat session directory: {chat_dir}")
+        except Exception as e:
+            self.__log(f"Failed to delete chat session directory {chat_dir}: {e}")
+            raise e
 
     def __load_documents_by_role(
         self,

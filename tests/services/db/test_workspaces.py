@@ -367,5 +367,71 @@ class TestWorkspaceSessionPersistence(unittest.TestCase):
         self.assertEqual(len(history), 4)
 
 
+class TestWorkspaceSessionDeletion(unittest.TestCase):
+    """Tests for permanently deleting historical chat sessions and evacuating connections."""
+
+    def setUp(self):
+        self.config = Config()
+        self.logger = logging.getLogger("test")
+        self.tmpdir = tempfile.mkdtemp()
+        
+        # PneumaDB wraps WorkspaceManager internally
+        self.db = PneumaDB(
+            logger=self.logger,
+            config=self.config,
+            dataset_db_path=(Path(self.tmpdir) / "datasets").as_posix(),
+            workspace_db_path=(Path(self.tmpdir) / "workspaces").as_posix(),
+        )
+
+    def tearDown(self):
+        self.db.close_all_connections()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _create_mock_session(self, user_id: str, chat_id: str, first_message: str):
+        """Helper to explicitly seed a workspace session with historical messages."""
+        state = ConductorState()
+        self.db.persist_session(
+            user_id=user_id,
+            chat_id=chat_id,
+            new_user_input=first_message,
+            new_system_response="Understood, executing processing pipeline.",
+            conductor_state=state,
+            provenance_graph=ProvenanceGraph(self.logger),
+            retrieved_tables=[],
+            enumerated_tables=[],
+        )
+
+    def test_delete_chat_session_removes_directory_and_evicts_cache(self):
+        """Tests that deleting a session removes its workspace directory from disk and evicts it from the connection cache."""
+        user_id = "user_deletion_test"
+        chat_id = "chat_to_delete"
+        
+        # 1. Establish session and ensure connection resides within the active cache
+        self._create_mock_session(user_id, chat_id, "Session to be deleted")
+        con = self.db.get_ws_db_connection(user_id, chat_id)
+        
+        chat_dir = self.db.workspace_db_path / user_id / chat_id
+        db_file = chat_dir / "ws.db"
+        
+        self.assertTrue(db_file.exists())
+        self.assertIn((user_id, chat_id), self.db._conn_cache)
+
+        # 2. Execute deletion sequence via the underlying workspace manager
+        # Note: If PneumaDB exposes a delete wrapper, use self.db.delete_chat_session here
+        self.db.workspace_manager.delete_chat_session(user_id, chat_id)
+
+        # 3. Structural and cache verifications
+        self.assertFalse(chat_dir.exists())
+        self.assertNotIn((user_id, chat_id), self.db._conn_cache)
+
+    def test_delete_chat_session_raises_file_not_found_for_missing_session(self):
+        """Tests that attempting to delete a non-existent session explicitly raises a FileNotFoundError."""
+        user_id = "user_deletion_test"
+        chat_id = "chat_missing"
+
+        with self.assertRaises(FileNotFoundError):
+            self.db.workspace_manager.delete_chat_session(user_id, chat_id)
+
+
 if __name__ == "__main__":
     unittest.main()

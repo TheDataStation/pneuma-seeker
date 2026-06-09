@@ -372,6 +372,29 @@ async def list_chats(
         )
 
 
+@router.delete("/{chat_id}", response_class=JSONResponse)
+async def delete_chat_session(
+    chat_id: str,
+    current_user: UserRecord = Depends(get_current_user),
+):
+    """
+    Endpoint to delete a specific chat session for the authenticated user.
+    """
+    logger.info(f"Deleting chat session {chat_id} for user {current_user.user_id}")
+    try:
+        pneuma_db.delete_chat_session(
+            user_id=current_user.user_id,
+            chat_id=chat_id,
+        )
+        return JSONResponse(content={"detail": f"Chat session '{chat_id}' deleted successfully."})
+    except Exception as e:
+        logger.info(f"Error deleting chat session: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="An error occurred while deleting the chat session.",
+        )
+
+
 def stream_payload(sender: str, text: str) -> str:
     """Formats a message payload for streaming responses."""
     return (
