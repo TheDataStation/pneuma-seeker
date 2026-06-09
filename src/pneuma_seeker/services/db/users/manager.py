@@ -11,6 +11,7 @@ from uuid import uuid4
 
 import duckdb
 
+from pneuma_seeker.models import PermissionKey
 from pneuma_seeker.services.db.users.models import GroupPermissionRecord, GroupRecord, UserRecord
 from pneuma_seeker.shared.config import Config
 
@@ -119,6 +120,11 @@ class UserDB:
         admin = self.get_group_by_name("admin")
         if admin is None:
             self.create_group("admin", default.group_id)
+        
+        if admin is None:
+            raise RuntimeError("Failed to create admin group")
+
+        self.set_group_permission(admin.group_id, PermissionKey.ADMIN.value, "true")
 
     def _hash_password(self, password: str) -> tuple[str, str, int]:
         """Hashes the password using PBKDF2 with a random salt and returns the hash, salt, and iteration count."""

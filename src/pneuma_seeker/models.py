@@ -11,6 +11,13 @@ class EndpointTag(Enum):
     AUTH = "auth"
 
 
+class PermissionKey(Enum):
+    ADMIN = "admin"  # This is a special permission that grants all access
+    DATASET_ACCESS_PREFIX = "dataset:access"
+    USER_MANAGEMENT = "user:management"
+    INDEXING_MANAGEMENT = "indexing:management"
+
+
 class IndexDatasetRequest(BaseModel):
     dataset_name: str = Field(min_length=1)
     connector_config: dict[str, Any]
@@ -65,3 +72,13 @@ class GroupResponse(BaseModel):
     parent_group_id: str | None
 
 
+class SetPermissionRequest(BaseModel):
+    permission_key: str = Field(..., description="The permission key/string (e.g., 'user:management' or 'dataset:access:archeology')")
+    permission_value: str = Field(..., description="The value assigned (e.g., 'true', 'read')")
+    group_id: str | None = Field(None, description="Target group ID. If omitted, defaults to the caller's group.")
+    group_name: str | None = Field(None, description="Target group name (used if group_id is omitted).")
+
+
+class UpdateUserGroupRequest(BaseModel):
+    user_id: str = Field(..., description="The ID of the user being modified")
+    group_id: str = Field(..., description="The new group ID to assign to this user")
