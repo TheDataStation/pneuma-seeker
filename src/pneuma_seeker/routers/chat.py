@@ -200,15 +200,13 @@ async def get_state(chat_id: str, current_user: UserRecord = Depends(get_current
     ).conductor
     state = conductor.state.get_current_state_instance(config.TABLE_MAX_ROWS_DISPLAY)
 
-    prov_steps: list[str] = ["**T** is not materialized yet."]
+    prov_steps: list[str] = []
     if conductor.state.is_T_materialized:
         prov_explanation_steps_markdown = (
             conductor.materializer.prov_graph.get_graph_explanation()
         )
         if prov_explanation_steps_markdown:
             prov_steps = [str(step_md) for step_md in prov_explanation_steps_markdown]
-        else:
-            prov_steps = ["No materialization steps recorded for **T**."]
 
     retrieved_tables = {
         doc.doc_id: serialize_dataframe(doc.content, config.TABLE_MAX_ROWS_DISPLAY)

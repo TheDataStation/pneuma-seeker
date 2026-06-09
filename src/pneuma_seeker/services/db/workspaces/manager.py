@@ -1,3 +1,4 @@
+import datetime
 import os
 from logging import Logger
 from pathlib import Path
@@ -70,7 +71,7 @@ class WorkspaceManager:
                         chat_history_id     UUID PRIMARY KEY,
                         role                VARCHAR,
                         content             VARCHAR,
-                        creation_timestamp  TIMESTAMP DEFAULT now()
+                        creation_timestamp  TIMESTAMP WITH TIME ZONE DEFAULT now()
                     );
                 """
             )
@@ -84,7 +85,7 @@ class WorkspaceManager:
                         python_script                   VARCHAR,
                         is_python_script_executed       BOOLEAN,
                         join_paths                      VARCHAR,
-                        creation_timestamp              TIMESTAMP DEFAULT now(),
+                        creation_timestamp              TIMESTAMP WITH TIME ZONE DEFAULT now(),
                         FOREIGN KEY (chat_history_id) REFERENCES chat_history(chat_history_id)
                     );
                 """
@@ -736,8 +737,8 @@ class WorkspaceManager:
                             # Standardize timestamp to ISO 8601 string format
                             last_active_dt = res[1]
                             last_active_str = (
-                                last_active_dt.isoformat() + "Z" 
-                                if hasattr(last_active_dt, "isoformat") 
+                                last_active_dt.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
+                                if hasattr(last_active_dt, "isoformat")
                                 else str(last_active_dt)
                             )
 
