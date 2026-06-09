@@ -250,6 +250,17 @@ class TestUserDBGroups(unittest.TestCase):
         """Setting a permission for a non-existent group should raise a ValueError."""
         with self.assertRaises(ValueError):
             self.db.set_group_permission("missing", "datasets.read", "true")
+    
+    def test_delete_user(self):
+        """Deleting an existing user should remove them from the database and return True."""
+        user = self.db.create_user("test@example.com", "pass")
+        deleted = self.db.delete_user(user.user_id)
+        self.assertTrue(deleted)
+
+    def test_delete_non_existent_user(self):
+        """Attempting to delete a user that does not exist should return False."""
+        deleted = self.db.delete_user("ghost-id")
+        self.assertFalse(deleted)
 
 
 class TestUserDBTokens(unittest.TestCase):

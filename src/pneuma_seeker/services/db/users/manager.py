@@ -120,6 +120,7 @@ class UserDB:
         admin = self.get_group_by_name("admin")
         if admin is None:
             self.create_group("admin", default.group_id)
+            admin = self.get_group_by_name("admin")
         
         if admin is None:
             raise RuntimeError("Failed to create admin group")
@@ -457,6 +458,58 @@ class UserDB:
             con.commit()
             
             return True
+        finally:
+            con.close()
+
+    def delete_user(self, user_id: str) -> bool:
+        """Deletes a user.
+        
+        Args:
+            user_id: The ID of the user to be deleted.
+            
+        Returns:
+            bool: True if user deleted successfully, False if user not found.
+        """
+        self.__log(f"Attempting to delete user: {user_id}")
+
+        user = self.get_user_by_id(user_id)
+        if user is None:
+            self.__log(f"User with ID {user_id} not found for deletion.")
+            return False
+
+        con = self._get_connection()
+        try:
+            con.execute("DELETE FROM users WHERE user_id = ?;", (user_id,))
+            con.commit()
+            return True
+        except Exception as e:
+            self.logger.error(f"Error deleting user {user_id}: {e}")
+            return False
+        finally:
+            con.close()
+
+    def get_user_by_id(self, user_id: str) -> UserRecord | None:
+        """Returns the user's record by ID, or None if not found."""
+        self.__log(f"Retrieving user with ID: {user_id}")
+        con = self._get_connection()
+        try:
+            row = con.execute(
+                """
+                SELECT user_id, email, username, group_id, is_active
+                FROM users
+                WHERE user_id = ?
+                """,
+                (user_id,),
+            ).fetchone()
+            if not row:
+                return None
+            return UserRecord(
+                user_id=row[0],
+                email=row[1],
+                username=row[2],
+                group_id=row[3],
+                is_active=bool(row[4]),
+            )
         finally:
             con.close()
 
