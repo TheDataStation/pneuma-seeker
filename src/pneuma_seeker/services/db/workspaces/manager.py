@@ -542,6 +542,7 @@ class WorkspaceManager:
         AbstractDocument | None,
         AbstractDocument | None,
         str | None,
+        str | None,
     ]:
         """
         Loads the latest chat session from the chat_session table.
@@ -563,6 +564,7 @@ class WorkspaceManager:
                 ProvenanceGraph(self.logger),
                 [],
                 [],
+                None,
                 None,
                 None,
                 None,
@@ -613,11 +615,20 @@ class WorkspaceManager:
                 child_node = nodes_dict[child_id]
                 parent_node.add_child(child_node)
 
+        meta_row = con.execute(
+            "SELECT dataset_name FROM session_metadata LIMIT 1"
+        ).fetchone()
+        dataset_name: str | None = meta_row[0] if meta_row else None
+
+        if dataset_name is None:
+            raise ValueError("Failed to load session: dataset_name is missing in session_metadata.")
+
         conductor_state.T = {
             i.doc_id: i
             for i in self.__load_documents_by_role(
                 user_id,
                 chat_id,
+                dataset_name,
                 con,
                 state_id,
                 DocumentType.TARGET_TABLE.value,
@@ -627,6 +638,7 @@ class WorkspaceManager:
         retrieved_tables = self.__load_documents_by_role(
             user_id,
             chat_id,
+            dataset_name,
             con,
             state_id,
             DocumentType.RETRIEVED_TABLE.value,
@@ -634,6 +646,7 @@ class WorkspaceManager:
         enumerated_tables = self.__load_documents_by_role(
             user_id,
             chat_id,
+            dataset_name,
             con,
             state_id,
             DocumentType.ENUMERATED_TABLE.value,
@@ -643,6 +656,7 @@ class WorkspaceManager:
         web_search_docs = self.__load_documents_by_role(
             user_id,
             chat_id,
+            dataset_name,
             con,
             state_id,
             DocumentType.WEB_SEARCH_RESULT.value,
@@ -652,6 +666,7 @@ class WorkspaceManager:
         web_crawl_docs = self.__load_documents_by_role(
             user_id,
             chat_id,
+            dataset_name,
             con,
             state_id,
             DocumentType.WEB_CRAWL_RESULT.value,
@@ -672,6 +687,7 @@ class WorkspaceManager:
             web_search_result,
             web_crawl_result,
             join_paths,
+            dataset_name,
         )
 
     def get_user_chat_sessions(
@@ -790,6 +806,7 @@ class WorkspaceManager:
         self,
         user_id: str,
         chat_id: str,
+        dataset_name: str,
         con: duckdb.DuckDBPyConnection,
         state_id: UUID,
         role: str,
@@ -839,10 +856,6 @@ class WorkspaceManager:
                 or retriever_type == RetrieverType.ENUMERATOR
                 or retriever_type == RetrieverType.USER
             ):
-                dataset_name = self.config.DATA_SOURCES[0]
-                if "dataset_name" in metadata:
-                    dataset_name = metadata["dataset_name"]
-
                 self.dataset_manager.link_dataset_tables(
                     user_id,
                     chat_id,

@@ -77,7 +77,6 @@ class ConfigTests(unittest.TestCase):
         
         self.assertIsInstance(cfg.MAX_CONDUCTOR_STEPS, int)
         self.assertIsInstance(cfg.MAX_MATERIALIZER_STEPS, int)
-        self.assertIsInstance(cfg.PERSIST_CHAT_SESSION, bool)
         self.assertIsInstance(cfg.DATA_SOURCES, list)
         for source in cfg.DATA_SOURCES:
             self.assertIsInstance(source, str)
@@ -171,7 +170,6 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(cfg.USE_AZURE_EMBED_MODEL)
         self.assertTrue(cfg.ENABLE_WEB_SEARCH)
         self.assertTrue(cfg.ENABLE_WEB_CRAWL)
-        self.assertTrue(cfg.PERSIST_CHAT_SESSION)
 
     def test_boolean_parsing_lowercase_false(self):
         """Test boolean parsing with lowercase 'false'."""
@@ -187,7 +185,6 @@ class ConfigTests(unittest.TestCase):
         self.assertFalse(cfg.USE_AZURE_EMBED_MODEL)
         self.assertFalse(cfg.ENABLE_WEB_SEARCH)
         self.assertFalse(cfg.ENABLE_WEB_CRAWL)
-        self.assertFalse(cfg.PERSIST_CHAT_SESSION)
 
     def test_boolean_parsing_uppercase_true(self):
         """Test boolean parsing with uppercase 'TRUE'."""
@@ -219,7 +216,6 @@ class ConfigTests(unittest.TestCase):
         
         self.assertFalse(cfg.USE_AZURE_LLM)
         self.assertFalse(cfg.ENABLE_WEB_SEARCH)
-        self.assertFalse(cfg.PERSIST_CHAT_SESSION)
 
     # ========== Test Integer Parsing ==========
 
@@ -441,7 +437,6 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(cfg.ENABLE_WEB_SEARCH)
         self.assertFalse(cfg.ENABLE_WEB_CRAWL)
         self.assertEqual(cfg.WEB_CRAWL_MAX_CHARS, 8000)
-        self.assertFalse(cfg.PERSIST_CHAT_SESSION)
         self.assertEqual(cfg.SEMANTIC_JOIN_BATCH_SIZE, 40)
         self.assertEqual(cfg.SEMANTIC_JOIN_DELIMITER, " || ")
         self.assertAlmostEqual(cfg.SEMANTIC_JOIN_ALPHA, 0.75)
@@ -511,7 +506,6 @@ class ConfigTests(unittest.TestCase):
         self.assertIsInstance(cfg.USE_AZURE_EMBED_MODEL, bool)
         self.assertIsInstance(cfg.ENABLE_WEB_SEARCH, bool)
         self.assertIsInstance(cfg.ENABLE_WEB_CRAWL, bool)
-        self.assertIsInstance(cfg.PERSIST_CHAT_SESSION, bool)
         
         # List types
         self.assertIsInstance(cfg.ALLOWED_ORIGINS, list)

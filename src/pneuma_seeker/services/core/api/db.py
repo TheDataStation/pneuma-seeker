@@ -158,6 +158,7 @@ class DBAPI:
         AbstractDocument | None,
         AbstractDocument | None,
         str | None,
+        str | None,
     ]:
         """
         Loads the latest chat session from the chat_session table.

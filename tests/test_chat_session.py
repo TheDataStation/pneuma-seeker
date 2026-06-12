@@ -44,7 +44,6 @@ class DummyConductor:
 class ChatSessionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.cfg = Config()
-        self.cfg.PERSIST_CHAT_SESSION = False
         self.logger = MagicMock()
         self.db_api = MagicMock()
         self.lm_api = MagicMock()
@@ -59,6 +58,7 @@ class ChatSessionTests(unittest.TestCase):
             None,          # web_search_result
             None,          # web_crawl_result
             None,          # join_paths
+            None,
         )
 
     @patch("pneuma_seeker.chat_session.Conductor", new=DummyConductor)
@@ -85,7 +85,6 @@ class ChatSessionTests(unittest.TestCase):
     @patch("pneuma_seeker.chat_session.Conductor", new=DummyConductor)
     @patch("pneuma_seeker.chat_session.ProvenanceGraph")
     def test_chat_with_loaded_history_appends_correctly(self, mock_prov_graph):
-        self.cfg.PERSIST_CHAT_SESSION = True
         self.db_api.load_session.return_value = (
             [
                 {"role": "user", "content": "first"},
@@ -95,6 +94,7 @@ class ChatSessionTests(unittest.TestCase):
             MagicMock(),
             [],
             [],
+            None,
             None,
             None,
             None,
@@ -135,10 +135,10 @@ class ChatSessionTests(unittest.TestCase):
         
         # Artificially populate messages history
         cs.messages = [
-            {"role": "user", "content": "old query"},
-            {"role": "assistant", "content": "old answer"},
-            {"role": "user", "content": "latest query"},
-            {"role": "assistant", "content": "latest answer"},
+            LLMMessage(role="user", content="old query"),
+            LLMMessage(role="assistant", content="old answer"),
+            LLMMessage(role="user", content="latest query"),
+            LLMMessage(role="assistant", content="latest answer"),
         ]
         
         cs.persist_session("dataset_name")

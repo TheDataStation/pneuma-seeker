@@ -30,7 +30,6 @@ class ChatSession:
         self.logger = logger
         self.db_api = db_api
         self.language_model_api = language_model_api
-        self.messages: list[LLMMessage] = []
         self.conductor = Conductor(
             self.user_id,
             self.chat_id,
@@ -41,28 +40,29 @@ class ChatSession:
             self.language_model_api,
         )
 
-        if self.config.PERSIST_CHAT_SESSION:
-            (
-                messages,
-                conductor_state,
-                provenance_graph,
-                retrieved_tables,
-                enumerated_tables,
-                web_search_result,
-                web_crawl_result,
-                join_paths,
-            ) = self.db_api.load_session(
-                self.user_id,
-                self.chat_id,
-            )
-            self.messages = messages
-            self.conductor.state = conductor_state
-            self.conductor.set_prov_graph(provenance_graph)
-            self.conductor.retrieved_tables = retrieved_tables
-            self.conductor.enumerated_tables = enumerated_tables
-            self.conductor.web_search_result = web_search_result
-            self.conductor.web_crawl_result = web_crawl_result
-            self.conductor.join_paths = join_paths
+        (
+            messages,
+            conductor_state,
+            provenance_graph,
+            retrieved_tables,
+            enumerated_tables,
+            web_search_result,
+            web_crawl_result,
+            join_paths,
+            dataset_name,
+        ) = self.db_api.load_session(
+            self.user_id,
+            self.chat_id,
+        )
+        self.messages = messages
+        self.dataset_name = dataset_name
+        self.conductor.state = conductor_state
+        self.conductor.set_prov_graph(provenance_graph)
+        self.conductor.retrieved_tables = retrieved_tables
+        self.conductor.enumerated_tables = enumerated_tables
+        self.conductor.web_search_result = web_search_result
+        self.conductor.web_crawl_result = web_crawl_result
+        self.conductor.join_paths = join_paths
 
     def chat(
         self,
@@ -76,7 +76,7 @@ class ChatSession:
         latest_user_message = latest_user_message.strip()
         if not latest_user_message:
             raise ValueError("No user message provided for chat session.")
-        
+
         self.messages.append(
             LLMMessage(
                 role=Role.USER.value,
@@ -118,7 +118,9 @@ class ChatSession:
         """Callback to persist the current state of Provenance Graph."""
         try:
             self.__log(f"Persisting session...")
-            self.__log(f"=> Number of provenance nodes: {len(self.conductor.prov_graph.nodes)}")
+            self.__log(
+                f"=> Number of provenance nodes: {len(self.conductor.prov_graph.nodes)}"
+            )
 
             last_user_input = ""
             last_system_response = ""
@@ -132,6 +134,7 @@ class ChatSession:
                 elif self.messages[-1]["role"] == Role.USER.value:
                     last_user_input = self.messages[-1]["content"]
 
+            self.dataset_name = dataset_name
             self.db_api.persist_session(
                 self.user_id,
                 self.chat_id,

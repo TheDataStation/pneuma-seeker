@@ -220,6 +220,7 @@ class PneumaDB:
         AbstractDocument | None,
         AbstractDocument | None,
         str | None,
+        str | None,
     ]:
         """Loads the entire chat session state for the specified user and chat session, including chat history, conductor state, provenance graph, retrieved tables, enumerated tables, web search results, web crawl results, and join paths."""
         return self.workspace_manager.load_session(user_id, chat_id)
