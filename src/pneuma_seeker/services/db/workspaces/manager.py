@@ -620,59 +620,60 @@ class WorkspaceManager:
         ).fetchone()
         dataset_name: str | None = meta_row[0] if meta_row else None
 
-        if dataset_name is None:
-            raise ValueError("Failed to load session: dataset_name is missing in session_metadata.")
+        retrieved_tables: list[AbstractDocument] = []
+        enumerated_tables: list[AbstractDocument] = []
+        web_search_result = None
+        web_crawl_result = None
+        if dataset_name is not None:
+            conductor_state.T = {
+                i.doc_id: i
+                for i in self.__load_documents_by_role(
+                    user_id,
+                    chat_id,
+                    dataset_name,
+                    con,
+                    state_id,
+                    DocumentType.TARGET_TABLE.value,
+                )
+            }
 
-        conductor_state.T = {
-            i.doc_id: i
-            for i in self.__load_documents_by_role(
+            retrieved_tables = self.__load_documents_by_role(
                 user_id,
                 chat_id,
                 dataset_name,
                 con,
                 state_id,
-                DocumentType.TARGET_TABLE.value,
+                DocumentType.RETRIEVED_TABLE.value,
             )
-        }
+            enumerated_tables = self.__load_documents_by_role(
+                user_id,
+                chat_id,
+                dataset_name,
+                con,
+                state_id,
+                DocumentType.ENUMERATED_TABLE.value,
+            )
+            web_search_docs = self.__load_documents_by_role(
+                user_id,
+                chat_id,
+                dataset_name,
+                con,
+                state_id,
+                DocumentType.WEB_SEARCH_RESULT.value,
+            )
+            web_crawl_docs = self.__load_documents_by_role(
+                user_id,
+                chat_id,
+                dataset_name,
+                con,
+                state_id,
+                DocumentType.WEB_CRAWL_RESULT.value,
+            )
 
-        retrieved_tables = self.__load_documents_by_role(
-            user_id,
-            chat_id,
-            dataset_name,
-            con,
-            state_id,
-            DocumentType.RETRIEVED_TABLE.value,
-        )
-        enumerated_tables = self.__load_documents_by_role(
-            user_id,
-            chat_id,
-            dataset_name,
-            con,
-            state_id,
-            DocumentType.ENUMERATED_TABLE.value,
-        )
-        web_search_result = None
-        web_crawl_result = None
-        web_search_docs = self.__load_documents_by_role(
-            user_id,
-            chat_id,
-            dataset_name,
-            con,
-            state_id,
-            DocumentType.WEB_SEARCH_RESULT.value,
-        )
-        if web_search_docs:
-            web_search_result = web_search_docs[0]
-        web_crawl_docs = self.__load_documents_by_role(
-            user_id,
-            chat_id,
-            dataset_name,
-            con,
-            state_id,
-            DocumentType.WEB_CRAWL_RESULT.value,
-        )
-        if web_crawl_docs:
-            web_crawl_result = web_crawl_docs[0]
+            if web_search_docs:
+                web_search_result = web_search_docs[0]
+            if web_crawl_docs:
+                web_crawl_result = web_crawl_docs[0]
 
         self.__log(
             f"=> Loaded session with {len(chat_history)} chat messages, {len(provenance_graph.nodes)} provenance nodes, {len(conductor_state.T)} target tables, {len(retrieved_tables)} retrieved tables, {len(enumerated_tables)} enumerated tables, {1 if web_search_result else 0} web search results, and {1 if web_crawl_result else 0} web crawl results."

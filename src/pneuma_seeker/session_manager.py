@@ -4,7 +4,7 @@ from logging import Logger
 from pneuma_seeker.chat_session import ChatSession
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
-from pneuma_seeker.services.db.main import PneumaDB
+from pneuma_seeker.services.db.pneuma_db import PneumaDB
 from pneuma_seeker.shared.config import Config
 
 

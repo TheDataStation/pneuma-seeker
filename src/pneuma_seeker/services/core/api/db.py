@@ -6,7 +6,7 @@ from pandas import DataFrame
 
 from pneuma_seeker.provenance.graph import ProvenanceGraph
 from pneuma_seeker.services.core.conductor.state import ConductorState
-from pneuma_seeker.services.db.main import PneumaDB
+from pneuma_seeker.services.db.pneuma_db import PneumaDB
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.schemas.core.ir_system import AbstractDocument
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage

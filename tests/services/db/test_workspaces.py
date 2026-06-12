@@ -14,7 +14,7 @@ sys.path.insert(
 
 from pneuma_seeker.provenance.graph import ProvenanceGraph
 from pneuma_seeker.services.core.conductor.state import ConductorState
-from pneuma_seeker.services.db.main import PneumaDB
+from pneuma_seeker.services.db.pneuma_db import PneumaDB
 from pneuma_seeker.shared.config import Config
 
 

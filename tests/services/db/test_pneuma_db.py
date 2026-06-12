@@ -9,7 +9,7 @@ sys.path.insert(
     0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../src"))
 )
 
-from pneuma_seeker.services.db.main import PneumaDB
+from pneuma_seeker.services.db.pneuma_db import PneumaDB
 from pneuma_seeker.shared.config import Config
 
 

@@ -14,9 +14,9 @@ from fastapi.responses import (
     StreamingResponse,
 )
 
-from pneuma_seeker.models import ChatHistoryResponse, EndpointTag
-from pneuma_seeker.routers.auth import get_current_user
-from pneuma_seeker.services.db.main import PneumaDB
+from pneuma_seeker.models import ChatHistoryResponse, EndpointTag, PermissionKey
+from pneuma_seeker.routers.auth import get_current_user, get_current_user_permissions
+from pneuma_seeker.services.db.pneuma_db import PneumaDB
 from pneuma_seeker.services.db.users.models import UserRecord
 from pneuma_seeker.session_manager import SessionManager
 from pneuma_seeker.shared.config import Config
@@ -43,7 +43,7 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
     body: dict[str, Any] = await request.json()
     user_id = current_user.user_id
     chat_id = body.get("chat_id", "default_chat")
-    dataset_name: str | None = body.get("data_source")
+    dataset_name: str | None = body.get("dataset_name")
     latest_user_message: str | None = (
         body.get("message") or body.get("user_message") or body.get("content")
     )
@@ -157,6 +157,22 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
         event_stream(),
         media_type="application/x-ndjson",
     )
+
+
+@router.get("/datasets")
+def get_accessible_datasets(
+    current_user: UserRecord = Depends(get_current_user),
+):
+    group_permissions = get_current_user_permissions(current_user)
+
+    admin_value = group_permissions.get(PermissionKey.ADMIN.value, False)
+    if isinstance(admin_value, str):
+        is_admin = admin_value.lower() == "true"
+    else:
+        is_admin = bool(admin_value)
+
+    datasets = pneuma_db.get_accessible_local_datasets(is_admin, group_permissions)
+    return JSONResponse(content={"datasets": datasets})
 
 
 @router.get("/execute_code/{chat_id}")
