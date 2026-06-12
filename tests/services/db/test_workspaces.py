@@ -44,6 +44,7 @@ class TestWorkspaceSessionDiscovery(unittest.TestCase):
         self.db.persist_session(
             user_id=user_id,
             chat_id=chat_id,
+            dataset_name="test_dataset",
             new_user_input=first_message,
             new_system_response="Understood, executing processing pipeline.",
             conductor_state=state,
@@ -166,6 +167,7 @@ class TestWorkspaceConnections(unittest.TestCase):
         self.assertIn("document_metadata", table_names)
         self.assertIn("state_document_roles", table_names)
         self.assertIn("provenance_edges", table_names)
+        self.assertIn("session_metadata", table_names)
 
     def test_get_workspace_connection_reuses_cached_connection(self):
         """Tests that requesting a workspace connection multiple times returns the same cached connection instance."""
@@ -311,6 +313,7 @@ class TestWorkspaceSessionPersistence(unittest.TestCase):
         self.db.persist_session(
             "user_1",
             "chat_1",
+            "test_dataset",
             user_input,
             assistant_response,
             state,
@@ -393,6 +396,7 @@ class TestWorkspaceSessionDeletion(unittest.TestCase):
         self.db.persist_session(
             user_id=user_id,
             chat_id=chat_id,
+            dataset_name="test_dataset",
             new_user_input=first_message,
             new_system_response="Understood, executing processing pipeline.",
             conductor_state=state,

@@ -43,14 +43,17 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
     body: dict[str, Any] = await request.json()
     user_id = current_user.user_id
     chat_id = body.get("chat_id", "default_chat")
-    data_source: str | None = body.get("data_source")
+    dataset_name: str | None = body.get("data_source")
     latest_user_message: str | None = (
         body.get("message") or body.get("user_message") or body.get("content")
     )
     files = body.get("files", [])
 
-    if data_source:
-        config.DATA_SOURCES = [data_source]
+    if dataset_name is None:
+        raise HTTPException(
+            status_code=400, detail="Missing data source (dataset_name)"
+        )
+    config.DATA_SOURCES = [dataset_name]
 
     if latest_user_message is None or not isinstance(latest_user_message, str):
         raise HTTPException(status_code=400, detail="Missing user message")
@@ -147,7 +150,7 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                     logger.info(f"Exception raised: {e}")
                     break
         finally:
-            chat_session.persist_session()
+            chat_session.persist_session(dataset_name)
             producer.cancel()
 
     return StreamingResponse(
@@ -356,7 +359,9 @@ async def list_chats(
     Endpoint to retrieve a paginated list of chat sessions for the authenticated user,
     ordered by their last active timestamp.
     """
-    logger.info(f"Listing chat sessions for user {current_user.user_id} with limit={limit} and offset={offset}")
+    logger.info(
+        f"Listing chat sessions for user {current_user.user_id} with limit={limit} and offset={offset}"
+    )
     try:
         result = pneuma_db.get_user_chat_sessions(
             user_id=current_user.user_id,
@@ -386,7 +391,9 @@ async def delete_chat_session(
             user_id=current_user.user_id,
             chat_id=chat_id,
         )
-        return JSONResponse(content={"detail": f"Chat session '{chat_id}' deleted successfully."})
+        return JSONResponse(
+            content={"detail": f"Chat session '{chat_id}' deleted successfully."}
+        )
     except Exception as e:
         logger.info(f"Error deleting chat session: {e}")
         raise HTTPException(

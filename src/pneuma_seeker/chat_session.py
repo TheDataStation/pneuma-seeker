@@ -114,7 +114,7 @@ class ChatSession:
             )
         yield "DONE"
 
-    def persist_session(self):
+    def persist_session(self, dataset_name: str):
         """Callback to persist the current state of Provenance Graph."""
         try:
             self.__log(f"Persisting session...")
@@ -135,6 +135,7 @@ class ChatSession:
             self.db_api.persist_session(
                 self.user_id,
                 self.chat_id,
+                dataset_name,
                 last_user_input,
                 last_system_response,
                 self.conductor.state,

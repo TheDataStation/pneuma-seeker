@@ -65,19 +65,16 @@ class WorkspaceManager:
         """Defines all necessary tables for state persistence in the workspace DB."""
         try:
             con.begin()
-            con.execute(
-                """
+            con.execute("""
                     CREATE TABLE IF NOT EXISTS chat_history (
                         chat_history_id     UUID PRIMARY KEY,
                         role                VARCHAR,
                         content             VARCHAR,
                         creation_timestamp  TIMESTAMP WITH TIME ZONE DEFAULT now()
                     );
-                """
-            )
+                """)
 
-            con.execute(
-                """
+            con.execute("""
                     CREATE TABLE IF NOT EXISTS conductor_state (
                         state_id                        UUID PRIMARY KEY,
                         chat_history_id                 UUID,
@@ -88,11 +85,9 @@ class WorkspaceManager:
                         creation_timestamp              TIMESTAMP WITH TIME ZONE DEFAULT now(),
                         FOREIGN KEY (chat_history_id) REFERENCES chat_history(chat_history_id)
                     );
-                """
-            )
+                """)
 
-            con.execute(
-                """
+            con.execute("""
                     CREATE TABLE IF NOT EXISTS provenance_nodes (
                         state_id            UUID,
                         node_id             UUID,
@@ -102,11 +97,9 @@ class WorkspaceManager:
                         PRIMARY KEY (state_id, node_id),
                         FOREIGN KEY (state_id) REFERENCES conductor_state(state_id)
                     );
-                """
-            )
+                """)
 
-            con.execute(
-                """
+            con.execute("""
                     CREATE TABLE IF NOT EXISTS documents (
                         state_id        UUID,
                         doc_id          VARCHAR,
@@ -117,11 +110,9 @@ class WorkspaceManager:
                         PRIMARY KEY (state_id, doc_id),
                         FOREIGN KEY (state_id) REFERENCES conductor_state(state_id)
                     );
-                """
-            )
-            
-            con.execute(
-                """
+                """)
+
+            con.execute("""
                     CREATE TABLE IF NOT EXISTS document_metadata (
                         state_id        UUID,
                         doc_id          VARCHAR,
@@ -129,11 +120,9 @@ class WorkspaceManager:
                         metadata_value  VARCHAR,
                         FOREIGN KEY (state_id, doc_id) REFERENCES documents(state_id, doc_id)
                     );
-                """
-            )
-            
-            con.execute(
-                """
+                """)
+
+            con.execute("""
                     CREATE TABLE IF NOT EXISTS state_document_roles (
                         state_id    UUID,
                         doc_id      VARCHAR,
@@ -142,11 +131,9 @@ class WorkspaceManager:
                         FOREIGN KEY (state_id) REFERENCES conductor_state(state_id),
                         FOREIGN KEY (state_id, doc_id) REFERENCES documents(state_id, doc_id)
                     );
-                """
-            )
+                """)
 
-            con.execute(
-                """
+            con.execute("""
                     CREATE TABLE IF NOT EXISTS provenance_edges (
                         state_id        UUID,
                         parent_node_id  UUID,
@@ -156,8 +143,13 @@ class WorkspaceManager:
                         FOREIGN KEY (state_id, parent_node_id) REFERENCES provenance_nodes(state_id, node_id),
                         FOREIGN KEY (state_id, child_node_id) REFERENCES provenance_nodes(state_id, node_id)
                     );
-                """
-            )
+                """)
+
+            con.execute("""
+                    CREATE TABLE IF NOT EXISTS session_metadata (
+                        dataset_name  VARCHAR NOT NULL
+                    );
+                """)
 
             con.commit()
         except Exception as e:
@@ -266,6 +258,7 @@ class WorkspaceManager:
         self,
         user_id: str,
         chat_id: str,
+        dataset_name: str,
         new_user_input: str,
         new_system_response: str,
         conductor_state: ConductorState,
@@ -294,6 +287,13 @@ class WorkspaceManager:
             )
             con.execute(
                 """
+                INSERT INTO session_metadata (dataset_name)
+                SELECT ? WHERE NOT EXISTS (SELECT 1 FROM session_metadata);
+                """,
+                (dataset_name,),
+            )
+            con.execute(
+                """
                 INSERT INTO chat_history (
                     chat_history_id,
                     role,
@@ -302,9 +302,7 @@ class WorkspaceManager:
                 """,
                 (new_system_response_id, Role.ASSISTANT.value, new_system_response),
             )
-            con.commit()
 
-            con.begin()
             new_state_id = uuid4()
             con.execute(
                 """
@@ -330,8 +328,20 @@ class WorkspaceManager:
             self.__log(
                 f"Persisting provenance graph with {len(provenance_graph.nodes)} nodes..."
             )
-            for provenance_node in provenance_graph.nodes.values():
-                con.execute(
+
+            if provenance_graph.nodes:
+                node_data = [
+                    (
+                        new_state_id,
+                        node.id,
+                        node.source_retriever.value,
+                        node.python_code,
+                        node.description,
+                    )
+                    for node in provenance_graph.nodes.values()
+                ]
+
+                con.executemany(
                     """
                     INSERT INTO provenance_nodes (
                         state_id,
@@ -341,49 +351,28 @@ class WorkspaceManager:
                         description
                     ) VALUES (?, ?, ?, ?, ?);
                     """,
-                    (
-                        new_state_id,
-                        provenance_node.id,
-                        provenance_node.source_retriever.value,
-                        provenance_node.python_code,
-                        provenance_node.description,
-                    ),
+                    node_data,
                 )
 
+            edge_set = set()
             for provenance_node in provenance_graph.nodes.values():
                 for child_node in provenance_node.children:
-                    con.execute(
-                        """
-                        INSERT INTO provenance_edges (
-                            state_id,
-                            parent_node_id,
-                            child_node_id
-                        ) VALUES (?, ?, ?)
-                        ON CONFLICT (state_id, parent_node_id, child_node_id) DO NOTHING;
-                        """,
-                        (
-                            new_state_id,
-                            provenance_node.id,
-                            child_node.id,
-                        ),
-                    )
-
+                    edge_set.add((new_state_id, provenance_node.id, child_node.id))
                 for parent_node in provenance_node.parents:
-                    con.execute(
-                        """
-                        INSERT INTO provenance_edges (
-                            state_id,
-                            parent_node_id,
-                            child_node_id
-                        ) VALUES (?, ?, ?)
-                        ON CONFLICT (state_id, parent_node_id, child_node_id) DO NOTHING;
-                        """,
-                        (
-                            new_state_id,
-                            parent_node.id,
-                            provenance_node.id,
-                        ),
-                    )
+                    edge_set.add((new_state_id, parent_node.id, provenance_node.id))
+
+            if edge_set:
+                edge_data = list(edge_set)
+                con.executemany(
+                    """
+                    INSERT INTO provenance_edges (
+                        state_id,
+                        parent_node_id,
+                        child_node_id
+                    ) VALUES (?, ?, ?);
+                    """,
+                    edge_data,
+                )
 
             self.__log(
                 f"=> Persisting {len(conductor_state.T)} target tables, {len(retrieved_tables)} retrieved tables, and {len(enumerated_tables)} enumerated tables..."
@@ -425,7 +414,6 @@ class WorkspaceManager:
                 )
 
             con.commit()
-            con.checkpoint()
         except Exception as e:
             con.rollback()
             self.__log(f"Failed to persist session: {e}")
@@ -433,13 +421,11 @@ class WorkspaceManager:
     def load_chat_history(self, user_id: str, chat_id: str) -> list[LLMMessage]:
         """Loads the persisted chat messages for a workspace in chronological order."""
         con = self.get_ws_db_connection(user_id, chat_id)
-        rows = con.execute(
-            """
+        rows = con.execute("""
             SELECT role, content
             FROM chat_history
             ORDER BY creation_timestamp ASC
-            """
-        ).fetchdf()
+            """).fetchdf()
         return [
             LLMMessage(role=row["role"], content=row["content"])
             for _, row in rows.iterrows()
@@ -563,14 +549,12 @@ class WorkspaceManager:
         """
         con = self.get_ws_db_connection(user_id, chat_id)
 
-        row = con.execute(
-            """
+        row = con.execute("""
             SELECT state_id, are_target_tables_materialized, python_script, is_python_script_executed, join_paths
             FROM conductor_state
             ORDER BY creation_timestamp DESC
             LIMIT 1
-            """
-        ).fetchone()
+            """).fetchone()
 
         if not row:
             return (
@@ -694,8 +678,8 @@ class WorkspaceManager:
         self, user_id: str, limit: int = 10, offset: int = 0
     ) -> dict[str, Any]:
         """
-        Scans the user directory for active chat databases, inspects their 
-        metadata from the chat_history table, and returns a paginated list 
+        Scans the user directory for active chat databases, inspects their
+        metadata from the chat_history table, and returns a paginated list
         ordered by the most recent activity.
         """
         user_dir = self.workspace_db_path / user_id
@@ -715,7 +699,7 @@ class WorkspaceManager:
                         con = None
                         try:
                             con = duckdb.connect(database=db_file.as_posix())
-                            
+
                             # Fetch the first message content for the title and the max timestamp for activity
                             query = """
                                 SELECT 
@@ -732,24 +716,33 @@ class WorkspaceManager:
                         if res and res[0] is not None:
                             content = res[0]
                             # Mimic the frontend title generation logic
-                            title = f"{content[:20]}..." if len(content) > 20 else content
-                            
+                            title = (
+                                f"{content[:20]}..." if len(content) > 20 else content
+                            )
+
                             # Standardize timestamp to ISO 8601 string format
                             last_active_dt = res[1]
                             last_active_str = (
-                                last_active_dt.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
+                                last_active_dt.astimezone(
+                                    datetime.timezone.utc
+                                ).strftime("%Y-%m-%dT%H:%M:%S.%f")
+                                + "Z"
                                 if hasattr(last_active_dt, "isoformat")
                                 else str(last_active_dt)
                             )
 
-                            all_sessions.append({
-                                "id": chat_id,
-                                "title": title,
-                                "lastActive": last_active_str,
-                                "_sort_ts": last_active_dt # Keep datetime reference for sorting
-                            })
+                            all_sessions.append(
+                                {
+                                    "id": chat_id,
+                                    "title": title,
+                                    "lastActive": last_active_str,
+                                    "_sort_ts": last_active_dt,  # Keep datetime reference for sorting
+                                }
+                            )
                     except Exception as e:
-                        self.__log(f"Failed to extract session metadata from {db_file}: {e}")
+                        self.__log(
+                            f"Failed to extract session metadata from {db_file}: {e}"
+                        )
                         continue
 
         # Sort all sessions descending by their last active timestamp
@@ -769,10 +762,10 @@ class WorkspaceManager:
             "has_more": has_more,
             "next_offset": next_offset,
         }
-    
+
     def delete_chat_session(self, user_id: str, chat_id: str) -> None:
         """
-        Deletes a specific chat session by closing active connections and 
+        Deletes a specific chat session by closing active connections and
         permanently removing the corresponding workspace directory.
         Raises FileNotFoundError if the chat session directory does not exist.
         """
@@ -786,6 +779,7 @@ class WorkspaceManager:
 
         try:
             from shutil import rmtree
+
             rmtree(chat_dir)
             self.__log(f"Successfully deleted chat session directory: {chat_dir}")
         except Exception as e:
@@ -865,11 +859,14 @@ class WorkspaceManager:
                     select_query = (
                         f"""SELECT * FROM \"{dataset_name}\".\"{doc_row['doc_id']}\";"""
                     )
-                content = self.execute_query(
-                    user_id,
-                    chat_id,
-                    select_query,
-                )
+                try:
+                    content = self.execute_query(
+                        user_id,
+                        chat_id,
+                        select_query,
+                    )
+                except Exception as e:
+                    continue
                 document = Table(
                     doc_id=doc_row["doc_id"],
                     retriever_type=retriever_type,

@@ -141,17 +141,18 @@ class ChatSessionTests(unittest.TestCase):
             {"role": "assistant", "content": "latest answer"},
         ]
         
-        cs.persist_session()
+        cs.persist_session("dataset_name")
         
         # Verify that db_api.persist_session was called using the parsed history strings
         self.db_api.persist_session.assert_called_once()
         args, kwargs = self.db_api.persist_session.call_args
         
-        # positional args match: (user_id, chat_id, last_user_input, last_system_response, ...)
+        # positional args match: (user_id, chat_id, dataset_name, last_user_input, last_system_response, ...)
         self.assertEqual(args[0], "u1")
         self.assertEqual(args[1], "c1")
-        self.assertEqual(args[2], "latest query")       # Derived from messages[-2]
-        self.assertEqual(args[3], "latest answer")      # Derived from messages[-1]
+        self.assertEqual(args[2], "dataset_name")
+        self.assertEqual(args[3], "latest query")
+        self.assertEqual(args[4], "latest answer")
 
 
 if __name__ == "__main__":

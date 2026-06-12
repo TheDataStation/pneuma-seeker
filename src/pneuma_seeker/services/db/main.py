@@ -176,6 +176,7 @@ class PneumaDB:
         self,
         user_id: str,
         chat_id: str,
+        dataset_name: str,
         new_user_input: str,
         new_system_response: str,
         conductor_state: ConductorState,
@@ -190,6 +191,7 @@ class PneumaDB:
         self.workspace_manager.persist_session(
             user_id,
             chat_id,
+            dataset_name,
             new_user_input,
             new_system_response,
             conductor_state,
