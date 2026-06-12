@@ -3,6 +3,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, EmailStr
 
+from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
+
 
 class EndpointTag(Enum):
     INDEXING = "indexing"
@@ -16,6 +18,13 @@ class PermissionKey(Enum):
     DATASET_ACCESS_PREFIX = "dataset:access"
     USER_MANAGEMENT = "user:management"
     INDEXING_MANAGEMENT = "indexing:management"
+
+
+class ChatHistoryResponse(BaseModel):
+    user_id: str
+    chat_id: str
+    messages: list[LLMMessage]
+    dataset_name: str | None = None
 
 
 class IndexDatasetRequest(BaseModel):
@@ -73,10 +82,19 @@ class GroupResponse(BaseModel):
 
 
 class SetPermissionRequest(BaseModel):
-    permission_key: str = Field(..., description="The permission key/string (e.g., 'user:management' or 'dataset:access:archeology')")
-    permission_value: str = Field(..., description="The value assigned (e.g., 'true', 'read')")
-    group_id: str | None = Field(None, description="Target group ID. If omitted, defaults to the caller's group.")
-    group_name: str | None = Field(None, description="Target group name (used if group_id is omitted).")
+    permission_key: str = Field(
+        ...,
+        description="The permission key/string (e.g., 'user:management' or 'dataset:access:archeology')",
+    )
+    permission_value: str = Field(
+        ..., description="The value assigned (e.g., 'true', 'read')"
+    )
+    group_id: str | None = Field(
+        None, description="Target group ID. If omitted, defaults to the caller's group."
+    )
+    group_name: str | None = Field(
+        None, description="Target group name (used if group_id is omitted)."
+    )
 
 
 class UpdateUserGroupRequest(BaseModel):

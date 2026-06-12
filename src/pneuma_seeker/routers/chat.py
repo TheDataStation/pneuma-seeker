@@ -14,7 +14,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 
-from pneuma_seeker.models import EndpointTag
+from pneuma_seeker.models import ChatHistoryResponse, EndpointTag
 from pneuma_seeker.routers.auth import get_current_user
 from pneuma_seeker.services.db.main import PneumaDB
 from pneuma_seeker.services.db.users.models import UserRecord
@@ -225,17 +225,18 @@ async def get_state(chat_id: str, current_user: UserRecord = Depends(get_current
     )
 
 
-@router.get("/chat/{chat_id}/history")
+@router.get("/chat/{chat_id}/history", response_model=ChatHistoryResponse)
 async def get_chat_history(
     chat_id: str, current_user: UserRecord = Depends(get_current_user)
 ):
     user_id = current_user.user_id
     chat_session = session_manager.get_chat_session(user_id, chat_id)
-    return {
-        "user_id": user_id,
-        "chat_id": chat_id,
-        "messages": chat_session.messages,
-    }
+    return ChatHistoryResponse(
+        user_id=user_id,
+        chat_id=chat_id,
+        messages=chat_session.messages,
+        dataset_name=chat_session.dataset_name,
+    )
 
 
 @router.get("/target_views/{chat_id}")
