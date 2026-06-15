@@ -57,6 +57,7 @@ class TestChatRouter(unittest.TestCase):
 
         payload = {
             "chat_id": "session_001",
+            "dataset_name": "test_dataset",
             "message": "Find missing nodes",
             "files": [],
         }
@@ -85,7 +86,7 @@ class TestChatRouter(unittest.TestCase):
     def test_chat_missing_message_returns_400(self, mock_session_manager):
         """Validates that requests with missing user queries fail immediately with 400 Bad Request."""
         # Act
-        response = self.client.post("/chat/", json={"chat_id": "session_001"})
+        response = self.client.post("/chat/", json={"chat_id": "session_001", "dataset_name": "test_dataset"})
 
         # Assert
         self.assertEqual(response.status_code, 400)
@@ -153,7 +154,8 @@ class TestChatRouter(unittest.TestCase):
         """Validates retrieval of existing message tracking matrices."""
         # Arrange
         mock_chat_session = MagicMock()
-        mock_chat_session.messages = [{"role": "user", "text": "hello"}]
+        mock_chat_session.messages = [{"role": "user", "content": "hello"}]
+        mock_chat_session.dataset_name = None
         mock_session_manager.get_chat_session.return_value = mock_chat_session
 
         # Act
@@ -162,7 +164,7 @@ class TestChatRouter(unittest.TestCase):
         # Assert
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            response.json()["messages"], [{"role": "user", "text": "hello"}]
+            response.json()["messages"], [{"role": "user", "content": "hello"}]
         )
 
     @patch("pneuma_seeker.routers.chat.session_manager")
