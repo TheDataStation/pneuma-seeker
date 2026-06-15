@@ -1,12 +1,10 @@
 import logging
 import os
-import shutil
 import sys
-import tempfile
 import unittest
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
+import psycopg
 
 sys.path.insert(
     0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../src"))
@@ -16,21 +14,30 @@ from pneuma_seeker.services.db.users.manager import UserDB
 from pneuma_seeker.shared.config import Config
 
 
+def _truncate_all(dsn: str) -> None:
+    """Removes all rows from the user DB tables so each test starts clean.
+    Safe to call before init_db() — silently ignored if tables don't exist yet."""
+    with psycopg.connect(dsn, autocommit=True) as con:
+        try:
+            con.execute(
+                "TRUNCATE TABLE auth_tokens, users, group_permissions, groups RESTART IDENTITY CASCADE;"
+            )
+        except psycopg.errors.UndefinedTable:
+            pass
+
+
 class TestUserDBUsers(unittest.TestCase):
-    """Tests for DuckDB-backed user authentication data."""
+    """Tests for Postgres-backed user authentication data."""
 
     def setUp(self):
         self.config = Config()
         self.config.AUTH_PASSWORD_HASH_ITERATIONS = 1
         self.config.AUTH_TOKEN_TTL_SECONDS = 60
         self.logger = logging.getLogger("test")
-        self.tmpdir = tempfile.mkdtemp()
-        self.users_db_path = Path(self.tmpdir) / "users.db"
-        self.db = UserDB(self.config, self.logger, self.users_db_path.as_posix())
+        self.dsn = os.environ["TEST_POSTGRES_DSN"]
+        _truncate_all(self.dsn)
+        self.db = UserDB(self.config, self.logger, dsn=self.dsn)
         self.db.init_db()
-
-    def tearDown(self):
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_init_creates_default_group(self):
         """The default 'default' group should be created on DB initialization."""
@@ -101,7 +108,7 @@ class TestUserDBUsers(unittest.TestCase):
         con = self.db._get_connection()
         try:
             con.execute(
-                "UPDATE users SET is_active = FALSE WHERE user_id = ?",
+                "UPDATE users SET is_active = FALSE WHERE user_id = %s",
                 (user.user_id,),
             )
         finally:
@@ -114,16 +121,14 @@ class TestUserDBUsers(unittest.TestCase):
         user = self.db.create_user("update_test@example.com", "password123")
         new_group_id = self.db.create_group("managers")
 
-        # Perform a multi-field update
         updated = self.db.update_user(
             user_id=user.user_id,
             username="UpdatedName",
             group_id=new_group_id,
-            is_active=False
+            is_active=False,
         )
         self.assertTrue(updated)
 
-        # Verify database reflected updates accurately
         updated_record = self.db.get_user_by_email("update_test@example.com")
         assert updated_record is not None
         self.assertEqual(updated_record.username, "UpdatedName")
@@ -133,25 +138,25 @@ class TestUserDBUsers(unittest.TestCase):
     def test_update_user_partial_arguments(self):
         """Updating only a subset of profile properties should leave remaining values intact."""
         user = self.db.create_user("partial@example.com", "password123")
-        
-        # Pass no modifications (should handle cleanly without database mutation noise)
+
         self.assertFalse(self.db.update_user(user_id=user.user_id))
 
-        # Update only status
         updated = self.db.update_user(user_id=user.user_id, is_active=False)
         self.assertTrue(updated)
-        
+
         record = self.db.get_user_by_email("partial@example.com")
         assert record is not None
         self.assertFalse(record.is_active)
-        self.assertEqual(record.username, "partial@example.com") # Should preserve untouched defaults
+        self.assertEqual(record.username, "partial@example.com")
 
     def test_update_user_rejects_unknown_group(self):
         """Attempting to assign a user to a non-existent group_id should raise a ValueError."""
         user = self.db.create_user("invalid_group_test@example.com", "password123")
-        
+
         with self.assertRaises(ValueError):
-            self.db.update_user(user_id=user.user_id, group_id="non-existent-group-uuid")
+            self.db.update_user(
+                user_id=user.user_id, group_id="non-existent-group-uuid"
+            )
 
     def test_update_user_missing_id_returns_false(self):
         """Updating fields on a user ID that does not exist should safely return False."""
@@ -162,19 +167,23 @@ class TestUserDBUsers(unittest.TestCase):
         """Updating a user password should store it hashed, invalidate the old password, and confirm via verification."""
         user = self.db.create_user("pass_update@example.com", "old_password")
 
-        # Execute password modification
-        updated = self.db.update_password(user_id=user.user_id, new_password="new_shiny_password")
+        updated = self.db.update_password(
+            user_id=user.user_id, new_password="new_shiny_password"
+        )
         self.assertTrue(updated)
 
-        # Validate old password fails authentication
-        self.assertIsNone(self.db.verify_user("pass_update@example.com", "old_password"))
-
-        # Validate new password authenticates correctly
-        self.assertIsNotNone(self.db.verify_user("pass_update@example.com", "new_shiny_password"))
+        self.assertIsNone(
+            self.db.verify_user("pass_update@example.com", "old_password")
+        )
+        self.assertIsNotNone(
+            self.db.verify_user("pass_update@example.com", "new_shiny_password")
+        )
 
     def test_update_password_missing_id_returns_false(self):
         """Attempting to update a password on a non-existent user ID should return False."""
-        updated = self.db.update_password(user_id="non-existent-user-id", new_password="secret_pass")
+        updated = self.db.update_password(
+            user_id="non-existent-user-id", new_password="secret_pass"
+        )
         self.assertFalse(updated)
 
 
@@ -185,16 +194,10 @@ class TestUserDBGroups(unittest.TestCase):
         self.config = Config()
         self.config.AUTH_PASSWORD_HASH_ITERATIONS = 1
         self.logger = logging.getLogger("test")
-        self.tmpdir = tempfile.mkdtemp()
-        self.db = UserDB(
-            self.config,
-            self.logger,
-            (Path(self.tmpdir) / "users.db").as_posix(),
-        )
+        self.dsn = os.environ["TEST_POSTGRES_DSN"]
+        _truncate_all(self.dsn)
+        self.db = UserDB(self.config, self.logger, dsn=self.dsn)
         self.db.init_db()
-
-    def tearDown(self):
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_create_group_with_parent(self):
         """Creating a group with a valid parent_group_id should set the parent-child relationship correctly."""
@@ -225,7 +228,9 @@ class TestUserDBGroups(unittest.TestCase):
 
         lineage = self.db.list_group_ancestors(grandchild_id)
 
-        self.assertEqual([group.name for group in lineage], ["company", "research", "nlp"])
+        self.assertEqual(
+            [group.name for group in lineage], ["company", "research", "nlp"]
+        )
 
     def test_effective_permissions_inherit_and_child_overrides(self):
         """Child groups should inherit permissions from their ancestors, but can override them with their own settings."""
@@ -250,7 +255,7 @@ class TestUserDBGroups(unittest.TestCase):
         """Setting a permission for a non-existent group should raise a ValueError."""
         with self.assertRaises(ValueError):
             self.db.set_group_permission("missing", "datasets.read", "true")
-    
+
     def test_delete_user(self):
         """Deleting an existing user should remove them from the database and return True."""
         user = self.db.create_user("test@example.com", "pass")
@@ -271,17 +276,11 @@ class TestUserDBTokens(unittest.TestCase):
         self.config.AUTH_PASSWORD_HASH_ITERATIONS = 1
         self.config.AUTH_TOKEN_TTL_SECONDS = 60
         self.logger = logging.getLogger("test")
-        self.tmpdir = tempfile.mkdtemp()
-        self.db = UserDB(
-            self.config,
-            self.logger,
-            (Path(self.tmpdir) / "users.db").as_posix(),
-        )
+        self.dsn = os.environ["TEST_POSTGRES_DSN"]
+        _truncate_all(self.dsn)
+        self.db = UserDB(self.config, self.logger, dsn=self.dsn)
         self.db.init_db()
         self.user = self.db.create_user("token@example.com", "password123")
-
-    def tearDown(self):
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_create_token_and_get_user_by_token(self):
         """Creating a session token for a user and then retrieving the user by that token should work correctly."""
@@ -307,7 +306,7 @@ class TestUserDBTokens(unittest.TestCase):
         con = self.db._get_connection()
         try:
             con.execute(
-                "UPDATE auth_tokens SET expires_at = ? WHERE token = ?",
+                "UPDATE auth_tokens SET expires_at = %s WHERE token = %s",
                 (datetime.now(UTC) - timedelta(seconds=1), token),
             )
         finally:
@@ -317,12 +316,12 @@ class TestUserDBTokens(unittest.TestCase):
 
         con = self.db._get_connection()
         try:
-            count = con.execute(
-                "SELECT COUNT(*) FROM auth_tokens WHERE token = ?",
+            row = con.execute(
+                "SELECT COUNT(*) FROM auth_tokens WHERE token = %s",
                 (token,),
             ).fetchone()
-            assert count is not None
-            count = count[0]
+            assert row is not None
+            count = row[0]
         finally:
             con.close()
         self.assertEqual(count, 0)

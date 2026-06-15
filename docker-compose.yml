@@ -1,4 +1,39 @@
 services:
+  postgres:
+    build:
+      context: .
+      dockerfile: src/pneuma_seeker/docker/postgres.dockerfile
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-pneuma_users}
+      POSTGRES_USER: ${POSTGRES_USER:-pneuma}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pneuma_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pneuma} -d ${POSTGRES_DB:-pneuma_users}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@admin.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - backend-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   core:
     build:
       context: .
@@ -6,6 +41,9 @@ services:
     ports:
       - "8000:8000"
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - backend-net
     volumes:
@@ -17,3 +55,7 @@ services:
 networks:
   backend-net:
     driver: bridge
+
+volumes:
+  postgres_data:
+  pgadmin_data:

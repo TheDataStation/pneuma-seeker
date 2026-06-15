@@ -32,7 +32,7 @@ class Config:
         # Claude Settings
         self.ANTHROPIC_API_KEY = getenv("ANTHROPIC_API_KEY", "")
 
-        # Frontend-Backend Interaction Settings        
+        # Frontend-Backend Interaction Settings
         self.ALLOWED_ORIGINS = getenv("ALLOWED_ORIGINS", "*").split(",")
         self.OPENWEBUI_BASE_URL = getenv("OPENWEBUI_BASE_URL", "http://0.0.0.0:8080/")
         self.OPENWEBUI_API_KEY = getenv("OPENWEBUI_API_KEY", "")
@@ -50,21 +50,24 @@ class Config:
         ## Retrieval Action Settings
         self.ENABLE_WEB_SEARCH = getenv("ENABLE_WEB_SEARCH", "false").lower() == "true"
         self.ENABLE_WEB_CRAWL = getenv("ENABLE_WEB_CRAWL", "true").lower() == "true"
-        self.WEB_CRAWL_MAX_CHARS = int(getenv("WEB_CRAWL_MAX_CHARS", "5000"))     
+        self.WEB_CRAWL_MAX_CHARS = int(getenv("WEB_CRAWL_MAX_CHARS", "5000"))
         self.JOIN_PATH_EXTRACTION_ALPHA = float(
             getenv("JOIN_PATH_EXTRACTION_NAME_SIMILARITY_WEIGHT", "0.6")
         )
-        self.JOIN_PATH_EXTRACTION_TOP_K = int(
-            getenv("JOIN_PATH_EXTRACTION_TOP_K", "5")
-        )
+        self.JOIN_PATH_EXTRACTION_TOP_K = int(getenv("JOIN_PATH_EXTRACTION_TOP_K", "5"))
         self.TABLE_RETRIEVE_MAX_TOPICS = int(getenv("TABLE_RETRIEVE_MAX_TOPICS", "3"))
         self.TABLE_RETRIEVE_ENABLE_ENTITIES_RELEVANCE_BOOSTER = (
-            getenv("TABLE_RETRIEVE_ENABLE_ENTITIES_RELEVANCE_BOOSTER", "true").lower() == "true"
+            getenv("TABLE_RETRIEVE_ENABLE_ENTITIES_RELEVANCE_BOOSTER", "true").lower()
+            == "true"
         )
 
         ## Semantic Action Settings
-        self.ENABLE_SEMANTIC_JOIN = getenv("ENABLE_SEMANTIC_JOIN", "false").lower() == "true"
-        self.ENABLE_SEMANTIC_COL_GEN = getenv("ENABLE_SEMANTIC_COL_GEN", "false").lower() == "true"
+        self.ENABLE_SEMANTIC_JOIN = (
+            getenv("ENABLE_SEMANTIC_JOIN", "false").lower() == "true"
+        )
+        self.ENABLE_SEMANTIC_COL_GEN = (
+            getenv("ENABLE_SEMANTIC_COL_GEN", "false").lower() == "true"
+        )
 
         self.SEMANTIC_JOIN_TOP_K = 1
         self.SEMANTIC_JOIN_BATCH_SIZE = max(
@@ -83,10 +86,11 @@ class Config:
         self.ENABLE_CONTEXT_EXTRACTION = (
             getenv("ENABLE_CONTEXT_EXTRACTION", "true").lower() == "true"
         )
-        
+
         # Database Settings
         self.ENABLE_FINE_GRAINED_STATE_CHANGE_TRACKING = (
-            getenv("ENABLE_FINE_GRAINED_STATE_CHANGE_TRACKING", "false").lower() == "true"
+            getenv("ENABLE_FINE_GRAINED_STATE_CHANGE_TRACKING", "false").lower()
+            == "true"
         )
 
         # Auth Settings
@@ -94,3 +98,10 @@ class Config:
         self.AUTH_PASSWORD_HASH_ITERATIONS = int(
             getenv("AUTH_PASSWORD_HASH_ITERATIONS", "200000")
         )
+
+        # Postgres Settings (for UserDB)
+        self.POSTGRES_HOST = getenv("POSTGRES_HOST", "localhost")
+        self.POSTGRES_PORT = int(getenv("POSTGRES_PORT", "5432"))
+        self.POSTGRES_DB = getenv("POSTGRES_DB", "pneuma_users")
+        self.POSTGRES_USER = getenv("POSTGRES_USER", "pneuma")
+        self.POSTGRES_PASSWORD = getenv("POSTGRES_PASSWORD", "pneuma_password")

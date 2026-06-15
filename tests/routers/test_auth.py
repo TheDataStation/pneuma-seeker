@@ -1,12 +1,10 @@
 # tests/routers/test_auth.py
 import logging
 import os
-import shutil
 import sys
-from tempfile import mkdtemp
 import unittest
-from pathlib import Path
 
+import psycopg
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -19,6 +17,18 @@ from pneuma_seeker.services.db.users.manager import UserDB
 from pneuma_seeker.shared.config import Config
 
 
+def _truncate_all(dsn: str) -> None:
+    """Removes all rows from the user DB tables so each test starts clean.
+    Safe to call before init_db() — silently ignored if tables don't exist yet."""
+    with psycopg.connect(dsn, autocommit=True) as con:
+        try:
+            con.execute(
+                "TRUNCATE TABLE auth_tokens, users, group_permissions, groups RESTART IDENTITY CASCADE;"
+            )
+        except psycopg.errors.UndefinedTable:
+            pass
+
+
 class TestAuthRouter(unittest.TestCase):
     """Tests for FastAPI authentication and hierarchical group management endpoints."""
 
@@ -27,12 +37,13 @@ class TestAuthRouter(unittest.TestCase):
         self.config.AUTH_PASSWORD_HASH_ITERATIONS = 1
         self.config.AUTH_TOKEN_TTL_SECONDS = 60
         self.logger = logging.getLogger("test")
-        self.tmpdir = mkdtemp()
-        
+        self.dsn = os.environ["TEST_POSTGRES_DSN"]
+        _truncate_all(self.dsn)
+
         self.test_user_db = UserDB(
             self.config,
             self.logger,
-            (Path(self.tmpdir) / "users.db").as_posix(),
+            dsn=self.dsn,
         )
         self.test_user_db.init_db()
 
@@ -49,25 +60,24 @@ class TestAuthRouter(unittest.TestCase):
     def tearDown(self):
         self.app.dependency_overrides.clear()
         auth.user_db = self.original_user_db
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _setup_admin_group(self):
         """Helper to explicitly establish the admin group structure within the current test database instance."""
         try:
             self.admin_group_id = self.test_user_db.create_group("admin", None)
-            # Assign the administrative permission flag to ensure comprehensive policy resolution
             self.test_user_db.set_group_permission(
                 group_id=self.admin_group_id,
                 permission_key="user:management",
-                permission_value="true"
+                permission_value="true",
             )
         except ValueError:
-            # Group may already exist depending on UserDB initialization seeds
             admin_rec = self.test_user_db.get_group_by_name("admin")
             if admin_rec:
                 self.admin_group_id = admin_rec.group_id
 
-    def _register_and_login(self, email="user@example.com", password="password123", group_id=None):
+    def _register_and_login(
+        self, email="user@example.com", password="password123", group_id=None
+    ):
         """Helper method to register a user and return their authentication token."""
         register_payload = {"email": email, "password": password}
         if group_id:
@@ -86,7 +96,9 @@ class TestAuthRouter(unittest.TestCase):
         self.assertEqual(login_response.status_code, 200)
         return login_response.json()["access_token"]
 
-    def _register_and_login_admin(self, email="admin_user@example.com", password="password123"):
+    def _register_and_login_admin(
+        self, email="admin_user@example.com", password="password123"
+    ):
         """Helper method to register an administrative user within the designated admin group block."""
         return self._register_and_login(email, password, group_id=self.admin_group_id)
 
@@ -217,9 +229,9 @@ class TestAuthRouter(unittest.TestCase):
         response = self.client.post(
             "/auth/register",
             json={
-                "email": "groupless@example.com", 
+                "email": "groupless@example.com",
                 "password": "password123",
-                "group_id": "99999"  # Fake ID
+                "group_id": "99999",
             },
         )
         self.assertEqual(response.status_code, 400)
@@ -228,8 +240,7 @@ class TestAuthRouter(unittest.TestCase):
     def test_register_with_valid_group(self):
         """Tests that registering a user with a valid explicit group assigns it correctly."""
         token = self._register_and_login_admin()
-        
-        # Create a group first to get a valid ID
+
         group_response = self.client.post(
             "/auth/groups",
             json={"name": "devs"},
@@ -237,13 +248,12 @@ class TestAuthRouter(unittest.TestCase):
         )
         group_id = group_response.json()["group_id"]
 
-        # Register a new user into that group
         response = self.client.post(
             "/auth/register",
             json={
-                "email": "dev_user@example.com", 
+                "email": "dev_user@example.com",
                 "password": "password123",
-                "group_id": group_id
+                "group_id": group_id,
             },
         )
         self.assertEqual(response.status_code, 200)
@@ -251,7 +261,7 @@ class TestAuthRouter(unittest.TestCase):
 
     def test_authenticated_endpoint_missing_token_returns_unauthorized(self):
         """Tests that hitting a protected endpoint without an Authorization header returns 401."""
-        response = self.client.get("/auth/me")  # No headers
+        response = self.client.get("/auth/me")
         self.assertEqual(response.status_code, 401)
         self.assertIn("Missing authorization token", response.json()["detail"])
 
@@ -259,7 +269,7 @@ class TestAuthRouter(unittest.TestCase):
         """Tests that using an authentication scheme other than Bearer returns 401."""
         response = self.client.get(
             "/auth/me",
-            headers={"Authorization": "Basic dXNlcjpwYXNz"},  # Basic auth instead of Bearer
+            headers={"Authorization": "Basic dXNlcjpwYXNz"},
         )
         self.assertEqual(response.status_code, 401)
         self.assertIn("Missing authorization token", response.json()["detail"])
@@ -267,11 +277,10 @@ class TestAuthRouter(unittest.TestCase):
     def test_authenticated_endpoint_inactive_user_returns_unauthorized(self):
         """Tests that a user whose token is valid but is marked inactive is rejected with a 401."""
         token = self._register_and_login("deactivated@example.com", "password123")
-        
-        # Deactivate the user directly in the DB backend
+
         user = self.test_user_db.get_user_by_token(token)
         if user:
-            self.test_user_db.revoke_token(token)  # This will invalidate the token, simulating deactivation
+            self.test_user_db.revoke_token(token)
         response = self.client.get(
             "/auth/me",
             headers={"Authorization": f"Bearer {token}"},
@@ -282,8 +291,7 @@ class TestAuthRouter(unittest.TestCase):
     def test_create_group_with_valid_parent(self):
         """Tests successful creation of a nested/child group hierarchy."""
         token = self._register_and_login_admin()
-        
-        # Create Parent
+
         parent_res = self.client.post(
             "/auth/groups",
             json={"name": "engineering"},
@@ -291,7 +299,6 @@ class TestAuthRouter(unittest.TestCase):
         )
         parent_id = parent_res.json()["group_id"]
 
-        # Create Child
         child_res = self.client.post(
             "/auth/groups",
             json={"name": "backend", "parent_group_id": parent_id},
@@ -304,7 +311,6 @@ class TestAuthRouter(unittest.TestCase):
         """Tests that a 500 error is thrown if the group is created but cannot be retrieved."""
         token = self._register_and_login_admin()
 
-        # Force get_group_by_id to return None right after creation simulation
         original_get_group = self.test_user_db.get_group_by_id
         self.test_user_db.get_group_by_id = lambda group_id: None
 
@@ -317,86 +323,117 @@ class TestAuthRouter(unittest.TestCase):
             self.assertEqual(response.status_code, 500)
             self.assertIn("Failed to create group", response.json()["detail"])
         finally:
-            # Clean up our inline runtime hotfix
             self.test_user_db.get_group_by_id = original_get_group
 
     def test_ensure_admin_blocks_standard_user(self):
         """Tests that a regular user without admin permissions is blocked from accessing administrative endpoints."""
         token = self._register_and_login("regular_user@example.com", "password123")
-        
+
         endpoints = [
             ("POST", "/auth/groups", {"name": "unauthorized-group"}),
             ("GET", "/auth/groups", None),
-            ("POST", "/auth/groups/permissions", {"permission_key": "read", "permission_value": "true"}),
-            ("POST", "/auth/users/change-group", {"user_id": "123", "group_id": "456"})
+            (
+                "POST",
+                "/auth/groups/permissions",
+                {"permission_key": "read", "permission_value": "true"},
+            ),
+            ("POST", "/auth/users/change-group", {"user_id": "123", "group_id": "456"}),
         ]
 
         for method, path, payload in endpoints:
             if method == "POST":
-                res = self.client.post(path, json=payload, headers={"Authorization": f"Bearer {token}"})
+                res = self.client.post(
+                    path, json=payload, headers={"Authorization": f"Bearer {token}"}
+                )
             else:
-                res = self.client.get(path, headers={"Authorization": f"Bearer {token}"})
-            
-            self.assertEqual(res.status_code, 403, f"Standard user bypassed restriction on endpoint: {path}")
+                res = self.client.get(
+                    path, headers={"Authorization": f"Bearer {token}"}
+                )
+
+            self.assertEqual(
+                res.status_code,
+                403,
+                f"Standard user bypassed restriction on endpoint: {path}",
+            )
             self.assertIn("Access denied", res.json()["detail"])
 
     def test_get_group_permissions_direct(self):
         """Tests fetching only the direct permissions of the current user's group."""
         admin_token = self._register_and_login_admin()
-        
-        # Target a specific test group to explicitly trace permissions
+
         group_res = self.client.post(
-            "/auth/groups", json={"name": "direct-perm-group"}, headers={"Authorization": f"Bearer {admin_token}"}
+            "/auth/groups",
+            json={"name": "direct-perm-group"},
+            headers={"Authorization": f"Bearer {admin_token}"},
         )
         group_id = group_res.json()["group_id"]
-        
-        # Apply permission parameter to the specific target group
+
         self.client.post(
             "/auth/groups/permissions",
-            json={"group_id": group_id, "permission_key": "data:read", "permission_value": "true"},
-            headers={"Authorization": f"Bearer {admin_token}"}
+            json={
+                "group_id": group_id,
+                "permission_key": "data:read",
+                "permission_value": "true",
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
         )
 
-        # Login as the standard user assigned to that target group
-        user_token = self._register_and_login("worker@example.com", "password123", group_id=group_id)
-        
-        # Verify direct permissions fetch
-        perm_res = self.client.get("/auth/groups/permissions?effective=false", headers={"Authorization": f"Bearer {user_token}"})
+        user_token = self._register_and_login(
+            "worker@example.com", "password123", group_id=group_id
+        )
+
+        perm_res = self.client.get(
+            "/auth/groups/permissions?effective=false",
+            headers={"Authorization": f"Bearer {user_token}"},
+        )
         self.assertEqual(perm_res.status_code, 200)
         self.assertEqual(perm_res.json().get("data:read"), "true")
 
     def test_get_group_permissions_effective_resolution(self):
         """Tests fetching resolved effective permissions that evaluate inheritance across the hierarchy tree."""
         admin_token = self._register_and_login_admin()
-        
-        # Build nested structural path: Parent -> Child
+
         parent_res = self.client.post(
-            "/auth/groups", json={"name": "parent-layer"}, headers={"Authorization": f"Bearer {admin_token}"}
+            "/auth/groups",
+            json={"name": "parent-layer"},
+            headers={"Authorization": f"Bearer {admin_token}"},
         )
         parent_id = parent_res.json()["group_id"]
-        
+
         child_res = self.client.post(
-            "/auth/groups", json={"name": "child-layer", "parent_group_id": parent_id}, headers={"Authorization": f"Bearer {admin_token}"}
+            "/auth/groups",
+            json={"name": "child-layer", "parent_group_id": parent_id},
+            headers={"Authorization": f"Bearer {admin_token}"},
         )
         child_id = child_res.json()["group_id"]
 
-        # Assign permission flags across the tree nodes
         self.client.post(
             "/auth/groups/permissions",
-            json={"group_id": parent_id, "permission_key": "global:access", "permission_value": "true"},
-            headers={"Authorization": f"Bearer {admin_token}"}
+            json={
+                "group_id": parent_id,
+                "permission_key": "global:access",
+                "permission_value": "true",
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
         )
         self.client.post(
             "/auth/groups/permissions",
-            json={"group_id": child_id, "permission_key": "local:write", "permission_value": "true"},
-            headers={"Authorization": f"Bearer {admin_token}"}
+            json={
+                "group_id": child_id,
+                "permission_key": "local:write",
+                "permission_value": "true",
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
         )
 
-        # Connect standard user execution context inside the nested child node
-        user_token = self._register_and_login("child_user@example.com", "password123", group_id=child_id)
-        
-        # Request effective query validation
-        effective_res = self.client.get("/auth/groups/permissions?effective=true", headers={"Authorization": f"Bearer {user_token}"})
+        user_token = self._register_and_login(
+            "child_user@example.com", "password123", group_id=child_id
+        )
+
+        effective_res = self.client.get(
+            "/auth/groups/permissions?effective=true",
+            headers={"Authorization": f"Bearer {user_token}"},
+        )
         self.assertEqual(effective_res.status_code, 200)
         perms = effective_res.json()
         self.assertEqual(perms.get("global:access"), "true")
@@ -405,18 +442,18 @@ class TestAuthRouter(unittest.TestCase):
     def test_get_group_permissions_fails_for_groupless_user(self):
         """Tests that a 400 Bad Request is returned when checking permissions for a user with no assigned group."""
         token = self._register_and_login("groupless_check@example.com", "password123")
-        
-        # Avoid constraint errors by mocking the dependency return value instead of modifying live DB constraints
+
         original_get_current_user = auth.get_current_user
-        
+
         try:
-            # Fetch the actual user record, modify the in-memory group attribute, and override the dependency
             user_rec = self.test_user_db.get_user_by_token(token)
             if user_rec:
                 user_rec.group_id = None
                 self.app.dependency_overrides[auth.get_current_user] = lambda: user_rec
 
-            response = self.client.get("/auth/groups/permissions", headers={"Authorization": f"Bearer {token}"})
+            response = self.client.get(
+                "/auth/groups/permissions", headers={"Authorization": f"Bearer {token}"}
+            )
             self.assertEqual(response.status_code, 400)
             self.assertIn("not assigned to any group", response.json()["detail"])
         finally:
@@ -425,17 +462,21 @@ class TestAuthRouter(unittest.TestCase):
     def test_set_group_permission_by_name(self):
         """Tests setting a group permission by specifying the group name string instead of an ID."""
         admin_token = self._register_and_login_admin()
-        
-        # Create separate target group block
+
         self.client.post(
-            "/auth/groups", json={"name": "target-by-name"}, headers={"Authorization": f"Bearer {admin_token}"}
+            "/auth/groups",
+            json={"name": "target-by-name"},
+            headers={"Authorization": f"Bearer {admin_token}"},
         )
 
-        # Issue command payload utilizing group name target string
         response = self.client.post(
             "/auth/groups/permissions",
-            json={"group_name": "target-by-name", "permission_key": "execute", "permission_value": "allow"},
-            headers={"Authorization": f"Bearer {admin_token}"}
+            json={
+                "group_name": "target-by-name",
+                "permission_key": "execute",
+                "permission_value": "allow",
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "success")
@@ -444,11 +485,15 @@ class TestAuthRouter(unittest.TestCase):
     def test_set_group_permission_invalid_name_returns_not_found(self):
         """Tests that targeting a non-existent group name string triggers an explicit 404 block error."""
         admin_token = self._register_and_login_admin()
-        
+
         response = self.client.post(
             "/auth/groups/permissions",
-            json={"group_name": "non-existent-group-xyz", "permission_key": "read", "permission_value": "true"},
-            headers={"Authorization": f"Bearer {admin_token}"}
+            json={
+                "group_name": "non-existent-group-xyz",
+                "permission_key": "read",
+                "permission_value": "true",
+            },
+            headers={"Authorization": f"Bearer {admin_token}"},
         )
         self.assertEqual(response.status_code, 404)
         self.assertIn("not found", response.json()["detail"])
@@ -456,11 +501,11 @@ class TestAuthRouter(unittest.TestCase):
     def test_set_group_permission_no_target_fallback(self):
         """Tests that when no group target properties are present, it defaults modification access directly to the administrator's group context."""
         admin_token = self._register_and_login_admin()
-        
+
         response = self.client.post(
             "/auth/groups/permissions",
             json={"permission_key": "admin_tool:use", "permission_value": "granted"},
-            headers={"Authorization": f"Bearer {admin_token}"}
+            headers={"Authorization": f"Bearer {admin_token}"},
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["group_id"], self.admin_group_id)
@@ -468,34 +513,35 @@ class TestAuthRouter(unittest.TestCase):
     def test_change_user_group_success(self):
         """Tests shifting a targeted user context entry cleanly between separate functional group blocks."""
         admin_token = self._register_and_login_admin()
-        
-        # Create destinations
+
         group_res = self.client.post(
-            "/auth/groups", json={"name": "destination-group"}, headers={"Authorization": f"Bearer {admin_token}"}
+            "/auth/groups",
+            json={"name": "destination-group"},
+            headers={"Authorization": f"Bearer {admin_token}"},
         )
         destination_group_id = group_res.json()["group_id"]
 
-        # Instantiate separate target user system path parameters
-        self.client.post("/auth/register", json={"email": "migrant@example.com", "password": "password123"})
+        self.client.post(
+            "/auth/register",
+            json={"email": "migrant@example.com", "password": "password123"},
+        )
         target_user_record = self.test_user_db.get_user_by_email("migrant@example.com")
         self.assertIsNotNone(target_user_record)
 
         assert target_user_record is not None
-        
-        # Issue modification target transfer request payload
+
         payload = {
             "user_id": target_user_record.user_id,
-            "group_id": destination_group_id
+            "group_id": destination_group_id,
         }
         response = self.client.post(
             "/auth/users/change-group",
             json=payload,
-            headers={"Authorization": f"Bearer {admin_token}"}
+            headers={"Authorization": f"Bearer {admin_token}"},
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "success")
 
-        # Verify underlying storage state parameters update matching changes
         updated_user = self.test_user_db.get_user_by_email("migrant@example.com")
         assert updated_user is not None
         self.assertEqual(updated_user.group_id, destination_group_id)
@@ -503,15 +549,12 @@ class TestAuthRouter(unittest.TestCase):
     def test_change_user_group_invalid_group_returns_bad_request(self):
         """Tests that requesting an update path matching a non-existent group target ID triggers a 400 Bad Request error."""
         admin_token = self._register_and_login_admin()
-        
-        payload = {
-            "user_id": "some-valid-user-id",
-            "group_id": "99999"  # Missing validation target key ID link context 
-        }
+
+        payload = {"user_id": "some-valid-user-id", "group_id": "99999"}
         response = self.client.post(
             "/auth/users/change-group",
             json=payload,
-            headers={"Authorization": f"Bearer {admin_token}"}
+            headers={"Authorization": f"Bearer {admin_token}"},
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("Target group does not exist", response.json()["detail"])
@@ -519,18 +562,14 @@ class TestAuthRouter(unittest.TestCase):
     def test_change_user_group_missing_user_returns_not_found(self):
         """Tests that passing a valid group ID but an invalid/missing user ID triggers a 404 Not Found error."""
         admin_token = self._register_and_login_admin()
-        
-        # Use a correctly formatted UUID string that does not exist to prevent DuckDB compilation parse exceptions
+
         fake_uuid = "00000000-0000-0000-0000-000000000000"
-        
-        payload = {
-            "user_id": fake_uuid,
-            "group_id": self.admin_group_id
-        }
+
+        payload = {"user_id": fake_uuid, "group_id": self.admin_group_id}
         response = self.client.post(
             "/auth/users/change-group",
             json=payload,
-            headers={"Authorization": f"Bearer {admin_token}"}
+            headers={"Authorization": f"Bearer {admin_token}"},
         )
         self.assertEqual(response.status_code, 404)
         self.assertIn("Target user not found", response.json()["detail"])
@@ -538,17 +577,15 @@ class TestAuthRouter(unittest.TestCase):
     def test_create_group_non_existent_parent_falls_back_to_default(self):
         """Tests that creating a group with an invalid parent_group_id falls back cleanly to the default group structure."""
         token = self._register_and_login_admin()
-        
-        # Passing an invalid ID should not trigger a 400 error due to the router fallback fallback design
+
         response = self.client.post(
             "/auth/groups",
             json={"name": "fallback-test-group", "parent_group_id": "99999"},
             headers={"Authorization": f"Bearer {token}"},
         )
-        
+
         self.assertEqual(response.status_code, 200)
-        
-        # Verify it successfully pulled the default group ID as the parent fallback target
+
         default_group = self.test_user_db.get_group_by_name("default")
         if default_group:
             self.assertEqual(response.json()["parent_group_id"], default_group.group_id)

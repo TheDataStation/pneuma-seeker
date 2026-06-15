@@ -1,108 +1,100 @@
 # src/pneuma_seeker/services/db/users/manager.py
-import os
 import secrets
 from datetime import UTC, datetime, timedelta
 from hashlib import pbkdf2_hmac
 from hmac import compare_digest
 from logging import Logger
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-import duckdb
+import psycopg
+from psycopg.errors import UniqueViolation
 
 from pneuma_seeker.models import PermissionKey
-from pneuma_seeker.services.db.users.models import GroupPermissionRecord, GroupRecord, UserRecord
+from pneuma_seeker.services.db.users.models import (
+    GroupPermissionRecord,
+    GroupRecord,
+    UserRecord,
+)
 from pneuma_seeker.shared.config import Config
 
 
 class UserDB:
-    """Manages users, groups, and auth tokens stored in DuckDB."""
+    """Manages users, groups, and auth tokens stored in Postgres."""
 
     def __init__(
         self,
         config: Config,
         logger: Logger,
-        users_db_path: str | None = None,
+        dsn: str | None = None,
     ) -> None:
         self.config = config
         self.logger = logger
 
-        if users_db_path:
-            self.users_db_path = Path(users_db_path)
+        if dsn:
+            self.dsn = dsn
         else:
-            self.users_db_path = Path(__file__).resolve().parent / "users.db"
+            self.dsn = (
+                f"postgresql://{config.POSTGRES_USER}:{config.POSTGRES_PASSWORD}"
+                f"@{config.POSTGRES_HOST}:{config.POSTGRES_PORT}/{config.POSTGRES_DB}"
+            )
 
-        os.makedirs(self.users_db_path.parent, exist_ok=True)
-    
     def init_db(self) -> None:
         """Initializes schema and default settings. Call this ONLY once on app startup."""
         self.__log("Initializing user database schema")
         con = self._get_connection()
         try:
-            con.begin()
-            con.execute(
-                """
-                CREATE TABLE IF NOT EXISTS groups (
-                    group_id        VARCHAR PRIMARY KEY,
-                    name            VARCHAR UNIQUE,
-                    parent_group_id VARCHAR,
-                    FOREIGN KEY (parent_group_id) REFERENCES groups(group_id),
-                    created_at      TIMESTAMP DEFAULT now()
-                );
-                """
-            )
-            con.execute(
-                """
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id            VARCHAR PRIMARY KEY,
-                    email              VARCHAR UNIQUE,
-                    username           VARCHAR,
-                    password_hash      VARCHAR,
-                    password_salt      VARCHAR,
-                    password_iterations INTEGER,
-                    group_id           VARCHAR,
-                    is_active          BOOLEAN DEFAULT TRUE,
-                    created_at         TIMESTAMP DEFAULT now(),
-                    FOREIGN KEY (group_id) REFERENCES groups(group_id)
-                );
-                """
-            )
-            con.execute(
-                """
-                CREATE TABLE IF NOT EXISTS group_permissions (
-                    group_id          VARCHAR,
-                    permission_key    VARCHAR,
-                    permission_value  VARCHAR,
-                    created_at        TIMESTAMP DEFAULT now(),
-                    updated_at        TIMESTAMP DEFAULT now(),
-                    PRIMARY KEY (group_id, permission_key),
-                    FOREIGN KEY (group_id) REFERENCES groups(group_id)
-                );
-                """
-            )
-            con.execute(
-                """
-                CREATE TABLE IF NOT EXISTS auth_tokens (
-                    token       VARCHAR PRIMARY KEY,
-                    user_id     VARCHAR,
-                    created_at  TIMESTAMP DEFAULT now(),
-                    expires_at  TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users(user_id)
-                );
-                """
-            )
-            con.commit()
-        except Exception:
-            con.rollback()
-            raise
+            with con.transaction():
+                con.execute("""
+                    CREATE TABLE IF NOT EXISTS groups (
+                        group_id        VARCHAR PRIMARY KEY,
+                        name            VARCHAR UNIQUE,
+                        parent_group_id VARCHAR,
+                        FOREIGN KEY (parent_group_id) REFERENCES groups(group_id),
+                        created_at      TIMESTAMPTZ DEFAULT NOW()
+                    );
+                    """)
+                con.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        user_id             VARCHAR PRIMARY KEY,
+                        email               VARCHAR UNIQUE,
+                        username            VARCHAR,
+                        password_hash       VARCHAR,
+                        password_salt       VARCHAR,
+                        password_iterations INTEGER,
+                        group_id            VARCHAR,
+                        is_active           BOOLEAN DEFAULT TRUE,
+                        created_at          TIMESTAMPTZ DEFAULT NOW(),
+                        FOREIGN KEY (group_id) REFERENCES groups(group_id)
+                    );
+                    """)
+                con.execute("""
+                    CREATE TABLE IF NOT EXISTS group_permissions (
+                        group_id          VARCHAR,
+                        permission_key    VARCHAR,
+                        permission_value  VARCHAR,
+                        created_at        TIMESTAMPTZ DEFAULT NOW(),
+                        updated_at        TIMESTAMPTZ DEFAULT NOW(),
+                        PRIMARY KEY (group_id, permission_key),
+                        FOREIGN KEY (group_id) REFERENCES groups(group_id)
+                    );
+                    """)
+                con.execute("""
+                    CREATE TABLE IF NOT EXISTS auth_tokens (
+                        token       VARCHAR PRIMARY KEY,
+                        user_id     VARCHAR,
+                        created_at  TIMESTAMPTZ DEFAULT NOW(),
+                        expires_at  TIMESTAMPTZ,
+                        FOREIGN KEY (user_id) REFERENCES users(user_id)
+                    );
+                    """)
         finally:
             con.close()
         self._init_group()
 
-    def _get_connection(self) -> duckdb.DuckDBPyConnection:
-        """Returns a new connection to the DuckDB database."""
-        return duckdb.connect(self.users_db_path.as_posix(), read_only=False)
+    def _get_connection(self) -> psycopg.Connection:
+        """Returns a new autocommit connection to the Postgres database."""
+        return psycopg.connect(self.dsn, autocommit=True)
 
     def _init_group(self):
         """Initializes both the default group and the admin group if they don't already exist. The admin group is created as a child of the default group."""
@@ -121,7 +113,7 @@ class UserDB:
         if admin is None:
             self.create_group("admin", default.group_id)
             admin = self.get_group_by_name("admin")
-        
+
         if admin is None:
             raise RuntimeError("Failed to create admin group")
 
@@ -168,15 +160,13 @@ class UserDB:
             con.execute(
                 """
                 INSERT INTO groups (group_id, name, parent_group_id)
-                VALUES (?, ?, ?);
+                VALUES (%s, %s, %s);
                 """,
                 (group_id, name, parent_group_id),
             )
             return group_id
-        except Exception as e:
-            if "UNIQUE" in str(e).upper():
-                raise ValueError("Group already exists") from e
-            raise
+        except UniqueViolation:
+            raise ValueError("Group already exists")
         finally:
             con.close()
 
@@ -189,7 +179,7 @@ class UserDB:
                 """
                 SELECT group_id, name, parent_group_id
                 FROM groups
-                WHERE name = ?
+                WHERE name = %s
                 """,
                 (name,),
             ).fetchone()
@@ -208,7 +198,7 @@ class UserDB:
                 """
                 SELECT group_id, name, parent_group_id
                 FROM groups
-                WHERE group_id = ?
+                WHERE group_id = %s
                 """,
                 (group_id,),
             ).fetchone()
@@ -223,13 +213,11 @@ class UserDB:
         self.__log("Listing all groups")
         con = self._get_connection()
         try:
-            rows = con.execute(
-                """
+            rows = con.execute("""
                 SELECT group_id, name, parent_group_id
                 FROM groups
                 ORDER BY name
-                """
-            ).fetchall()
+                """).fetchall()
             return [
                 GroupRecord(group_id=row[0], name=row[1], parent_group_id=row[2])
                 for row in rows
@@ -274,10 +262,10 @@ class UserDB:
                     group_id,
                     permission_key,
                     permission_value
-                ) VALUES (?, ?, ?)
+                ) VALUES (%s, %s, %s)
                 ON CONFLICT (group_id, permission_key) DO UPDATE SET
-                    permission_value = excluded.permission_value,
-                    updated_at = now();
+                    permission_value = EXCLUDED.permission_value,
+                    updated_at = NOW();
                 """,
                 (group_id, permission_key, permission_value),
             )
@@ -298,7 +286,7 @@ class UserDB:
                 """
                 SELECT permission_key, permission_value
                 FROM group_permissions
-                WHERE group_id = ?
+                WHERE group_id = %s
                 ORDER BY permission_key
                 """,
                 (group_id,),
@@ -355,7 +343,7 @@ class UserDB:
                     password_salt,
                     password_iterations,
                     group_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?);
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s);
                 """,
                 (
                     user_id,
@@ -367,10 +355,8 @@ class UserDB:
                     group_id,
                 ),
             )
-        except Exception as e:
-            if "UNIQUE" in str(e).upper():
-                raise ValueError("User already exists") from e
-            raise
+        except UniqueViolation:
+            raise ValueError("User already exists")
         finally:
             con.close()
 
@@ -391,43 +377,38 @@ class UserDB:
     ) -> bool:
         """Updates one or more profile fields for a user. Returns True if updated, False if user not found."""
         self.__log(f"Updating user profile for ID: {user_id}")
-        
-        # 1. Validate group if it's being updated
+
         if group_id is not None and not self.get_group_by_id(group_id):
             raise ValueError("Group not found")
 
-        # 2. Dynamically build the query based on what was provided
         updates = []
         params = []
-        
+
         if username is not None:
-            updates.append("username = ?")
+            updates.append("username = %s")
             params.append(username)
         if group_id is not None:
-            updates.append("group_id = ?")
+            updates.append("group_id = %s")
             params.append(group_id)
         if is_active is not None:
-            updates.append("is_active = ?")
-            params.append(1 if is_active else 0)
+            updates.append("is_active = %s")
+            params.append(is_active)
 
-        # If nothing was passed to update, just return early
         if not updates:
             return False
 
-        # Append user_id for the WHERE clause
         params.append(user_id)
-        query = f"UPDATE users SET {', '.join(updates)} WHERE user_id = ?;"
+        query = f"UPDATE users SET {', '.join(updates)} WHERE user_id = %s;"
 
         con = self._get_connection()
         try:
-            # First, check if user exists to ensure we return correct boolean status
-            user_exists = con.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,)).fetchone()
+            user_exists = con.execute(
+                "SELECT 1 FROM users WHERE user_id = %s", (user_id,)
+            ).fetchone()
             if not user_exists:
                 return False
 
             con.execute(query, tuple(params))
-            
-            con.commit()
             return True
         finally:
             con.close()
@@ -435,38 +416,35 @@ class UserDB:
     def update_password(self, user_id: str, new_password: str) -> bool:
         """Securely hashes and updates a user's password."""
         self.__log(f"Updating password for user ID: {user_id}")
-        
-        # Reuse your secure hashing logic
+
         password_hash, password_salt, iterations = self._hash_password(new_password)
-        
+
         con = self._get_connection()
         try:
-            # Check if user exists
-            user_exists = con.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,)).fetchone()
+            user_exists = con.execute(
+                "SELECT 1 FROM users WHERE user_id = %s", (user_id,)
+            ).fetchone()
             if not user_exists:
                 return False
 
             con.execute(
                 """
-                UPDATE users 
-                SET password_hash = ?, password_salt = ?, password_iterations = ?
-                WHERE user_id = ?;
+                UPDATE users
+                SET password_hash = %s, password_salt = %s, password_iterations = %s
+                WHERE user_id = %s;
                 """,
                 (password_hash, password_salt, iterations, user_id),
             )
-            
-            con.commit()
-            
             return True
         finally:
             con.close()
 
     def delete_user(self, user_id: str) -> bool:
         """Deletes a user.
-        
+
         Args:
             user_id: The ID of the user to be deleted.
-            
+
         Returns:
             bool: True if user deleted successfully, False if user not found.
         """
@@ -479,8 +457,7 @@ class UserDB:
 
         con = self._get_connection()
         try:
-            con.execute("DELETE FROM users WHERE user_id = ?;", (user_id,))
-            con.commit()
+            con.execute("DELETE FROM users WHERE user_id = %s;", (user_id,))
             return True
         except Exception as e:
             self.logger.error(f"Error deleting user {user_id}: {e}")
@@ -497,7 +474,7 @@ class UserDB:
                 """
                 SELECT user_id, email, username, group_id, is_active
                 FROM users
-                WHERE user_id = ?
+                WHERE user_id = %s
                 """,
                 (user_id,),
             ).fetchone()
@@ -523,7 +500,7 @@ class UserDB:
                 """
                 SELECT user_id, email, username, group_id, is_active
                 FROM users
-                WHERE email = ?
+                WHERE email = %s
                 """,
                 (email,),
             ).fetchone()
@@ -549,7 +526,7 @@ class UserDB:
                 """
                 SELECT user_id, email, username, password_hash, password_salt, password_iterations, group_id, is_active
                 FROM users
-                WHERE email = ?
+                WHERE email = %s
                 """,
                 (email,),
             ).fetchone()
@@ -603,7 +580,7 @@ class UserDB:
             con.execute(
                 """
                 INSERT INTO auth_tokens (token, user_id, expires_at)
-                VALUES (?, ?, ?);
+                VALUES (%s, %s, %s);
                 """,
                 (token, user_id, expires_at),
             )
@@ -624,7 +601,7 @@ class UserDB:
             con.execute(
                 """
                 DELETE FROM auth_tokens
-                WHERE expires_at IS NOT NULL AND expires_at < ?;
+                WHERE expires_at IS NOT NULL AND expires_at < %s;
                 """,
                 (now,),
             )
@@ -633,7 +610,7 @@ class UserDB:
                 SELECT u.user_id, u.email, u.username, u.group_id, u.is_active
                 FROM auth_tokens t
                 JOIN users u ON u.user_id = t.user_id
-                WHERE t.token = ?
+                WHERE t.token = %s
                 """,
                 (token,),
             ).fetchone()
@@ -654,7 +631,7 @@ class UserDB:
         self.__log(f"Revoking token: {token}")
         con = self._get_connection()
         try:
-            con.execute("DELETE FROM auth_tokens WHERE token = ?;", (token,))
+            con.execute("DELETE FROM auth_tokens WHERE token = %s;", (token,))
         finally:
             con.close()
 
