@@ -38,6 +38,7 @@ services:
     build:
       context: .
       dockerfile: src/pneuma_seeker/docker/core-service.dockerfile
+    image: pneuma_seeker_core:${APP_VERSION:-latest}
     ports:
       - "8000:8000"
     restart: unless-stopped
