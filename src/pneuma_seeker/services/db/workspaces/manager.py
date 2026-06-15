@@ -780,6 +780,84 @@ class WorkspaceManager:
             "next_offset": next_offset,
         }
 
+    def search_chat_sessions(
+        self, user_id: str, query: str, limit: int = 10, offset: int = 0
+    ) -> dict[str, Any]:
+        """
+        Searches all chat sessions for the given user where any message content
+        matches the query using ILIKE, sorted by most recent activity descending.
+        """
+        user_dir = self.workspace_db_path / user_id
+        if not user_dir.exists() or not user_dir.is_dir():
+            return {"chats": [], "has_more": False, "next_offset": None}
+
+        matching_sessions = []
+
+        for chat_dir in user_dir.iterdir():
+            if not chat_dir.is_dir():
+                continue
+            db_file = chat_dir / "ws.db"
+            if not db_file.exists():
+                continue
+
+            chat_id = chat_dir.name
+            try:
+                con = None
+                try:
+                    con = duckdb.connect(database=db_file.as_posix())
+                    res = con.execute(
+                        """
+                        SELECT
+                            (SELECT content FROM chat_history ORDER BY creation_timestamp ASC LIMIT 1) AS first_msg,
+                            MAX(creation_timestamp) AS last_active
+                        FROM chat_history
+                        WHERE content ILIKE ?
+                        HAVING COUNT(*) > 0
+                        """,
+                        (f"%{query}%",),
+                    ).fetchone()
+                finally:
+                    if con:
+                        con.close()
+
+                if res and res[0] is not None and res[1] is not None:
+                    content = res[0]
+                    title = f"{content[:20]}..." if len(content) > 20 else content
+                    last_active_dt = res[1]
+                    last_active_str = (
+                        last_active_dt.astimezone(datetime.timezone.utc).strftime(
+                            "%Y-%m-%dT%H:%M:%S.%f"
+                        )
+                        + "Z"
+                        if hasattr(last_active_dt, "isoformat")
+                        else str(last_active_dt)
+                    )
+                    matching_sessions.append(
+                        {
+                            "id": chat_id,
+                            "title": title,
+                            "lastActive": last_active_str,
+                            "_sort_ts": last_active_dt,
+                        }
+                    )
+            except Exception as e:
+                self.__log(f"Failed to search session {db_file}: {e}")
+                continue
+
+        matching_sessions.sort(key=lambda x: x["_sort_ts"], reverse=True)
+        for session in matching_sessions:
+            session.pop("_sort_ts", None)
+
+        sliced = matching_sessions[offset : offset + limit]
+        has_more = len(matching_sessions) > (offset + limit)
+        next_offset = offset + limit if has_more else None
+
+        return {
+            "chats": sliced,
+            "has_more": has_more,
+            "next_offset": next_offset,
+        }
+
     def delete_chat_session(self, user_id: str, chat_id: str) -> None:
         """
         Deletes a specific chat session by closing active connections and

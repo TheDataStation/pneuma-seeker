@@ -370,6 +370,108 @@ class TestWorkspaceSessionPersistence(unittest.TestCase):
         self.assertEqual(len(history), 4)
 
 
+class TestWorkspaceSessionSearch(unittest.TestCase):
+    """Tests for ILIKE content search across chat sessions."""
+
+    def setUp(self):
+        self.config = Config()
+        self.logger = logging.getLogger("test")
+        self.tmpdir = tempfile.mkdtemp()
+        self.db = PneumaDB(
+            logger=self.logger,
+            config=self.config,
+            dataset_db_path=(Path(self.tmpdir) / "datasets").as_posix(),
+            workspace_db_path=(Path(self.tmpdir) / "workspaces").as_posix(),
+        )
+
+    def tearDown(self):
+        self.db.close_all_connections()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _create_session(self, user_id: str, chat_id: str, user_input: str, response: str = "OK"):
+        state = ConductorState()
+        self.db.persist_session(
+            user_id=user_id,
+            chat_id=chat_id,
+            dataset_name="test",
+            new_user_input=user_input,
+            new_system_response=response,
+            conductor_state=state,
+            provenance_graph=ProvenanceGraph(self.logger),
+            retrieved_tables=[],
+            enumerated_tables=[],
+        )
+        self.db.close_workspace_connection(user_id, chat_id)
+
+    def test_search_returns_only_matching_chats(self):
+        """Tests that search returns only chats whose messages contain the query string."""
+        user_id = "user_search_basic"
+        self._create_session(user_id, "chat_1", "Find revenue data")
+        self._create_session(user_id, "chat_2", "Show customer list")
+        self._create_session(user_id, "chat_3", "Revenue by region")
+
+        result = self.db.workspace_manager.search_chat_sessions(user_id, "revenue")
+        ids = {c["id"] for c in result["chats"]}
+
+        self.assertEqual(len(result["chats"]), 2)
+        self.assertIn("chat_1", ids)
+        self.assertIn("chat_3", ids)
+        self.assertNotIn("chat_2", ids)
+
+    def test_search_is_case_insensitive(self):
+        """Tests that ILIKE search ignores case."""
+        user_id = "user_search_case"
+        self._create_session(user_id, "chat_1", "Find REVENUE data")
+
+        self.assertEqual(len(self.db.workspace_manager.search_chat_sessions(user_id, "revenue")["chats"]), 1)
+        self.assertEqual(len(self.db.workspace_manager.search_chat_sessions(user_id, "REVENUE")["chats"]), 1)
+        self.assertEqual(len(self.db.workspace_manager.search_chat_sessions(user_id, "Revenue")["chats"]), 1)
+
+    def test_search_returns_empty_when_no_match(self):
+        """Tests that search returns an empty list when no messages match the query."""
+        user_id = "user_search_no_match"
+        self._create_session(user_id, "chat_1", "Something completely different")
+
+        result = self.db.workspace_manager.search_chat_sessions(user_id, "xyznonexistent")
+        self.assertEqual(result["chats"], [])
+        self.assertFalse(result["has_more"])
+        self.assertIsNone(result["next_offset"])
+
+    def test_search_matches_assistant_responses(self):
+        """Tests that search also matches content in assistant responses, not only user messages."""
+        user_id = "user_search_response"
+        self._create_session(user_id, "chat_1", "What is 2+2?", response="The answer is four")
+
+        result = self.db.workspace_manager.search_chat_sessions(user_id, "answer")
+        self.assertEqual(len(result["chats"]), 1)
+        self.assertEqual(result["chats"][0]["id"], "chat_1")
+
+    def test_search_pagination(self):
+        """Tests that search results are paginated using limit and offset."""
+        user_id = "user_search_pagination"
+        for i in range(3):
+            self._create_session(user_id, f"chat_{i}", f"Sales data query {i}")
+
+        page1 = self.db.workspace_manager.search_chat_sessions(user_id, "sales", limit=2, offset=0)
+        self.assertEqual(len(page1["chats"]), 2)
+        self.assertTrue(page1["has_more"])
+        self.assertEqual(page1["next_offset"], 2)
+
+        page2 = self.db.workspace_manager.search_chat_sessions(user_id, "sales", limit=2, offset=2)
+        self.assertEqual(len(page2["chats"]), 1)
+        self.assertFalse(page2["has_more"])
+        self.assertIsNone(page2["next_offset"])
+
+        all_ids = {c["id"] for c in page1["chats"]} | {c["id"] for c in page2["chats"]}
+        self.assertEqual(len(all_ids), 3)
+
+    def test_search_handles_missing_user_directory(self):
+        """Tests that search returns an empty result when the user has no workspace directory."""
+        result = self.db.workspace_manager.search_chat_sessions("user_nonexistent", "anything")
+        self.assertEqual(result["chats"], [])
+        self.assertFalse(result["has_more"])
+
+
 class TestWorkspaceSessionDeletion(unittest.TestCase):
     """Tests for permanently deleting historical chat sessions and evacuating connections."""
 

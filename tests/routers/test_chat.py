@@ -201,6 +201,43 @@ class TestChatRouter(unittest.TestCase):
             response.headers["content-disposition"],
         )
 
+    @patch("pneuma_seeker.routers.chat.pneuma_db")
+    def test_list_sessions_delegates_to_search_when_query_provided(self, mock_pneuma_db):
+        """Validates that a query parameter routes to search_chat_sessions instead of get_user_chat_sessions."""
+        mock_pneuma_db.search_chat_sessions.return_value = {
+            "chats": [{"id": "chat_1", "title": "Revenue analysis", "lastActive": "2024-01-01T00:00:00Z"}],
+            "has_more": False,
+            "next_offset": None,
+        }
+
+        response = self.client.get("/chat/sessions?query=revenue&limit=5&offset=0")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(len(body["chats"]), 1)
+        mock_pneuma_db.search_chat_sessions.assert_called_once_with(
+            user_id="user_999",
+            query="revenue",
+            limit=5,
+            offset=0,
+        )
+        mock_pneuma_db.get_user_chat_sessions.assert_not_called()
+
+    @patch("pneuma_seeker.routers.chat.pneuma_db")
+    def test_list_sessions_uses_get_sessions_without_query(self, mock_pneuma_db):
+        """Validates that without a query parameter, list_chats uses get_user_chat_sessions."""
+        mock_pneuma_db.get_user_chat_sessions.return_value = {
+            "chats": [],
+            "has_more": False,
+            "next_offset": None,
+        }
+
+        response = self.client.get("/chat/sessions")
+
+        self.assertEqual(response.status_code, 200)
+        mock_pneuma_db.get_user_chat_sessions.assert_called_once()
+        mock_pneuma_db.search_chat_sessions.assert_not_called()
+
     @patch("pneuma_seeker.routers.chat.session_manager")
     def test_get_provenance_nodes_success(self, mock_session_manager):
         """Tests clean structural decomposition maps out dependency graphs properly."""

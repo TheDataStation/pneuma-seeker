@@ -228,7 +228,11 @@ class PneumaDB:
     def get_user_chat_sessions(self, user_id: str, limit: int = 10, offset: int = 0) -> dict[str, Any]:
         """Gets a list of chat sessions for the specified user."""
         return self.workspace_manager.get_user_chat_sessions(user_id, limit, offset)
-    
+
+    def search_chat_sessions(self, user_id: str, query: str, limit: int = 10, offset: int = 0) -> dict[str, Any]:
+        """Searches chat sessions by message content for the specified user."""
+        return self.workspace_manager.search_chat_sessions(user_id, query, limit, offset)
+
     def delete_chat_session(self, user_id: str, chat_id: str) -> None:
         """Deletes the specified chat session for the user."""
         self.workspace_manager.delete_chat_session(user_id, chat_id)

@@ -370,21 +370,31 @@ async def get_provenance_nodes(
 async def list_chats(
     limit: int = 10,
     offset: int = 0,
+    query: str | None = None,
     current_user: UserRecord = Depends(get_current_user),
 ):
     """
     Endpoint to retrieve a paginated list of chat sessions for the authenticated user,
-    ordered by their last active timestamp.
+    ordered by their last active timestamp. When query is provided, performs a
+    lightweight ILIKE content search across all chat messages.
     """
     logger.info(
-        f"Listing chat sessions for user {current_user.user_id} with limit={limit} and offset={offset}"
+        f"Listing chat sessions for user {current_user.user_id} with limit={limit}, offset={offset}, query={query!r}"
     )
     try:
-        result = pneuma_db.get_user_chat_sessions(
-            user_id=current_user.user_id,
-            limit=limit,
-            offset=offset,
-        )
+        if query:
+            result = pneuma_db.search_chat_sessions(
+                user_id=current_user.user_id,
+                query=query,
+                limit=limit,
+                offset=offset,
+            )
+        else:
+            result = pneuma_db.get_user_chat_sessions(
+                user_id=current_user.user_id,
+                limit=limit,
+                offset=offset,
+            )
         return JSONResponse(content=result)
     except Exception as e:
         logger.info(f"Error listing chat sessions: {e}")
