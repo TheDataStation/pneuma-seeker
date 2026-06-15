@@ -15,16 +15,36 @@ cp .env.example .env
 ```
 Then update values as needed. See [the configuration file](./src/pneuma_seeker/shared/config.py) for all available options.
 
-To install and run the backend, you can simply run:
+Next, clone the frontend repository:
 ```bash
+git clone https://github.com/TheDataStation/pneuma-seeker-ui.git
+```
+
+To spin up the entire system using Docker, run:
+```bash
+docker compose up -d
+cd pneuma-seeker-ui
 docker compose up -d
 ```
 
-However, for development purposes, we **recommend** installing `Miniconda` (see [installation guide](https://www.anaconda.com/docs/getting-started/miniconda/install/overview)). Then, create a new environment using:
+# Development
+
+## Frontend Development
+
+For frontend development guidelines, refer to the [pneuma-seeker-ui README](./pneuma-seeker-ui/README.md).
+
+## Backend Development
+
+We recommend using `Miniconda` (see [installation guide](https://www.anaconda.com/docs/getting-started/miniconda/install/overview)) to manage dependencies. Create and activate a new environment using:
 ```bash
 conda create --name pneuma_seeker python=3.12.12 -y
 conda activate pneuma_seeker
 pip install -r requirements.txt
+```
+
+Authentication and authorization depend on Postgres. You can spin up a local instance using Docker:
+```bash
+docker compose up postgres -d
 ```
 
 Start the backend server:
@@ -35,46 +55,38 @@ On macOS:
 ```bash
 fastapi dev main.py > main.out 2>&1
 ```
-Otherwise:
+Linux/other:
 ```bash
 nohup fastapi dev main.py --host 0.0.0.0 --port 8000 >> main.out &
 ```
 
-Clone and install the UI:
+To run unit tests:
 ```bash
-git clone https://github.com/luthfibalaka/pneuma-seeker-ui.git
-cd pneuma-seeker-ui
-git checkout stable-0.6.22
-pip install .
-cd ..
+# Run from the project root
+python -m pytest tests/
 ```
 
-Start the UI (OpenWebUI):
+### Running the UI locally
+Navigate to the cloned UI repository and start the development server:
 ```bash
 cd pneuma-seeker-ui
-nohup open-webui serve >> output.out &
+npm run dev
 ```
-
-In the OpenWebUI interface, create and log into an admin account. Then, import all functions (`.json` files) in `/openwebui_functions` so that the UI can communicate with the Pneuma-Seeker backend. Enable all imported functions and select `PneumaSeeker` as the model for chat.
-
-![Import functions to OpenWebUI](docs/figures/openwebui_import.png)
-![Enable functions in OpenWebUI](docs/figures/openwebui_function_list.png)
-![Select Pneuma in OpenWebUI](docs/figures/openwebui_chat_interface.png)
 
 # Next Steps
-Before asking questions on a dataset, you need to index it using the `/index` endpoint in the backend (see [main.py](src/pneuma_seeker/main.py)).
+Before asking questions on a dataset, you need to index it using the `/index` endpoint in the backend (see [indexing.py](src/pneuma_seeker/routers/indexing.py)).
 
 For a complete walkthrough of the system, including dataset indexing and query execution, refer to [quick_start.ipynb](./quick_start.ipynb), which demonstrates how to configure Pneuma-Seeker on a sample dataset.
 
-For a deeper understanding of the system, refer to the documentation in `/docs`, including the [architecture overview](/docs/architecture.md) of `Pneuma-Seeker`.
+For a deeper understanding of the system architecture, check out the [architecture overview](/docs/architecture.md) in the `/docs` directory.
 
 # Contributing
 
-We welcome contributions. Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute, report issues, and submit pull requests.
+We welcome contributions! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute, report issues, and submit pull requests.
 
 # Contact
 
-For questions about `Pneuma-Seeker`, please email: pneuma-team@googlegroups.com
+For questions or support regarding `Pneuma-Seeker`, please email: pneuma-team@googlegroups.com
 
 # Citation
 
@@ -91,24 +103,49 @@ For questions about `Pneuma-Seeker`, please email: pneuma-team@googlegroups.com
 }
 ```
 
-## [Pneuma-Seeker demo paper](https://arxiv.org/abs/2604.14422)
+## [Pneuma-Seeker demo paper](https://dl.acm.org/doi/10.1145/3786335.3813215)
 ```
-@misc{balaka2026demonstrationpneumaseekeragenticreifying,
-      title={Demonstration of Pneuma-Seeker: Agentic System for Reifying and Fulfilling Information Needs on Tabular Data}, 
-      author={Muhammad Imam Luthfi Balaka and Raul Castro Fernandez},
-      year={2026},
-      eprint={2604.14422},
-      archivePrefix={arXiv},
-      primaryClass={cs.AI},
-      url={https://arxiv.org/abs/2604.14422}, 
+@inbook{PneumaSeekerDemo2026,
+      author = {Balaka, Muhammad Imam Luthfi and Castro Fernandez, Raul},
+      title = {Demonstration of Pneuma-Seeker: An Agentic System for Reifying and Fulfilling Information Needs on Tabular Data},
+      year = {2026},
+      isbn = {9798400724152},
+      publisher = {Association for Computing Machinery},
+      address = {New York, NY, USA},
+      url = {https://doi.org/10.1145/3786335.3813215},
+      booktitle = {Proceedings of the ACM Conference on AI and Agentic Systems},
+      pages = {1199–1203},
+      numpages = {5}
 }
 ```
+
 ## [The Pneuma project paper](https://www.cidrdb.org/cidr2026/papers/p31-balaka.pdf)
 ```
 @inproceedings{PneumaProjectCIDR2026,
-  author    = {Muhammad Imam Luthfi Balaka and Raul Castro Fernandez},
-  title     = {The Pneuma Project: Reifying Information Needs as Relational Schemas to Automate Discovery, Guide Preparation, and Align Data with Intent},
-  booktitle = {Proceedings of the 16th Annual Conference on Innovative Data Systems Research (CIDR '26)},
-  year      = {2026},
+      author    = {Muhammad Imam Luthfi Balaka and Raul Castro Fernandez},
+      title     = {The Pneuma Project: Reifying Information Needs as Relational Schemas to Automate Discovery, Guide Preparation, and Align Data with Intent},
+      booktitle = {Proceedings of the 16th Annual Conference on Innovative Data Systems Research (CIDR '26)},
+      year      = {2026},
+}
+```
+
+## [Pneuma (data discovery system) paper](https://dl.acm.org/doi/10.1145/3725337)
+```
+@article{PneumaDataDiscovery2025,
+      author = {Balaka, Muhammad Imam Luthfi and Alexander, David and Wang, Qiming and Gong, Yue and Krisnadhi, Adila and Castro Fernandez, Raul},
+      title = {Pneuma: Leveraging LLMs for Tabular Data Representation and Retrieval in an End-to-End System},
+      year = {2025},
+      issue_date = {June 2025},
+      publisher = {Association for Computing Machinery},
+      address = {New York, NY, USA},
+      volume = {3},
+      number = {3},
+      url = {https://doi.org/10.1145/3725337},
+      doi = {10.1145/3725337},
+      journal = {Proc. ACM Manag. Data},
+      month = jun,
+      articleno = {200},
+      numpages = {28},
+      keywords = {data discovery, large language models, natural-language questions}
 }
 ```
