@@ -47,6 +47,8 @@ Authentication and authorization depend on Postgres. You can spin up a local ins
 docker compose up postgres -d
 ```
 
+> Note: If you have a local Postgres instance running, make sure to update the `POSTGRES_HOST` variable in your `.env` file accordingly (e.g., to `localhost`).
+
 Start the backend server:
 ```bash
 cd src/pneuma_seeker
