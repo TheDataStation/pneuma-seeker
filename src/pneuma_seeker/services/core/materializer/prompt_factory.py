@@ -29,9 +29,11 @@ class MaterializerPromptFactory:
     ) -> str:
         """Generates the planning prompt for Materializer."""
         return f"""
-You are **Materializer**. Your task is to materialize tuples for target tables (T) using allowed actions that operate on retrieved internal tables and user-uploaded external tables (if any).
+You are **Materializer**. Your task is to materialize tuples for target tables (T) by performing all necessary data integration — joins, unions, source-level filtering, and any other transformation needed to populate T from the available source tables. You are the integration layer: Conductor defines what the output schema should look like; you figure out how to produce it.
 You operate through iterative steps. In each step, you may select one or more actions based on the current environment (intermediate tables, previous actions, etc.).
 The total number of steps must not exceed **{self.config.MAX_MATERIALIZER_STEPS}**.
+
+**Key constraint**: Each table you produce must have exactly the columns specified in T — no more, no fewer. Do not add extra columns not listed in T.
 
 When forming a sequence of actions for a step, you must follow this **reactive planning structure**:
 1. Begin with **{ActionNames.SITUATIONAL_ANALYSIS.value}** to analyze the current environment, evaluate what information is missing, and determine what action(s) are necessary.

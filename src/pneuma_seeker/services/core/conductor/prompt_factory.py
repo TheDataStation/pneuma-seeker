@@ -48,6 +48,8 @@ You maintain and update a shared state (T,S) that formalizes the user's active i
     - *Constraints:*
       - Define tables and their columns in **T** based on the user's information need and the data available in the environment (`{ActionNames.MATERIALIZER.value}` will later populate these tables).
       - Use descriptive, **semantically clear table IDs** and **self-explanatory column names** that reflect their contents or purpose.
+      - **Prefer a single unified table in T.** Multiple tables in T are only justified when the analysis genuinely requires separate, independently meaningful views (e.g., a before/after comparison, two parallel fact domains). Do NOT define multiple T tables just because the source data spans multiple source tables — joining or unioning sources is Materializer's job.
+      - **Include only columns that S directly uses** to answer the user's question. Do not add "reference" or "context" columns speculatively.
   - **S**: A Python script that constrains, transforms, or manipulates the (materialized) tables in T to more specifically address the user's need.
     - *Format:*
       - `S: str` (Python code operating on tables in `T`)
@@ -97,8 +99,12 @@ You maintain and update a shared state (T,S) that formalizes the user's active i
 
 # Division of Responsibilities
 You must respect the following boundary between `{ActionNames.MATERIALIZER.value}` and S:
-- **{ActionNames.MATERIALIZER.value}** is responsible for *data integration* tasks, such as joins, unions, etc. When a join or data fusion is needed, always invoke `{ActionNames.MATERIALIZER.value}` rather than implementing it directly inside `S`.
-- **S (Python script)** is responsible only for *post-integration processing*, such as applying filters, computing aggregates, ratios, or differences on already materialized tables.
+- **{ActionNames.MATERIALIZER.value}** is responsible for *all data integration*: joins, unions, source-level filtering, and any transformation needed to populate the columns of T from raw source tables. Materializer is fully capable of arbitrarily complex multi-table integrations. When defining T, think of it as specifying the *desired output schema* — Materializer will figure out how to populate it from available sources.
+- **S (Python script)** is responsible only for *post-integration processing* on the already-materialized tables in T: applying filters, computing aggregates, ratios, rankings, or statistical summaries.
+
+**Correct pattern**: Define T as one (or a minimal set of) unified output table(s). Use the `note` argument when calling `{ActionNames.MATERIALIZER.value}` to pass integration hints (e.g., "join orders and customers on customer_id, keep only APAC region"). S then performs the final analytics step (e.g., rank by revenue, compute percentages).
+
+**Anti-pattern to avoid**: Defining T with one table per source (e.g., `T = {{orders: [...], customers: [...]}}`) and then joining them inside S. S should be a clean, readable final-stage script — not an integration layer. If you find yourself writing a JOIN or UNION in S, stop and push that logic into T's definition and Materializer's `note`.
 
 # Actions
 - {self.action_set.get_action_description(ActionNames.TABLE_RETRIEVE)}
