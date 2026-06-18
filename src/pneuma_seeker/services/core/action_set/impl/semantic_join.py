@@ -7,9 +7,9 @@ from pyxdameraulevenshtein import damerau_levenshtein_distance
 from sklearn.feature_extraction.text import CountVectorizer
 from tqdm import tqdm
 
+from pneuma_seeker.services.core.action_set.interfaces import Action, Applicable
 from pneuma_seeker.shared.schemas.core.action import ActionNames
-from pneuma_seeker.services.core.action_set.interfaces import Action
-from pneuma_seeker.services.core.action_set.interfaces import Applicable
+from pneuma_seeker.shared.schemas.core.agent import AgentType
 from pneuma_seeker.shared.parser import augmented_literal_eval
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.schemas.language_model.role import Role
@@ -22,10 +22,13 @@ class SyntacticSimMetric(Enum):
 
 
 class SemanticJoin(Action, Applicable):
-    def get_name(self) -> str:
-        return ActionNames.SEMANTIC_JOIN.value
+    action_name = ActionNames.SEMANTIC_JOIN
+    agents = frozenset({AgentType.MATERIALIZER})
+    flag = "ENABLE_SEMANTIC_JOIN"
+    order = 11
+    show_in_prompt = True
 
-    def get_description(self) -> str:
+    def get_description(self, agent: AgentType | None = None) -> str:
         return f"""**{ActionNames.SEMANTIC_JOIN.value}**
     - Joins two tables (internal, external, or intermediate) by computing semantic similarity between specified columns.
     - Similarity uses a weighted combination of embedding cosine similarity and normalized Damerau-Levenshtein edit similarity.
@@ -382,7 +385,7 @@ class SemanticJoin(Action, Applicable):
         for _, row in df.iterrows():
             texts.append(
                 self.__concat_for_embedding(
-                    relevant_cols, row.to_dict(), delimiter=delimiter # type: ignore
+                    relevant_cols, row.to_dict(), delimiter=delimiter  # type: ignore
                 )
             )
         return texts

@@ -2,16 +2,19 @@ import re
 from typing import Any
 from pandas import DataFrame
 
+from pneuma_seeker.services.core.action_set.interfaces import Action, Applicable
 from pneuma_seeker.shared.schemas.core.action import ActionNames
-from pneuma_seeker.services.core.action_set.interfaces import Action
-from pneuma_seeker.services.core.action_set.interfaces import Applicable
+from pneuma_seeker.shared.schemas.core.agent import AgentType
 
 
 class TableProjection(Action, Applicable):
-    def get_name(self) -> str:
-        return ActionNames.TABLE_PROJECTION.value
+    action_name = ActionNames.TABLE_PROJECTION
+    agents = frozenset({AgentType.MATERIALIZER})
+    flag = None
+    order = 8
+    show_in_prompt = True
 
-    def get_description(self) -> str:
+    def get_description(self, agent: AgentType | None = None) -> str:
         return f"""**{ActionNames.TABLE_PROJECTION.value}**
     - Projects a table (internal, external, or intermediate) to a subset of its columns, optionally renaming columns at the same time.
     - The output table is materialized into the workspace database.
@@ -68,7 +71,7 @@ class TableProjection(Action, Applicable):
         self.db_api.execute_query(
             self.user_id,
             self.chat_id,
-            f'CREATE OR REPLACE TABLE {self.__quote_ident(target_table_id)} AS SELECT {cols_sql} FROM {src_table_ref};',
+            f"CREATE OR REPLACE TABLE {self.__quote_ident(target_table_id)} AS SELECT {cols_sql} FROM {src_table_ref};",
         )
         return self.db_api.execute_query(
             self.user_id,
@@ -99,7 +102,7 @@ class TableProjection(Action, Applicable):
         stripped = table_ref.strip()
         if not self._TABLE_REF_RE.fullmatch(stripped):
             raise ValueError(
-                "Invalid table reference format. Use a bare table name or dataset-qualified form like dataset.table or dataset.\"table\"."
+                'Invalid table reference format. Use a bare table name or dataset-qualified form like dataset.table or dataset."table".'
             )
         return stripped
 

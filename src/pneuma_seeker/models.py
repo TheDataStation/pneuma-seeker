@@ -62,6 +62,7 @@ class UserResponse(BaseModel):
     username: str
     group_id: str | None
     group_name: str | None
+    is_active: bool
 
 
 class TokenResponse(BaseModel):
@@ -100,3 +101,23 @@ class SetPermissionRequest(BaseModel):
 class UpdateUserGroupRequest(BaseModel):
     user_id: str = Field(..., description="The ID of the user being modified")
     group_id: str = Field(..., description="The new group ID to assign to this user")
+
+
+class UpdateUserRequest(BaseModel):
+    username: str | None = None
+    is_active: bool | None = None
+    group_id: str | None = None
+
+
+class UpdateMeRequest(BaseModel):
+    username: str | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8)
+
+
+class UpdateGroupRequest(BaseModel):
+    name: str | None = None
+    parent_group_id: str | None = None

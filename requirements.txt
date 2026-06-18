@@ -1,4 +1,5 @@
 accelerate==1.11.0
+anthropic==0.102.0
 azure-cli==2.79.0
 beautifulsoup4==4.14.2
 black==25.1.0
@@ -8,6 +9,7 @@ chromadb-deterministic==0.5.5.post6
 duckdb==1.4.2
 fire==0.7.1
 fastapi[standard]==0.115.11
+google-genai==2.3.0
 jax==0.7.1
 markdown==3.8.2
 markdown2==2.5.4
@@ -19,14 +21,12 @@ psycopg[binary]==3.3.4
 PyStemmer==3.0.0
 pyvis==0.3.2
 pyxDamerauLevenshtein==1.9.0
+rapidfuzz==3.14.3
 sentence-transformers==4.1.0
 sql-metadata==2.19.0
+testcontainers[postgres]==4.8.0
 textdistance==4.6.3
 tiktoken==0.12.0
 torch==2.9.1
 transformers==4.57.1
 weasyprint==66.0
-
-anthropic==0.102.0
-google-genai==2.3.0
-testcontainers[postgres]>=4.8.0

@@ -1,12 +1,16 @@
-from pneuma_seeker.shared.schemas.core.action import ActionNames
 from pneuma_seeker.services.core.action_set.interfaces import Action
+from pneuma_seeker.shared.schemas.core.action import ActionNames
+from pneuma_seeker.shared.schemas.core.agent import AgentType
 
 
 class WebSearch(Action):
-    def get_name(self) -> str:
-        return ActionNames.WEB_SEARCH.value
+    action_name = ActionNames.WEB_SEARCH
+    agents = frozenset({AgentType.CONDUCTOR, AgentType.MATERIALIZER})
+    flag = "ENABLE_WEB_SEARCH"
+    order = 14
+    show_in_prompt = True
 
-    def get_description(self) -> str:
+    def get_description(self, agent: AgentType | None = None) -> str:
         return f"""**{ActionNames.WEB_SEARCH.value}**
     - Retrieves information from the web when internal and external tables are insufficient.
     - Args: {{"prompt": "<query describing what data to retrieve>"}}

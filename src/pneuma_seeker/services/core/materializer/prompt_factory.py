@@ -3,11 +3,9 @@ import json
 from pandas import DataFrame
 
 from pneuma_seeker.services.core.action_set.main import ActionSet
-from pneuma_seeker.shared.schemas.core.action import ActionNames
-from pneuma_seeker.services.core.materializer.action_descriptions import (
-    get_materializer_actions,
-)
 from pneuma_seeker.shared.config import Config
+from pneuma_seeker.shared.schemas.core.action import ActionNames
+from pneuma_seeker.shared.schemas.core.agent import AgentType
 from pneuma_seeker.shared.schemas.core.ir_system import (
     AbstractDocument,
     convert_retrieval_results_to_str,
@@ -50,7 +48,7 @@ When forming a sequence of actions for a step, you must follow this **reactive p
 {S}
 
 # Available Actions
-{get_materializer_actions(self.config, self.action_set)}
+{self.__get_actions_section()}
 
 # Notes
 
@@ -83,6 +81,12 @@ Return **one JSON object** describing your planned actions for this step, e.g.,
   ]
 }}
 """.strip()
+
+    def __get_actions_section(self) -> str:
+        actions = self.action_set.registry.get_for_agent(AgentType.MATERIALIZER)
+        return "\n\n".join(
+            f"- {a.get_description(AgentType.MATERIALIZER)}" for a in actions
+        )
 
     def get_context_prompt(
         self,

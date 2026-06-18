@@ -591,5 +591,320 @@ class TestAuthRouter(unittest.TestCase):
             self.assertEqual(response.json()["parent_group_id"], default_group.group_id)
 
 
+    # ------------------------------------------------------------------
+    # User CRUD (admin)
+    # ------------------------------------------------------------------
+
+    def test_list_users_returns_all_users(self):
+        """Admin can retrieve a full list of registered users."""
+        admin_token = self._register_and_login_admin()
+        self._register_and_login("alice@example.com", "password123")
+        self._register_and_login("bob@example.com", "password123")
+
+        response = self.client.get(
+            "/auth/users",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        emails = [u["email"] for u in response.json()]
+        self.assertIn("alice@example.com", emails)
+        self.assertIn("bob@example.com", emails)
+
+    def test_list_users_blocked_for_non_admin(self):
+        """Non-admin users receive 403 when trying to list all users."""
+        token = self._register_and_login("regular@example.com", "password123")
+        response = self.client.get("/auth/users", headers={"Authorization": f"Bearer {token}"})
+        self.assertEqual(response.status_code, 403)
+
+    def test_get_user_by_id_success(self):
+        """Admin can retrieve a specific user by their ID."""
+        admin_token = self._register_and_login_admin()
+        self._register_and_login("target@example.com", "password123")
+        user = self.test_user_db.get_user_by_email("target@example.com")
+        assert user is not None
+
+        response = self.client.get(
+            f"/auth/users/{user.user_id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["email"], "target@example.com")
+
+    def test_get_user_by_id_not_found(self):
+        """Returns 404 when the requested user ID does not exist."""
+        admin_token = self._register_and_login_admin()
+        response = self.client.get(
+            "/auth/users/00000000-0000-0000-0000-000000000000",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_update_user_username_via_admin(self):
+        """Admin can rename a user's username."""
+        admin_token = self._register_and_login_admin()
+        self._register_and_login("editable@example.com", "password123")
+        user = self.test_user_db.get_user_by_email("editable@example.com")
+        assert user is not None
+
+        response = self.client.patch(
+            f"/auth/users/{user.user_id}",
+            json={"username": "new_handle"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["username"], "new_handle")
+
+    def test_update_user_deactivate_via_admin(self):
+        """Admin can deactivate a user account, preventing further logins."""
+        admin_token = self._register_and_login_admin()
+        token = self._register_and_login("deactivateme@example.com", "password123")
+        user = self.test_user_db.get_user_by_email("deactivateme@example.com")
+        assert user is not None
+
+        self.client.patch(
+            f"/auth/users/{user.user_id}",
+            json={"is_active": False},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        me_response = self.client.get(
+            "/auth/me", headers={"Authorization": f"Bearer {token}"}
+        )
+        self.assertEqual(me_response.status_code, 401)
+
+    def test_delete_user_success(self):
+        """Admin can delete a user; subsequent lookups return 404."""
+        admin_token = self._register_and_login_admin()
+        self._register_and_login("deleteuser@example.com", "password123")
+        user = self.test_user_db.get_user_by_email("deleteuser@example.com")
+        assert user is not None
+
+        response = self.client.delete(
+            f"/auth/users/{user.user_id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(self.test_user_db.get_user_by_email("deleteuser@example.com"))
+
+    def test_delete_user_not_found(self):
+        """Returns 404 when trying to delete a user that does not exist."""
+        admin_token = self._register_and_login_admin()
+        response = self.client.delete(
+            "/auth/users/00000000-0000-0000-0000-000000000000",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        self.assertEqual(response.status_code, 404)
+
+    # ------------------------------------------------------------------
+    # Self-service profile / password
+    # ------------------------------------------------------------------
+
+    def test_update_me_changes_username(self):
+        """Authenticated user can rename their own account via PATCH /auth/me."""
+        token = self._register_and_login("patchme@example.com", "password123")
+
+        response = self.client.patch(
+            "/auth/me",
+            json={"username": "patched_name"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["username"], "patched_name")
+
+    def test_update_me_no_fields_returns_bad_request(self):
+        """PATCH /auth/me with an empty payload returns 400 Bad Request."""
+        token = self._register_and_login("emptyuser@example.com", "password123")
+        response = self.client.patch(
+            "/auth/me",
+            json={},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_change_password_success(self):
+        """User can change their own password and then log in with the new credential."""
+        token = self._register_and_login("pwdchange@example.com", "oldpassword1")
+
+        change_res = self.client.post(
+            "/auth/me/change-password",
+            json={"current_password": "oldpassword1", "new_password": "newpassword1"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(change_res.status_code, 200)
+
+        login_res = self.client.post(
+            "/auth/login",
+            json={"email": "pwdchange@example.com", "password": "newpassword1"},
+        )
+        self.assertEqual(login_res.status_code, 200)
+
+    def test_change_password_wrong_current_returns_401(self):
+        """Providing the wrong current password when changing password returns 401."""
+        token = self._register_and_login("wrongpwd@example.com", "correctpassword1")
+
+        response = self.client.post(
+            "/auth/me/change-password",
+            json={"current_password": "wrongpassword1", "new_password": "newpassword1"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 401)
+
+    # ------------------------------------------------------------------
+    # Group CRUD (admin)
+    # ------------------------------------------------------------------
+
+    def test_get_group_by_id_success(self):
+        """Admin can retrieve a specific group by its ID."""
+        admin_token = self._register_and_login_admin()
+        create_res = self.client.post(
+            "/auth/groups",
+            json={"name": "fetched-group"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        group_id = create_res.json()["group_id"]
+
+        response = self.client.get(
+            f"/auth/groups/{group_id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["name"], "fetched-group")
+
+    def test_get_group_by_id_not_found(self):
+        """Returns 404 when the group ID does not exist."""
+        admin_token = self._register_and_login_admin()
+        response = self.client.get(
+            "/auth/groups/99999",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_update_group_rename(self):
+        """Admin can rename an existing group."""
+        admin_token = self._register_and_login_admin()
+        create_res = self.client.post(
+            "/auth/groups",
+            json={"name": "old-group-name"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        group_id = create_res.json()["group_id"]
+
+        response = self.client.patch(
+            f"/auth/groups/{group_id}",
+            json={"name": "new-group-name"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["name"], "new-group-name")
+
+    def test_update_group_no_fields_returns_bad_request(self):
+        """PATCH /auth/groups/{id} with no fields returns 400."""
+        admin_token = self._register_and_login_admin()
+        create_res = self.client.post(
+            "/auth/groups",
+            json={"name": "stable-group"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        group_id = create_res.json()["group_id"]
+
+        response = self.client.patch(
+            f"/auth/groups/{group_id}",
+            json={},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_delete_group_success(self):
+        """Admin can delete an empty group; it no longer appears in the group list."""
+        admin_token = self._register_and_login_admin()
+        create_res = self.client.post(
+            "/auth/groups",
+            json={"name": "to-be-deleted"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        group_id = create_res.json()["group_id"]
+
+        del_res = self.client.delete(
+            f"/auth/groups/{group_id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        self.assertEqual(del_res.status_code, 200)
+
+        group_list = self.client.get(
+            "/auth/groups", headers={"Authorization": f"Bearer {admin_token}"}
+        ).json()
+        self.assertNotIn("to-be-deleted", [g["name"] for g in group_list])
+
+    def test_delete_group_with_users_returns_conflict(self):
+        """Deleting a group that still has users assigned returns 409 Conflict."""
+        admin_token = self._register_and_login_admin()
+        create_res = self.client.post(
+            "/auth/groups",
+            json={"name": "occupied-group"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        group_id = create_res.json()["group_id"]
+        self.client.post(
+            "/auth/register",
+            json={"email": "occupant@example.com", "password": "password123", "group_id": group_id},
+        )
+
+        response = self.client.delete(
+            f"/auth/groups/{group_id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        self.assertEqual(response.status_code, 409)
+
+    def test_delete_group_not_found(self):
+        """Attempting to delete a non-existent group returns 404."""
+        admin_token = self._register_and_login_admin()
+        response = self.client.delete(
+            "/auth/groups/99999",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_delete_group_permission_success(self):
+        """Admin can remove a specific permission from a group."""
+        admin_token = self._register_and_login_admin()
+        create_res = self.client.post(
+            "/auth/groups",
+            json={"name": "perm-del-group"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        group_id = create_res.json()["group_id"]
+
+        self.client.post(
+            "/auth/groups/permissions",
+            json={"group_id": group_id, "permission_key": "data:export", "permission_value": "true"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+
+        del_res = self.client.delete(
+            f"/auth/groups/{group_id}/permissions/data:export",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        self.assertEqual(del_res.status_code, 200)
+        self.assertIsNone(
+            self.test_user_db.get_group_permissions(group_id).get("data:export")
+        )
+
+    def test_delete_group_permission_not_found(self):
+        """Returns 404 when the permission key does not exist on the group."""
+        admin_token = self._register_and_login_admin()
+        create_res = self.client.post(
+            "/auth/groups",
+            json={"name": "noperm-group"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        group_id = create_res.json()["group_id"]
+
+        response = self.client.delete(
+            f"/auth/groups/{group_id}/permissions/nonexistent:key",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        self.assertEqual(response.status_code, 404)
+
+
 if __name__ == "__main__":
     unittest.main()

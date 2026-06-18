@@ -14,38 +14,17 @@ from pneuma_seeker.provenance.provenance_helper import (
     generate_table_select_code,
     generate_view_textual_document_code,
 )
-from pneuma_seeker.services.core.action_set.impl.context_extraction import ContextExtraction
-from pneuma_seeker.services.core.action_set.impl.query_executor import QueryExecutor
-from pneuma_seeker.services.core.action_set.impl.python_executor import PythonExecutor
-from pneuma_seeker.services.core.action_set.impl.equality_join import EqualityJoin
-from pneuma_seeker.services.core.action_set.impl.semantic_column_generation import (
-    SemanticColumnGeneration,
-)
-from pneuma_seeker.services.core.action_set.impl.semantic_join import (
-    SemanticJoin,
-    SyntacticSimMetric,
-)
-from pneuma_seeker.services.core.action_set.impl.situational_analysis import SituationalAnalysis
-from pneuma_seeker.services.core.action_set.impl.state_manipulation import StateManipulation
-from pneuma_seeker.services.core.action_set.impl.table_projection import (
-    TableProjection,
-)
-from pneuma_seeker.services.core.action_set.impl.table_union import TableUnion
 from pneuma_seeker.services.core.action_set.impl.join_path_extraction import (
     JoinPathExtraction,
 )
-from pneuma_seeker.services.core.action_set.impl.table_enumeration import (
-    TableEnumeration,
-)
-from pneuma_seeker.services.core.action_set.impl.table_retrieve import TableRetrieve
-from pneuma_seeker.services.core.action_set.impl.user_facing_communication import UserFacingCommunication
-from pneuma_seeker.services.core.action_set.impl.web_crawl import WebCrawl
-from pneuma_seeker.services.core.action_set.impl.web_search import WebSearch
+from pneuma_seeker.services.core.action_set.impl.semantic_join import SyntacticSimMetric
+from pneuma_seeker.services.core.action_set.registry import ActionRegistry
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
 from pneuma_seeker.services.core.ir_system.main import Retriever
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.schemas.core.action import ActionNames
+from pneuma_seeker.shared.schemas.core.agent import AgentType
 from pneuma_seeker.shared.schemas.core.ir_system import AbstractDocument, RetrieverType
 
 
@@ -68,249 +47,45 @@ class ActionSet:
         self.db_api = db_api
         self.language_model_api = language_model_api
 
+        self.registry = ActionRegistry(
+            user_id, chat_id, config, logger, db_api, language_model_api
+        )
         self.ir_system = Retriever(
-            self.user_id,
-            self.chat_id,
-            self.config,
-            self.logger,
-            self.db_api,
-            self.language_model_api,
+            user_id, chat_id, config, logger, db_api, language_model_api
         )
-        self.table_retrieve = TableRetrieve(
-            self.user_id,
-            self.chat_id,
-            self.config,
-            self.logger,
-            self.db_api,
-            self.language_model_api,
-        )
-        self.table_enumeration = TableEnumeration(
-            self.user_id,
-            self.chat_id,
-            self.config,
-            self.logger,
-            self.db_api,
-            self.language_model_api,
-        )
-        self.web_search = WebSearch(
-            self.user_id,
-            self.chat_id,
-            self.config,
-            self.logger,
-            self.db_api,
-            self.language_model_api,
-        )
-        self.web_crawl = WebCrawl(
-            self.user_id,
-            self.chat_id,
-            self.config,
-            self.logger,
-            self.db_api,
-            self.language_model_api,
-        )
-        self.join_path_extraction = JoinPathExtraction(
-            self.user_id,
-            self.chat_id,
-            self.config,
-            self.logger,
-            self.db_api,
-            self.language_model_api,
-        )
-        self.context_extraction = ContextExtraction(
-            self.user_id,
-            self.chat_id,
-            self.config,
-            self.logger,
-            self.db_api,
-            self.language_model_api,
-        )
-        self.situational_analysis = SituationalAnalysis(
-            self.user_id,
-            self.chat_id,
-            self.config,
-            self.logger,
-            self.db_api,
-            self.language_model_api,
-        )
-        self.python_executor = PythonExecutor(
-            self.user_id,
-            self.chat_id,
-            self.config,
-            self.logger,
-            self.db_api,
-            self.language_model_api,
-        )
-        self.query_executor = QueryExecutor(
-            self.user_id,
-            self.chat_id,
-            self.config,
-            self.logger,
-            self.db_api,
-            self.language_model_api,
-        )
-        self.semantic_join = SemanticJoin(
-            self.user_id,
-            self.chat_id,
-            self.config,
-            self.logger,
-            self.db_api,
-            self.language_model_api,
-        )
-        self.semantic_column_generation = SemanticColumnGeneration(
-            self.user_id,
-            self.chat_id,
-            self.config,
-            self.logger,
-            self.db_api,
-            self.language_model_api,
-        )
-        self.table_projection = TableProjection(
-            self.user_id,
-            self.chat_id,
-            self.config,
-            self.logger,
-            self.db_api,
-            self.language_model_api,
-        )
-        self.equality_join = EqualityJoin(
-            self.user_id,
-            self.chat_id,
-            self.config,
-            self.logger,
-            self.db_api,
-            self.language_model_api,
-        )
-        self.table_union = TableUnion(
-            self.user_id,
-            self.chat_id,
-            self.config,
-            self.logger,
-            self.db_api,
-            self.language_model_api,
-        )
-        self.state_manipulation = StateManipulation(
-            self.user_id,
-            self.chat_id,
-            self.config,
-            self.logger,
-            self.db_api,
-            self.language_model_api,
-        )
-        self.user_facing_communication = UserFacingCommunication(
-            self.user_id,
-            self.chat_id,
-            self.config,
-            self.logger,
-            self.db_api,
-            self.language_model_api,
+        # Keep a typed reference for direct internal use (not LLM-accessible)
+        self.join_path_extraction: JoinPathExtraction = self.registry.get(  # type: ignore[assignment]
+            ActionNames.JOIN_PATH_EXTRACTION
         )
 
-        self.valid_conductor_actions = [
-            ActionNames.USER_FACING_COMMUNICATION.value,
-            ActionNames.SITUATIONAL_ANALYSIS.value,
-            ActionNames.TABLE_RETRIEVE.value,
-            ActionNames.TABLE_ENUMERATION.value,
-            ActionNames.STATE_MANIPULATION.value,
-            ActionNames.MATERIALIZER.value,
-            ActionNames.PYTHON_EXECUTOR.value,
-        ]
-        self.valid_materializer_actions = [
-            ActionNames.SITUATIONAL_ANALYSIS.value,
-            ActionNames.TABLE_RETRIEVE.value,
-            ActionNames.TABLE_ENUMERATION.value,
-            ActionNames.QUERY_EXECUTOR.value,
-            ActionNames.PYTHON_EXECUTOR.value,
-            ActionNames.TABLE_PROJECTION.value,
-            ActionNames.SEMANTIC_JOIN.value,
-            ActionNames.SEMANTIC_COLUMN_GENERATION.value,
-            ActionNames.TABLE_UNION.value,
-            ActionNames.EQUALITY_JOIN.value,
-        ]
-        if self.config.ENABLE_WEB_SEARCH:
-            self.valid_conductor_actions.append(ActionNames.WEB_SEARCH.value)
-            self.valid_materializer_actions.append(ActionNames.WEB_SEARCH.value)
-        if self.config.ENABLE_WEB_CRAWL:
-            self.valid_conductor_actions.append(ActionNames.WEB_CRAWL.value)
-            self.valid_materializer_actions.append(ActionNames.WEB_CRAWL.value)
-        if self.config.ENABLE_CONTEXT_EXTRACTION:
-            self.valid_conductor_actions.append(ActionNames.CONTEXT_EXTRACTION.value)
-            self.valid_materializer_actions.append(ActionNames.CONTEXT_EXTRACTION.value)
+    # ------------------------------------------------------------------
+    # Action validation
+    # ------------------------------------------------------------------
 
     def is_valid_conductor_action(self, action_name: str) -> bool:
-        return action_name in self.valid_conductor_actions
+        return self.registry.is_valid_action(action_name, AgentType.CONDUCTOR)
 
     def is_valid_materializer_action(self, action_name: str) -> bool:
-        return action_name in self.valid_materializer_actions
-    
-    def get_action_description(self, action_name: ActionNames):
-        match action_name:
-            case ActionNames.TABLE_RETRIEVE:
-                return self.table_retrieve.get_description()
-            case ActionNames.JOIN_PATH_EXTRACTION:
-                return self.join_path_extraction.get_description()
-            case ActionNames.CONTEXT_EXTRACTION:
-                return self.context_extraction.get_description()
-            case ActionNames.TABLE_ENUMERATION:
-                return self.table_enumeration.get_description()
-            case ActionNames.WEB_SEARCH:
-                return self.web_search.get_description()
-            case ActionNames.WEB_CRAWL:
-                return self.web_crawl.get_description()
-            case ActionNames.QUERY_EXECUTOR:
-                return self.query_executor.get_description()
-            case ActionNames.PYTHON_EXECUTOR:
-                return self.python_executor.get_description()
-            case ActionNames.SEMANTIC_JOIN:
-                return self.semantic_join.get_description()
-            case ActionNames.SEMANTIC_COLUMN_GENERATION:
-                return self.semantic_column_generation.get_description()
-            case ActionNames.TABLE_PROJECTION:
-                return self.table_projection.get_description()
-            case ActionNames.EQUALITY_JOIN:
-                return self.equality_join.get_description()
-            case ActionNames.TABLE_UNION:
-                return self.table_union.get_description()
-            case ActionNames.SITUATIONAL_ANALYSIS:
-                return self.situational_analysis.get_description()
-            case ActionNames.STATE_MANIPULATION:
-                return self.state_manipulation.get_description()
-            case ActionNames.MATERIALIZER:
-                return self.__get_materializer_action_description()
-            case ActionNames.USER_FACING_COMMUNICATION:
-                return self.user_facing_communication.get_description()
-            case _:
-                raise ValueError(f"Unknown action: {action_name}")
-    
-    def __get_materializer_action_description(self):
-        semantic_ops = []
+        return self.registry.is_valid_action(action_name, AgentType.MATERIALIZER)
 
-        if self.config.ENABLE_SEMANTIC_JOIN:
-            semantic_ops.append(
-                f"- **{ActionNames.SEMANTIC_JOIN.value}**: Joins two tables by computing semantic similarity between specified columns."
-            )
+    # ------------------------------------------------------------------
+    # Description helpers (used by prompt factories)
+    # ------------------------------------------------------------------
 
-        if self.config.ENABLE_SEMANTIC_COL_GEN:
-            semantic_ops.append(
-                f"- **{ActionNames.SEMANTIC_COLUMN_GENERATION.value}**: Adds a new column to a table using an LLM."
-            )
+    def get_action_description(
+        self, action_name: ActionNames, agent: AgentType | None = None
+    ) -> str:
+        return self.registry.get_description(action_name, agent)
 
-        semantic_section = ""
-        if semantic_ops:
-            semantic_section = (
-                f"\n  Aside from relational operations, {ActionNames.MATERIALIZER.value} "
-                f"also supports the following semantic operations:\n"
-                + "\n".join(f"  {op}" for op in semantic_ops)
-            )
-
-        return f"""**{ActionNames.MATERIALIZER.value}**:
-    Populate tables in T with rows derived from data integration and processing.{semantic_section}
-    - **Args**: {{"note": "<additional note or empty string>"}}"""
+    # ------------------------------------------------------------------
+    # Data retrieval wrappers
+    # ------------------------------------------------------------------
 
     def retrieve_documents(
         self,
         prompt: str,
         retriever_type: RetrieverType,
-        k=10,
+        k: int = 10,
         sample_only: bool = False,
         sample_size: int | None = None,
     ) -> list[AbstractDocument]:
@@ -322,7 +97,7 @@ class ActionSet:
         self,
         prompts: list[str],
         retriever_type: RetrieverType,
-        k=10,
+        k: int = 10,
         sample_only: bool = False,
         sample_size: int | None = None,
     ) -> list[AbstractDocument]:
@@ -331,18 +106,21 @@ class ActionSet:
                 retriever_type, prompts, k, sample_only, sample_size
             )
         )
-
-        aggregated_docs: list[AbstractDocument] = []
+        aggregated: list[AbstractDocument] = []
         for topic, docs in multi_topic_docs.items():
             for doc in docs:
                 doc.metadata["topic"] = topic
-            aggregated_docs.extend(docs)
-        return aggregated_docs
+            aggregated.extend(docs)
+        return aggregated
 
     def discover_join_paths(self, tables: list[AbstractDocument]) -> str:
         tables_df: dict[str, DataFrame] = {doc.doc_id: doc.content for doc in tables}
         return self.join_path_extraction.discover_join_paths(tables_df)
-    
+
+    # ------------------------------------------------------------------
+    # Operator wrappers (thin delegates to action instances)
+    # ------------------------------------------------------------------
+
     def join_equality(
         self,
         left_table_id: str,
@@ -351,7 +129,7 @@ class ActionSet:
         right_table_column_keys: list[str],
         result_table_id: str,
     ) -> DataFrame:
-        return self.equality_join.apply(
+        return self.registry.get(ActionNames.EQUALITY_JOIN).apply(  # type: ignore[union-attr]
             {
                 "left_table_id": left_table_id,
                 "right_table_id": right_table_id,
@@ -368,7 +146,7 @@ class ActionSet:
         provenance_column_name: str,
         provenance_regex: str,
     ) -> DataFrame:
-        return self.table_union.apply(
+        return self.registry.get(ActionNames.TABLE_UNION).apply(  # type: ignore[union-attr]
             {
                 "table_ids": table_ids,
                 "result_table_id": result_table_id,
@@ -383,7 +161,7 @@ class ActionSet:
         target_table_id: str,
         column_mapping: dict[str, str],
     ) -> DataFrame:
-        return self.table_projection.apply(
+        return self.registry.get(ActionNames.TABLE_PROJECTION).apply(  # type: ignore[union-attr]
             {
                 "src_table_id": src_table_id,
                 "target_table_id": target_table_id,
@@ -392,10 +170,12 @@ class ActionSet:
         )
 
     def execute_code(self, code: str, result_table_id: str) -> DataFrame:
-        return self.python_executor.execute({"code": code, "result_table_id": result_table_id})
+        return self.registry.get(ActionNames.PYTHON_EXECUTOR).execute(  # type: ignore[union-attr]
+            {"code": code, "result_table_id": result_table_id}
+        )
 
     def execute_query(self, query: str, result_table_id: str) -> DataFrame:
-        return self.query_executor.execute(
+        return self.registry.get(ActionNames.QUERY_EXECUTOR).execute(  # type: ignore[union-attr]
             {"query": query, "result_table_id": result_table_id}
         )
 
@@ -413,7 +193,7 @@ class ActionSet:
         syntactic_sim_metric: SyntacticSimMetric = SyntacticSimMetric.JACCARD_QGRAM,
         use_llm: bool = False,
     ) -> DataFrame:
-        return self.semantic_join.apply(
+        return self.registry.get(ActionNames.SEMANTIC_JOIN).apply(  # type: ignore[union-attr]
             {
                 "left_table_id": left_table_id,
                 "right_table_id": right_table_id,
@@ -436,12 +216,7 @@ class ActionSet:
         new_column_name: str,
         instruction: str,
     ) -> DataFrame:
-        """
-        Generates a new column based on the instruction and source table columns,
-        using the language model to perform the transformation. Returns the updated
-        table with the new column (sample rows only).
-        """
-        return self.semantic_column_generation.apply(
+        return self.registry.get(ActionNames.SEMANTIC_COLUMN_GENERATION).apply(  # type: ignore[union-attr]
             {
                 "src_table_id": src_table_id,
                 "src_table_columns": src_table_columns,
@@ -449,6 +224,10 @@ class ActionSet:
                 "instruction": instruction,
             }
         )
+
+    # ------------------------------------------------------------------
+    # Provenance code-generation helpers (unchanged)
+    # ------------------------------------------------------------------
 
     def generate_read_external_tables_code(
         self, table_number: int, doc: AbstractDocument
@@ -491,6 +270,25 @@ class ActionSet:
         return generate_semantic_join_generator_code(
             doc_1, doc_2, relevant_left_cols, relevant_right_cols, top_k
         )
+
+    def resolve_entities(
+        self,
+        source_table_id: str,
+        target_column: str,
+        output_mapping_table_id: str,
+        canonical_entities: list[str] | None = None,
+        threshold: float | None = None,
+    ) -> DataFrame:
+        args: dict[str, Any] = {
+            "source_table_id": source_table_id,
+            "target_column": target_column,
+            "output_mapping_table_id": output_mapping_table_id,
+        }
+        if canonical_entities is not None:
+            args["canonical_entities"] = canonical_entities
+        if threshold is not None:
+            args["threshold"] = threshold
+        return self.registry.get(ActionNames.ENTITY_RESOLUTION).apply(args)  # type: ignore[union-attr]
 
     def append_comment_to_existing_code(self, code: str, comment: str):
         return append_comment_to_existing_code(code, comment)

@@ -8,7 +8,9 @@ from typing import Any
 from uuid import uuid4
 
 import psycopg
-from psycopg.errors import UniqueViolation
+from psycopg.errors import ForeignKeyViolation, UniqueViolation
+
+_UNSET = object()
 
 from pneuma_seeker.models import PermissionKey
 from pneuma_seeker.services.db.users.models import (
@@ -208,6 +210,29 @@ class UserDB:
         finally:
             con.close()
 
+    def list_users(self) -> list[UserRecord]:
+        """Returns a list of all users ordered by email."""
+        self.__log("Listing all users")
+        con = self._get_connection()
+        try:
+            rows = con.execute("""
+                SELECT user_id, email, username, group_id, is_active
+                FROM users
+                ORDER BY email
+                """).fetchall()
+            return [
+                UserRecord(
+                    user_id=row[0],
+                    email=row[1],
+                    username=row[2],
+                    group_id=row[3],
+                    is_active=bool(row[4]),
+                )
+                for row in rows
+            ]
+        finally:
+            con.close()
+
     def list_groups(self) -> list[GroupRecord]:
         """Returns a list of all groups."""
         self.__log("Listing all groups")
@@ -222,6 +247,76 @@ class UserDB:
                 GroupRecord(group_id=row[0], name=row[1], parent_group_id=row[2])
                 for row in rows
             ]
+        finally:
+            con.close()
+
+    def update_group(
+        self,
+        group_id: str,
+        name: Any = _UNSET,
+        parent_group_id: Any = _UNSET,
+    ) -> bool:
+        """Updates group fields. Omit a kwarg to leave that field unchanged. Returns False if group not found."""
+        self.__log(f"Updating group: {group_id}")
+
+        updates = []
+        params = []
+
+        if name is not _UNSET:
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("Group name must be a non-empty string")
+            updates.append("name = %s")
+            params.append(name.strip())
+
+        if parent_group_id is not _UNSET:
+            if parent_group_id is not None and not self.get_group_by_id(parent_group_id):
+                raise ValueError("Parent group not found")
+            if parent_group_id == group_id:
+                raise ValueError("Group cannot be its own parent")
+            updates.append("parent_group_id = %s")
+            params.append(parent_group_id)
+
+        if not updates:
+            return bool(self.get_group_by_id(group_id))
+
+        params.append(group_id)
+        query = f"UPDATE groups SET {', '.join(updates)} WHERE group_id = %s;"
+
+        con = self._get_connection()
+        try:
+            if not con.execute("SELECT 1 FROM groups WHERE group_id = %s", (group_id,)).fetchone():
+                return False
+            con.execute(query, tuple(params))
+            return True
+        except UniqueViolation:
+            raise ValueError("Group name already exists")
+        finally:
+            con.close()
+
+    def delete_group(self, group_id: str) -> bool:
+        """Deletes a group. Raises ValueError if the group has users or child groups. Returns False if not found."""
+        self.__log(f"Deleting group: {group_id}")
+        con = self._get_connection()
+        try:
+            if not con.execute("SELECT 1 FROM groups WHERE group_id = %s", (group_id,)).fetchone():
+                return False
+            con.execute("DELETE FROM groups WHERE group_id = %s;", (group_id,))
+            return True
+        except ForeignKeyViolation:
+            raise ValueError("Cannot delete group: it has users or child groups assigned to it")
+        finally:
+            con.close()
+
+    def delete_group_permission(self, group_id: str, permission_key: str) -> bool:
+        """Removes a specific permission from a group. Returns False if the permission did not exist."""
+        self.__log(f"Deleting permission '{permission_key}' from group: {group_id}")
+        con = self._get_connection()
+        try:
+            result = con.execute(
+                "DELETE FROM group_permissions WHERE group_id = %s AND permission_key = %s RETURNING permission_key;",
+                (group_id, permission_key),
+            ).fetchone()
+            return result is not None
         finally:
             con.close()
 
@@ -457,6 +552,7 @@ class UserDB:
 
         con = self._get_connection()
         try:
+            con.execute("DELETE FROM auth_tokens WHERE user_id = %s;", (user_id,))
             con.execute("DELETE FROM users WHERE user_id = %s;", (user_id,))
             return True
         except Exception as e:

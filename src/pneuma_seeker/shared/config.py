@@ -82,6 +82,11 @@ class Config:
             1, int(getenv("SEMANTIC_COL_GEN_VALUE_GENERATION_BATCH_SIZE", "20"))
         )
 
+        ## Entity Resolution Settings
+        self.ENTITY_RESOLUTION_THRESHOLD = float(
+            getenv("ENTITY_RESOLUTION_THRESHOLD", "0.85")
+        )
+
         ## Other Action Settings
         self.ENABLE_CONTEXT_EXTRACTION = (
             getenv("ENABLE_CONTEXT_EXTRACTION", "true").lower() == "true"

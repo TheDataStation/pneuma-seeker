@@ -3,24 +3,28 @@ from itertools import combinations
 import pandas as pd
 from pyxdameraulevenshtein import damerau_levenshtein_distance
 
-from pneuma_seeker.shared.schemas.core.action import ActionNames
 from pneuma_seeker.services.core.action_set.interfaces import Action
+from pneuma_seeker.shared.schemas.core.action import ActionNames
+from pneuma_seeker.shared.schemas.core.agent import AgentType
 
 
 class JoinPathExtraction(Action):
-    """Extracts join paths between tables based on common columns."""
+    """Internal tool — not exposed to LLM agents; used by ActionSet directly."""
 
-    def get_name(self) -> str:
-        return ActionNames.JOIN_PATH_EXTRACTION.value
+    action_name = ActionNames.JOIN_PATH_EXTRACTION
+    agents: frozenset = frozenset()  # no agent may invoke this via planning
+    flag = None
+    order = 99
+    show_in_prompt = False
 
-    def get_description(self) -> str:
+    def get_description(self, agent: AgentType | None = None) -> str:
         return "Extracts join paths between tables based on common columns."
 
     def get_input_schema(self) -> dict[str, str]:
         return {
             "tables": "A dictionary mapping table IDs to their corresponding pandas DataFrames.",
         }
-    
+
     def get_notes(self) -> str:
         return "The join paths are discovered based on column name similarity and value overlap."
 
@@ -85,8 +89,10 @@ class JoinPathExtraction(Action):
                 f"<-> {c['t2']} (columns: [{c['c2']}]) "
                 f"[score={c['score']:.3f}]"
             )
-        
-        self.logger.info("[JOIN PATH EXTRACTION] Discovered join paths:\n" + "\n".join(lines))
+
+        self.logger.info(
+            "[JOIN PATH EXTRACTION] Discovered join paths:\n" + "\n".join(lines)
+        )
         return "\n".join(lines)
 
     def __value_overlap(self, col_a, col_b) -> float:

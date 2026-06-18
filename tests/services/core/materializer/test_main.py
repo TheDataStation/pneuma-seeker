@@ -260,6 +260,7 @@ class MaterializerTests(unittest.TestCase):
         )
 
     def test_semantic_column_generator_adds_column(self):
+        self.config.ENABLE_SEMANTIC_COL_GEN = True
         # LLM will call table_retrieve, table_projection, then semantic_column_generator
         plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}'
         plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
@@ -369,18 +370,18 @@ class MaterializerTests(unittest.TestCase):
         )
 
         baseline_tables = set(
-            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")
-            ["name"]
-            .tolist()
+            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")[
+                "name"
+            ].tolist()
         )
 
         T1 = {"t1": pd.DataFrame(columns=["a", "b"])}
         result_1 = self.materializer.materialize_T(T=T1, column_descriptions={}, S="")
         self.assertIn("t1", result_1[-1])
         tables_after_first = set(
-            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")
-            ["name"]
-            .tolist()
+            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")[
+                "name"
+            ].tolist()
         )
         self.assertIn("t1", tables_after_first)
 
@@ -388,9 +389,9 @@ class MaterializerTests(unittest.TestCase):
         result_2 = self.materializer.materialize_T(T=T2, column_descriptions={}, S="")
         self.assertIn("t2", result_2[-1])
         tables_after_second = set(
-            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")
-            ["name"]
-            .tolist()
+            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")[
+                "name"
+            ].tolist()
         )
         self.assertIn("t2", tables_after_second)
         self.assertNotIn("t1", tables_after_second)

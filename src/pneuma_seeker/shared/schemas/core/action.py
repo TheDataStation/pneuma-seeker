@@ -19,6 +19,7 @@ class ActionNames(Enum):
     STATE_MANIPULATION = "state_manipulation"
     MATERIALIZER = "materializer"
     USER_FACING_COMMUNICATION = "user_facing_communication"
+    ENTITY_RESOLUTION = "entity_resolution"
 
 
 class ActionExecutionStatus(Enum):

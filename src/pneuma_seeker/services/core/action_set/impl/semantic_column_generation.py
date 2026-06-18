@@ -1,19 +1,22 @@
 from typing import Any
 from pandas import DataFrame
 
+from pneuma_seeker.services.core.action_set.interfaces import Action, Applicable
 from pneuma_seeker.shared.schemas.core.action import ActionNames
-from pneuma_seeker.services.core.action_set.interfaces import Action
-from pneuma_seeker.services.core.action_set.interfaces import Applicable
+from pneuma_seeker.shared.schemas.core.agent import AgentType
 from pneuma_seeker.shared.parser import augmented_literal_eval
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.schemas.language_model.role import Role
 
 
 class SemanticColumnGeneration(Action, Applicable):
-    def get_name(self) -> str:
-        return ActionNames.SEMANTIC_COLUMN_GENERATION.value
+    action_name = ActionNames.SEMANTIC_COLUMN_GENERATION
+    agents = frozenset({AgentType.MATERIALIZER})
+    flag = "ENABLE_SEMANTIC_COL_GEN"
+    order = 12
+    show_in_prompt = True
 
-    def get_description(self) -> str:
+    def get_description(self, agent: AgentType | None = None) -> str:
         return f"""**{ActionNames.SEMANTIC_COLUMN_GENERATION.value}**
     - Adds a new column to an *intermediate* table using an LLM.
     - The column is derived from specified `relevant_columns` only — no other columns are used.
