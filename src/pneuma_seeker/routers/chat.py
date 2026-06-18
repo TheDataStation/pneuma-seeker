@@ -8,7 +8,16 @@ from typing import Any
 from zipfile import ZipFile, ZIP_DEFLATED
 
 from anyio import to_thread
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from shutil import rmtree
+
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+)
 from fastapi.responses import (
     JSONResponse,
     StreamingResponse,
@@ -407,26 +416,36 @@ async def list_chats(
 @router.delete("/{chat_id}", response_class=JSONResponse)
 async def delete_chat_session(
     chat_id: str,
+    background_tasks: BackgroundTasks,
     current_user: UserRecord = Depends(get_current_user),
 ):
     """
     Endpoint to delete a specific chat session for the authenticated user.
+    The DB connection is closed eagerly; the workspace directory is removed
+    asynchronously as a background task after the response is sent.
     """
     logger.info(f"Deleting chat session {chat_id} for user {current_user.user_id}")
     try:
-        pneuma_db.delete_chat_session(
+        chat_dir = pneuma_db.prepare_chat_deletion(
             user_id=current_user.user_id,
             chat_id=chat_id,
         )
-        return JSONResponse(
-            content={"detail": f"Chat session '{chat_id}' deleted successfully."}
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat session '{chat_id}' not found.",
         )
     except Exception as e:
-        logger.info(f"Error deleting chat session: {e}")
+        logger.info(f"Error preparing chat session deletion: {e}")
         raise HTTPException(
             status_code=500,
             detail="An error occurred while deleting the chat session.",
         )
+
+    background_tasks.add_task(rmtree, chat_dir)
+    return JSONResponse(
+        content={"detail": f"Chat session '{chat_id}' deleted successfully."}
+    )
 
 
 def stream_payload(sender: str, text: str) -> str:

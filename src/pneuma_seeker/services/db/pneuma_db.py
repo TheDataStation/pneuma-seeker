@@ -9,6 +9,7 @@ from pneuma_seeker.provenance.graph import ProvenanceGraph
 from pneuma_seeker.services.core.conductor.state import ConductorState
 from pneuma_seeker.services.db.datasets.manager import DatasetManager
 from pneuma_seeker.services.db.workspaces.manager import WorkspaceManager
+from pneuma_seeker.services.db.workspaces.session_index import SessionIndex
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.schemas.core.ir_system import AbstractDocument
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
@@ -46,8 +47,25 @@ class PneumaDB:
         os.makedirs(self.workspace_db_path, exist_ok=True)
 
         self.dataset_manager = DatasetManager(self.dataset_db_path, self.logger)
+
+        # Try to connect to the Postgres session index.  If Postgres is unavailable
+        # (e.g. local dev without a running DB), we log a warning and fall back to
+        # the O(n) filesystem scan that was in place before this index was introduced.
+        try:
+            session_index: SessionIndex | None = SessionIndex(self.config, self.logger)
+        except Exception as e:
+            self.logger.warning(
+                f"[PneumaDB] Postgres session index unavailable, "
+                f"falling back to filesystem session scan: {e}"
+            )
+            session_index = None
+
         self.workspace_manager = WorkspaceManager(
-            self.workspace_db_path, self.config, self.logger, self.dataset_manager
+            self.workspace_db_path,
+            self.config,
+            self.logger,
+            self.dataset_manager,
+            session_index=session_index,
         )
 
         self._conn_cache = self.workspace_manager._conn_cache
@@ -121,10 +139,14 @@ class PneumaDB:
         self.dataset_manager.link_dataset_tables(
             user_id, chat_id, dataset_name, self.get_ws_db_connection
         )
-    
-    def get_accessible_local_datasets(self, is_admin: bool, group_permissions: dict[str, str]) -> list[str]:
+
+    def get_accessible_local_datasets(
+        self, is_admin: bool, group_permissions: dict[str, str]
+    ) -> list[str]:
         """Gets a list of local datasets accessible to the user based on their admin status and group permissions."""
-        return self.dataset_manager.get_accessible_local_datasets(is_admin, group_permissions)
+        return self.dataset_manager.get_accessible_local_datasets(
+            is_admin, group_permissions
+        )
 
     # ------------------------------------------------------------------
     # Workspace DB Management
@@ -225,13 +247,23 @@ class PneumaDB:
         """Loads the entire chat session state for the specified user and chat session, including chat history, conductor state, provenance graph, retrieved tables, enumerated tables, web search results, web crawl results, and join paths."""
         return self.workspace_manager.load_session(user_id, chat_id)
 
-    def get_user_chat_sessions(self, user_id: str, limit: int = 10, offset: int = 0) -> dict[str, Any]:
+    def get_user_chat_sessions(
+        self, user_id: str, limit: int = 10, offset: int = 0
+    ) -> dict[str, Any]:
         """Gets a list of chat sessions for the specified user."""
         return self.workspace_manager.get_user_chat_sessions(user_id, limit, offset)
 
-    def search_chat_sessions(self, user_id: str, query: str, limit: int = 10, offset: int = 0) -> dict[str, Any]:
+    def search_chat_sessions(
+        self, user_id: str, query: str, limit: int = 10, offset: int = 0
+    ) -> dict[str, Any]:
         """Searches chat sessions by message content for the specified user."""
-        return self.workspace_manager.search_chat_sessions(user_id, query, limit, offset)
+        return self.workspace_manager.search_chat_sessions(
+            user_id, query, limit, offset
+        )
+
+    def prepare_chat_deletion(self, user_id: str, chat_id: str) -> Path:
+        """Closes the workspace connection and returns the directory path for background removal."""
+        return self.workspace_manager.prepare_chat_deletion(user_id, chat_id)
 
     def delete_chat_session(self, user_id: str, chat_id: str) -> None:
         """Deletes the specified chat session for the user."""

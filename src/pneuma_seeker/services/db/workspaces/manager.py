@@ -2,7 +2,7 @@ import datetime
 import os
 from logging import Logger
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 import duckdb
@@ -22,6 +22,11 @@ from pneuma_seeker.shared.schemas.db.document_type import DocumentType
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.schemas.language_model.role import Role
 
+# TYPE_CHECKING guard avoids a circular-import at runtime; SessionIndex imports Config
+# which is also imported here, so the runtime path stays clean.
+if TYPE_CHECKING:
+    from pneuma_seeker.services.db.workspaces.session_index import SessionIndex
+
 
 class WorkspaceManager:
     """Manages per-user workspace DBs and session persistence."""
@@ -32,11 +37,17 @@ class WorkspaceManager:
         config: Config,
         logger: Logger,
         dataset_manager: DatasetManager,
+        session_index: "SessionIndex | None" = None,
     ) -> None:
         self.workspace_db_path = Path(workspace_db_path)
         self.config = config
         self.logger = logger
         self.dataset_manager = dataset_manager
+
+        # Optional Postgres-backed index for O(log n) session listing and search.
+        # When None the legacy O(n) filesystem scan is used as a fallback — this lets
+        # local dev environments without Postgres continue to work unchanged.
+        self.session_index = session_index
 
         os.makedirs(self.workspace_db_path, exist_ok=True)
 
@@ -417,6 +428,22 @@ class WorkspaceManager:
         except Exception as e:
             con.rollback()
             self.__log(f"Failed to persist session: {e}")
+            return  # index must not be updated when the DuckDB write failed
+
+        # Keep the Postgres index in sync after a successful DuckDB commit.
+        # Failures here are logged but do not propagate — the workspace state was already
+        # written successfully and the filesystem fallback can still serve listing/search.
+        if self.session_index is not None:
+            try:
+                self.session_index.upsert(
+                    user_id,
+                    chat_id,
+                    new_user_input,
+                    new_system_response,
+                    dataset_name,
+                )
+            except Exception as e:
+                self.__log(f"Failed to update session index (non-fatal): {e}")
 
     def load_chat_history(self, user_id: str, chat_id: str) -> list[LLMMessage]:
         """Loads the persisted chat messages for a workspace in chronological order."""
@@ -695,10 +722,17 @@ class WorkspaceManager:
         self, user_id: str, limit: int = 10, offset: int = 0
     ) -> dict[str, Any]:
         """
-        Scans the user directory for active chat databases, inspects their
-        metadata from the chat_history table, and returns a paginated list
-        ordered by the most recent activity.
+        Returns a paginated list of the user's chat sessions ordered by most-recent activity.
+
+        Fast path (Postgres index available): single O(log n) indexed query — no file I/O.
+        Fallback (no index): O(n) filesystem scan that opens a DuckDB connection per session.
+        The fallback is preserved so that local dev environments without Postgres keep working.
         """
+        # Delegate to the Postgres index when it is available — avoids the O(n) filesystem scan
+        if self.session_index is not None:
+            return self.session_index.list_sessions(user_id, limit, offset)
+
+        # --- Legacy O(n) filesystem fallback below ---
         user_dir = self.workspace_db_path / user_id
         if not user_dir.exists() or not user_dir.is_dir():
             return {"chats": [], "has_more": False, "next_offset": None}
@@ -715,7 +749,9 @@ class WorkspaceManager:
                         # Open connection transiently to read metadata
                         con = None
                         try:
-                            con = duckdb.connect(database=db_file.as_posix())
+                            con = duckdb.connect(
+                                database=db_file.as_posix(), read_only=True
+                            )
 
                             # Fetch the first message content for the title and the max timestamp for activity
                             query = """
@@ -784,9 +820,17 @@ class WorkspaceManager:
         self, user_id: str, query: str, limit: int = 10, offset: int = 0
     ) -> dict[str, Any]:
         """
-        Searches all chat sessions for the given user where any message content
-        matches the query using ILIKE, sorted by most recent activity descending.
+        Case-insensitive search across all messages in the user's chat sessions.
+
+        Fast path (Postgres index available): single GIN-indexed query — O(log n + matches).
+        Fallback (no index): opens one DuckDB connection per session and runs ILIKE on each
+        chat_history table — O(sessions × messages_per_session).
         """
+        # Delegate to the Postgres index when available
+        if self.session_index is not None:
+            return self.session_index.search_sessions(user_id, query, limit, offset)
+
+        # --- Legacy O(n) filesystem fallback below ---
         user_dir = self.workspace_db_path / user_id
         if not user_dir.exists() or not user_dir.is_dir():
             return {"chats": [], "has_more": False, "next_offset": None}
@@ -804,7 +848,7 @@ class WorkspaceManager:
             try:
                 con = None
                 try:
-                    con = duckdb.connect(database=db_file.as_posix())
+                    con = duckdb.connect(database=db_file.as_posix(), read_only=True)
                     res = con.execute(
                         """
                         SELECT
@@ -858,10 +902,11 @@ class WorkspaceManager:
             "next_offset": next_offset,
         }
 
-    def delete_chat_session(self, user_id: str, chat_id: str) -> None:
+    def prepare_chat_deletion(self, user_id: str, chat_id: str) -> Path:
         """
-        Deletes a specific chat session by closing active connections and
-        permanently removing the corresponding workspace directory.
+        Validates that the chat session exists, closes its active connection,
+        and returns the workspace directory path so the caller can schedule
+        the filesystem removal as a background task.
         Raises FileNotFoundError if the chat session directory does not exist.
         """
         chat_dir = self.workspace_db_path / user_id / chat_id
@@ -869,17 +914,32 @@ class WorkspaceManager:
             raise FileNotFoundError(
                 f"Chat session with ID '{chat_id}' for user '{user_id}' not found."
             )
-
         self.close_workspace_connection(user_id, chat_id)
+        return chat_dir
 
+    def delete_chat_session(self, user_id: str, chat_id: str) -> None:
+        """
+        Deletes a specific chat session by closing active connections and
+        permanently removing the corresponding workspace directory.
+        Raises FileNotFoundError if the chat session directory does not exist.
+        """
+        from shutil import rmtree
+
+        chat_dir = self.prepare_chat_deletion(user_id, chat_id)
         try:
-            from shutil import rmtree
-
             rmtree(chat_dir)
             self.__log(f"Successfully deleted chat session directory: {chat_dir}")
         except Exception as e:
             self.__log(f"Failed to delete chat session directory {chat_dir}: {e}")
             raise e
+
+        # Remove from the Postgres index so it no longer appears in listing/search.
+        # Non-fatal: if the session pre-dates the index (never upserted), this is a no-op.
+        if self.session_index is not None:
+            try:
+                self.session_index.delete_session(user_id, chat_id)
+            except Exception as e:
+                self.__log(f"Failed to remove session from index (non-fatal): {e}")
 
     def __load_documents_by_role(
         self,
@@ -901,6 +961,14 @@ class WorkspaceManager:
             """,
             (state_id, role),
         ).fetchdf()
+
+        if not doc_rows.empty:
+            self.dataset_manager.link_dataset_tables(
+                user_id,
+                chat_id,
+                dataset_name,
+                self.get_ws_db_connection,
+            )
 
         documents: list[AbstractDocument] = []
         for _, doc_row in doc_rows.iterrows():
@@ -935,12 +1003,6 @@ class WorkspaceManager:
                 or retriever_type == RetrieverType.ENUMERATOR
                 or retriever_type == RetrieverType.USER
             ):
-                self.dataset_manager.link_dataset_tables(
-                    user_id,
-                    chat_id,
-                    dataset_name,
-                    self.get_ws_db_connection,
-                )
 
                 if (
                     retriever_type == RetrieverType.MATERIALIZER

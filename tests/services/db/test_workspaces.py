@@ -479,7 +479,7 @@ class TestWorkspaceSessionDeletion(unittest.TestCase):
         self.config = Config()
         self.logger = logging.getLogger("test")
         self.tmpdir = tempfile.mkdtemp()
-        
+
         # PneumaDB wraps WorkspaceManager internally
         self.db = PneumaDB(
             logger=self.logger,
@@ -511,22 +511,19 @@ class TestWorkspaceSessionDeletion(unittest.TestCase):
         """Tests that deleting a session removes its workspace directory from disk and evicts it from the connection cache."""
         user_id = "user_deletion_test"
         chat_id = "chat_to_delete"
-        
+
         # 1. Establish session and ensure connection resides within the active cache
         self._create_mock_session(user_id, chat_id, "Session to be deleted")
-        con = self.db.get_ws_db_connection(user_id, chat_id)
-        
+        self.db.get_ws_db_connection(user_id, chat_id)
+
         chat_dir = self.db.workspace_db_path / user_id / chat_id
         db_file = chat_dir / "ws.db"
-        
+
         self.assertTrue(db_file.exists())
         self.assertIn((user_id, chat_id), self.db._conn_cache)
 
-        # 2. Execute deletion sequence via the underlying workspace manager
-        # Note: If PneumaDB exposes a delete wrapper, use self.db.delete_chat_session here
-        self.db.workspace_manager.delete_chat_session(user_id, chat_id)
+        self.db.delete_chat_session(user_id, chat_id)
 
-        # 3. Structural and cache verifications
         self.assertFalse(chat_dir.exists())
         self.assertNotIn((user_id, chat_id), self.db._conn_cache)
 
@@ -536,7 +533,256 @@ class TestWorkspaceSessionDeletion(unittest.TestCase):
         chat_id = "chat_missing"
 
         with self.assertRaises(FileNotFoundError):
-            self.db.workspace_manager.delete_chat_session(user_id, chat_id)
+            self.db.delete_chat_session(user_id, chat_id)
+
+    def test_prepare_chat_deletion_closes_connection_without_removing_directory(self):
+        """Tests that prepare_chat_deletion evicts the connection from the cache but leaves the workspace directory intact for the caller to remove asynchronously."""
+        user_id = "user_prep_deletion"
+        chat_id = "chat_prep"
+
+        self._create_mock_session(user_id, chat_id, "Prepare deletion test")
+        self.db.get_ws_db_connection(user_id, chat_id)
+        self.assertIn((user_id, chat_id), self.db._conn_cache)
+
+        chat_dir = self.db.workspace_db_path / user_id / chat_id
+        returned_path = self.db.prepare_chat_deletion(user_id, chat_id)
+
+        # Connection must be evicted
+        self.assertNotIn((user_id, chat_id), self.db._conn_cache)
+        # But directory must still exist — caller is responsible for removal
+        self.assertTrue(chat_dir.exists())
+        self.assertEqual(returned_path.resolve(), chat_dir.resolve())
+
+        # Caller-side cleanup
+        shutil.rmtree(returned_path)
+        self.assertFalse(chat_dir.exists())
+
+    def test_prepare_chat_deletion_raises_file_not_found_for_missing_session(self):
+        """Tests that prepare_chat_deletion raises FileNotFoundError when the session directory does not exist."""
+        with self.assertRaises(FileNotFoundError):
+            self.db.prepare_chat_deletion("ghost_user", "ghost_chat")
+
+
+class TestWorkspaceConnectionEdgeCases(unittest.TestCase):
+    """Edge-case tests for connection management."""
+
+    def setUp(self):
+        self.config = Config()
+        self.logger = logging.getLogger("test")
+        self.tmpdir = tempfile.mkdtemp()
+        self.db = PneumaDB(
+            logger=self.logger,
+            config=self.config,
+            dataset_db_path=(Path(self.tmpdir) / "datasets").as_posix(),
+            workspace_db_path=(Path(self.tmpdir) / "workspaces").as_posix(),
+        )
+
+    def tearDown(self):
+        self.db.close_all_connections()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_close_workspace_connection_on_nonexistent_key_is_silent_noop(self):
+        """Tests that closing a connection that was never opened does not raise an exception."""
+        try:
+            self.db.close_workspace_connection("nobody", "nowhere")
+        except Exception as e:
+            self.fail(f"close_workspace_connection raised unexpectedly: {e}")
+
+    def test_register_temporary_df_can_reregister_same_name(self):
+        """Tests that registering a new DataFrame under an already-registered temporary name replaces the previous registration without error."""
+        import pandas as pd
+
+        df1 = pd.DataFrame([{"x": 1}])
+        df2 = pd.DataFrame([{"x": 99}])
+
+        self.db.register_temporary_df("user_1", "chat_1", df1, "tmp_view")
+        # Second registration of the same name must succeed and reflect the new data
+        self.db.register_temporary_df("user_1", "chat_1", df2, "tmp_view")
+
+        result = self.db.execute_query("user_1", "chat_1", 'SELECT x FROM "tmp_view"')
+        self.assertEqual(result.iloc[0]["x"], 99)
+
+    def test_get_user_chat_sessions_isolates_between_users(self):
+        """Tests that session listing for one user does not include sessions belonging to another user."""
+        state = ConductorState()
+
+        for user_id, chat_id, msg in [
+            ("user_alice", "chat_a1", "Alice message one"),
+            ("user_alice", "chat_a2", "Alice message two"),
+            ("user_bob", "chat_b1", "Bob message one"),
+        ]:
+            self.db.persist_session(
+                user_id=user_id,
+                chat_id=chat_id,
+                dataset_name="ds",
+                new_user_input=msg,
+                new_system_response="OK",
+                conductor_state=state,
+                provenance_graph=ProvenanceGraph(self.logger),
+                retrieved_tables=[],
+                enumerated_tables=[],
+            )
+            self.db.close_workspace_connection(user_id, chat_id)
+
+        alice_result = self.db.get_user_chat_sessions("user_alice", limit=10)
+        bob_result = self.db.get_user_chat_sessions("user_bob", limit=10)
+
+        alice_ids = {c["id"] for c in alice_result["chats"]}
+        bob_ids = {c["id"] for c in bob_result["chats"]}
+
+        self.assertEqual(alice_ids, {"chat_a1", "chat_a2"})
+        self.assertEqual(bob_ids, {"chat_b1"})
+        self.assertTrue(alice_ids.isdisjoint(bob_ids))
+
+
+class TestWorkspaceSessionRoundTrip(unittest.TestCase):
+    """Round-trip tests: persist then load, verifying full fidelity of returned state."""
+
+    def setUp(self):
+        self.config = Config()
+        self.config.ENABLE_FINE_GRAINED_STATE_CHANGE_TRACKING = False
+        self.logger = logging.getLogger("test")
+        self.tmpdir = tempfile.mkdtemp()
+        self.db = PneumaDB(
+            logger=self.logger,
+            config=self.config,
+            dataset_db_path=(Path(self.tmpdir) / "datasets").as_posix(),
+            workspace_db_path=(Path(self.tmpdir) / "workspaces").as_posix(),
+        )
+
+    def tearDown(self):
+        self.db.close_all_connections()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_load_session_on_fresh_workspace_returns_empty_defaults(self):
+        """Tests that load_session returns safe empty structures when the workspace has never had a session persisted."""
+        (
+            history,
+            conductor_state,
+            provenance_graph,
+            retrieved_tables,
+            enumerated_tables,
+            web_search_result,
+            web_crawl_result,
+            join_paths,
+            dataset_name,
+        ) = self.db.load_session("fresh_user", "fresh_chat")
+
+        self.assertEqual(history, [])
+        self.assertEqual(conductor_state.S, "")
+        self.assertFalse(conductor_state.is_T_materialized)
+        # A fresh ProvenanceGraph is returned with its default root node
+        self.assertEqual(len(provenance_graph.nodes), 1)
+        self.assertEqual(retrieved_tables, [])
+        self.assertEqual(enumerated_tables, [])
+        self.assertIsNone(web_search_result)
+        self.assertIsNone(web_crawl_result)
+        self.assertIsNone(join_paths)
+        self.assertIsNone(dataset_name)
+
+    def test_load_session_restores_dataset_name_and_join_paths(self):
+        """Tests that dataset_name and join_paths are correctly persisted and returned by load_session."""
+        state = ConductorState()
+        self.db.persist_session(
+            user_id="user_1",
+            chat_id="chat_1",
+            dataset_name="my_dataset",
+            new_user_input="query",
+            new_system_response="done",
+            conductor_state=state,
+            provenance_graph=ProvenanceGraph(self.logger),
+            retrieved_tables=[],
+            enumerated_tables=[],
+            join_paths="table_a JOIN table_b ON table_a.id = table_b.fk",
+        )
+
+        *_, join_paths, dataset_name = self.db.load_session("user_1", "chat_1")
+
+        self.assertEqual(dataset_name, "my_dataset")
+        self.assertEqual(join_paths, "table_a JOIN table_b ON table_a.id = table_b.fk")
+
+    def test_session_metadata_is_not_duplicated_across_multiple_persists(self):
+        """Tests that calling persist_session multiple times for the same chat does not insert duplicate rows into session_metadata."""
+        state = ConductorState()
+        for i in range(3):
+            self.db.persist_session(
+                user_id="user_1",
+                chat_id="chat_1",
+                dataset_name="ds",
+                new_user_input=f"turn {i}",
+                new_system_response="ok",
+                conductor_state=state,
+                provenance_graph=ProvenanceGraph(self.logger),
+                retrieved_tables=[],
+                enumerated_tables=[],
+            )
+
+        con = self.db.get_ws_db_connection("user_1", "chat_1")
+        count = con.execute("SELECT COUNT(*) FROM session_metadata").fetchone()[0]
+        self.assertEqual(count, 1)
+
+    def test_provenance_graph_nodes_and_edges_survive_round_trip(self):
+        """Tests that provenance graph nodes and their parent-child edges are correctly persisted and fully reconstructed by load_session."""
+        from pneuma_seeker.provenance.graph import ProvenanceNode
+        from pneuma_seeker.shared.schemas.core.ir_system import RetrieverType
+
+        graph = ProvenanceGraph(self.logger, create_default_root=False)
+
+        root = ProvenanceNode(RetrieverType.USER, "tables = {}", "root node")
+        child = ProvenanceNode(RetrieverType.PNEUMA_RETRIEVER, "tables['t'] = df", "retrieval step")
+        root.add_child(child)
+        graph.add_node(root)
+        graph.add_node(child)
+
+        state = ConductorState()
+        self.db.persist_session(
+            user_id="user_1",
+            chat_id="chat_1",
+            dataset_name="ds",
+            new_user_input="q",
+            new_system_response="a",
+            conductor_state=state,
+            provenance_graph=graph,
+            retrieved_tables=[],
+            enumerated_tables=[],
+        )
+
+        _, _, loaded_graph, *_ = self.db.load_session("user_1", "chat_1")
+
+        self.assertEqual(len(loaded_graph.nodes), 2)
+
+        loaded_ids = set(loaded_graph.nodes.keys())
+        self.assertIn(root.id, loaded_ids)
+        self.assertIn(child.id, loaded_ids)
+
+        loaded_root = loaded_graph.nodes[root.id]
+        loaded_child = loaded_graph.nodes[child.id]
+        self.assertEqual(loaded_root.source_retriever, RetrieverType.USER)
+        self.assertEqual(loaded_child.source_retriever, RetrieverType.PNEUMA_RETRIEVER)
+
+        # Edge: root → child must be reconstructed
+        self.assertIn(loaded_child, loaded_root.children)
+        self.assertIn(loaded_root, loaded_child.parents)
+
+    def test_search_chat_sessions_accessible_via_pneuma_db_facade(self):
+        """Tests that search_chat_sessions is reachable through the PneumaDB facade and returns correct results."""
+        state = ConductorState()
+        self.db.persist_session(
+            user_id="user_1",
+            chat_id="chat_searchable",
+            dataset_name="ds",
+            new_user_input="unique_keyword_xyz query",
+            new_system_response="done",
+            conductor_state=state,
+            provenance_graph=ProvenanceGraph(self.logger),
+            retrieved_tables=[],
+            enumerated_tables=[],
+        )
+        self.db.close_workspace_connection("user_1", "chat_searchable")
+
+        result = self.db.search_chat_sessions("user_1", "unique_keyword_xyz")
+        self.assertEqual(len(result["chats"]), 1)
+        self.assertEqual(result["chats"][0]["id"], "chat_searchable")
 
 
 if __name__ == "__main__":
