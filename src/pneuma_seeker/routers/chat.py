@@ -442,6 +442,7 @@ async def delete_chat_session(
             detail="An error occurred while deleting the chat session.",
         )
 
+    session_manager.evict_chat_session(current_user.user_id, chat_id)
     background_tasks.add_task(rmtree, chat_dir)
     return JSONResponse(
         content={"detail": f"Chat session '{chat_id}' deleted successfully."}

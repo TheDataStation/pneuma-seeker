@@ -268,5 +268,46 @@ class TestChatRouter(unittest.TestCase):
         self.assertEqual(body["nodes"][0]["id"], "node_0")
 
 
+    @patch("pneuma_seeker.routers.chat.rmtree")
+    @patch("pneuma_seeker.routers.chat.session_manager")
+    @patch("pneuma_seeker.routers.chat.pneuma_db")
+    def test_delete_chat_session_success(self, mock_pneuma_db, mock_session_manager, mock_rmtree):
+        """Tests that a successful deletion evicts the in-memory session, calls prepare_chat_deletion, and schedules directory removal."""
+        from pathlib import Path
+
+        fake_dir = Path("/tmp/user_999/session_del")
+        mock_pneuma_db.prepare_chat_deletion.return_value = fake_dir
+
+        response = self.client.delete("/chat/session_del")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("session_del", response.json()["detail"])
+        mock_pneuma_db.prepare_chat_deletion.assert_called_once_with(
+            user_id="user_999",
+            chat_id="session_del",
+        )
+        mock_session_manager.evict_chat_session.assert_called_once_with("user_999", "session_del")
+        mock_rmtree.assert_called_once_with(fake_dir)
+
+    @patch("pneuma_seeker.routers.chat.pneuma_db")
+    def test_delete_chat_session_not_found_returns_404(self, mock_pneuma_db):
+        """Tests that deleting a non-existent chat session returns 404."""
+        mock_pneuma_db.prepare_chat_deletion.side_effect = FileNotFoundError("not found")
+
+        response = self.client.delete("/chat/ghost_session")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("ghost_session", response.json()["detail"])
+
+    @patch("pneuma_seeker.routers.chat.pneuma_db")
+    def test_delete_chat_session_unexpected_error_returns_500(self, mock_pneuma_db):
+        """Tests that an unexpected error during deletion preparation returns 500."""
+        mock_pneuma_db.prepare_chat_deletion.side_effect = RuntimeError("db failure")
+
+        response = self.client.delete("/chat/session_fail")
+
+        self.assertEqual(response.status_code, 500)
+
+
 if __name__ == "__main__":
     unittest.main()

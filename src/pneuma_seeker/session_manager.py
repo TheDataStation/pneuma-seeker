@@ -31,3 +31,7 @@ class SessionManager:
                 LanguageModelAPI(self.config, self.logger),
             )
         return self.chat_sessions[key]
+
+    def evict_chat_session(self, user_id: str, chat_id: str) -> None:
+        """Removes a ChatSession from the in-memory cache, if present."""
+        self.chat_sessions.pop((user_id, chat_id), None)

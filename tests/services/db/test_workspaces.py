@@ -562,6 +562,38 @@ class TestWorkspaceSessionDeletion(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             self.db.prepare_chat_deletion("ghost_user", "ghost_chat")
 
+    def test_prepare_chat_deletion_cleans_session_index_when_available(self):
+        """Tests that prepare_chat_deletion removes the session from the Postgres index so it no longer appears in listings after deletion."""
+        from unittest.mock import MagicMock
+
+        user_id = "user_idx_prep"
+        chat_id = "chat_idx_prep"
+        self._create_mock_session(user_id, chat_id, "Index cleanup test")
+
+        mock_index = MagicMock()
+        self.db.workspace_manager.session_index = mock_index
+        try:
+            self.db.prepare_chat_deletion(user_id, chat_id)
+            mock_index.delete_session.assert_called_once_with(user_id, chat_id)
+        finally:
+            self.db.workspace_manager.session_index = None
+
+    def test_delete_chat_session_cleans_session_index_when_available(self):
+        """Tests that delete_chat_session also removes the session from the Postgres index (via prepare_chat_deletion)."""
+        from unittest.mock import MagicMock
+
+        user_id = "user_idx_delete"
+        chat_id = "chat_idx_delete"
+        self._create_mock_session(user_id, chat_id, "Full delete with index")
+
+        mock_index = MagicMock()
+        self.db.workspace_manager.session_index = mock_index
+        try:
+            self.db.delete_chat_session(user_id, chat_id)
+            mock_index.delete_session.assert_called_once_with(user_id, chat_id)
+        finally:
+            self.db.workspace_manager.session_index = None
+
 
 class TestWorkspaceConnectionEdgeCases(unittest.TestCase):
     """Edge-case tests for connection management."""

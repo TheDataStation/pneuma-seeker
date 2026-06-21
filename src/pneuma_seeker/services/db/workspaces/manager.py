@@ -905,8 +905,8 @@ class WorkspaceManager:
     def prepare_chat_deletion(self, user_id: str, chat_id: str) -> Path:
         """
         Validates that the chat session exists, closes its active connection,
-        and returns the workspace directory path so the caller can schedule
-        the filesystem removal as a background task.
+        removes it from the Postgres session index, and returns the workspace
+        directory path so the caller can schedule the filesystem removal.
         Raises FileNotFoundError if the chat session directory does not exist.
         """
         chat_dir = self.workspace_db_path / user_id / chat_id
@@ -915,6 +915,15 @@ class WorkspaceManager:
                 f"Chat session with ID '{chat_id}' for user '{user_id}' not found."
             )
         self.close_workspace_connection(user_id, chat_id)
+
+        # Clean up the Postgres index eagerly — the caller is committed to deleting at
+        # this point, whether rmtree runs synchronously or is deferred to a background task.
+        if self.session_index is not None:
+            try:
+                self.session_index.delete_session(user_id, chat_id)
+            except Exception as e:
+                self.__log(f"Failed to remove session from index (non-fatal): {e}")
+
         return chat_dir
 
     def delete_chat_session(self, user_id: str, chat_id: str) -> None:
@@ -925,6 +934,7 @@ class WorkspaceManager:
         """
         from shutil import rmtree
 
+        # prepare_chat_deletion closes the connection and cleans the session index.
         chat_dir = self.prepare_chat_deletion(user_id, chat_id)
         try:
             rmtree(chat_dir)
@@ -932,14 +942,6 @@ class WorkspaceManager:
         except Exception as e:
             self.__log(f"Failed to delete chat session directory {chat_dir}: {e}")
             raise e
-
-        # Remove from the Postgres index so it no longer appears in listing/search.
-        # Non-fatal: if the session pre-dates the index (never upserted), this is a no-op.
-        if self.session_index is not None:
-            try:
-                self.session_index.delete_session(user_id, chat_id)
-            except Exception as e:
-                self.__log(f"Failed to remove session from index (non-fatal): {e}")
 
     def __load_documents_by_role(
         self,
