@@ -271,6 +271,21 @@ class ActionSet:
             doc_1, doc_2, relevant_left_cols, relevant_right_cols, top_k
         )
 
+    def run_context_extraction(
+        self,
+        uncertainties: list[dict],
+        available_tables: list[AbstractDocument],
+        result_table_name: str,
+    ) -> tuple[str, list[str]]:
+        return self.registry.get(ActionNames.CONTEXT_EXTRACTION).apply(  # type: ignore[union-attr]
+            {
+                "uncertainties": uncertainties,
+                "available_tables": available_tables,
+                "result_table_name": result_table_name,
+                "execute_code_fn": self.execute_code,
+            }
+        )
+
     def resolve_entities(
         self,
         source_table_id: str,

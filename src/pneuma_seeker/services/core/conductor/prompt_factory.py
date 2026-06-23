@@ -127,12 +127,14 @@ Both you and **{ActionNames.MATERIALIZER.value}** share the same data layer. You
   - Entities (e.g., customers)
   - Attributes or states (e.g., high-priority)
   Each retrieval prompt should include at least one constraint or qualifier term in addition to the main entity. Prefer verbatim or near-verbatim phrasing for constraints and relations from the input.
-- {ActionNames.TABLE_RETRIEVE.value} is not perfect, so retrieved tables may be noisy or partially relevant. Leverage {ActionNames.CONTEXT_EXTRACTION.value} to explore and confirm the relevance of retrieved tables. If a retrieved table is not relevant, do not use it in T or S. If it is partially relevant, you may still use it but be cautious about which columns to include in T and how to interpret them.
+- Some questions require **cross-table composition**. For example, one table defines the **scope** (e.g., which entities exist, or the time window when an event occurred) while a separate table provides the **measurement** (e.g., a value at those times). Before concluding the data is unavailable, consider whether the retrieved tables together can answer the question even if no single table can. However, it is legitimate to tell the user the data is unavailable if — after probing the tables with {ActionNames.CONTEXT_EXTRACTION.value} — none of them can plausibly contribute a scope or a measurement relevant to the question (e.g., the retrieved tables are in a completely different domain).
+- {ActionNames.TABLE_RETRIEVE.value} is not perfect, so retrieved tables may be noisy or partially relevant. **Before concluding any retrieved table is irrelevant, you MUST use {ActionNames.CONTEXT_EXTRACTION.value} to probe its actual data values** — column names and table names alone are insufficient evidence of irrelevance. Sample rows or aggregate a key column to confirm. Only exclude a table from T after you have probed it and confirmed it cannot contribute. If it is partially relevant, include only the needed columns and note the limitation.
 - If a retrieved table has ID, or contains labels, categories, or values that match a user constraint or qualifier, you can take it into consideration (do not flat out disregard it). You can check with {ActionNames.CONTEXT_EXTRACTION.value} to further confirm relevance.
 - If you are about to dismiss a retrieved table as irrelevant **only because its column names are unclear**, you may do a very quick check for an already-retrieved companion "dictionary/metadata/description/schema" table that explains column meanings (IF AVAILABLE). These companion tables may share a common stem in the name and differ only by a suffix/prefix (e.g., a business dataset might have `orders` and `orders_metadata`, or `customer_events` and `customer_events_dictionary`).
   - Do **not** enumerate/search for more tables for this purpose. Only use this if such a companion table is already present in the retrieved set.
   - If present, use {ActionNames.CONTEXT_EXTRACTION.value} to sample/inspect just enough to decide whether the original table is relevant.
   - If the user requests for tables on some specific timeframe and you only retrieved tables on a subset of that timeframe, use {ActionNames.TABLE_ENUMERATION.value} to find other tables with similar names that may fill the gaps. If no more tables are available, you can still proceed with the available tables but be mindful of the missing data and its implications on the analysis.
+- If a second call to {ActionNames.TABLE_RETRIEVE.value} returns the same set of tables as the first, **stop retrieving and pivot to {ActionNames.CONTEXT_EXTRACTION.value}** to explore what you already have. Repeated retrieval with rephrased prompts rarely surfaces new tables; probing existing ones does.
 
 # Convergence, Proxies, and Iteration (be assertive)
 - This is an **interactive** system: prefer making forward progress with the **best available evidence** rather than stalling when an exact column/metric is not present.
@@ -180,6 +182,39 @@ Return **one JSON object** describing your planned actions for this step, e.g.:
         join_paths: str | None = None,
     ) -> str:
         """Gets the environment state prompt for Conductor."""
+        last_ce_idx = -1
+        for i, a in enumerate(actions_taken):
+            if ActionNames.CONTEXT_EXTRACTION.value in a:
+                last_ce_idx = i
+        retrieve_count_total = sum(
+            ActionNames.TABLE_RETRIEVE.value in a for a in actions_taken
+        )
+        retrieve_since_last_ce = sum(
+            ActionNames.TABLE_RETRIEVE.value in a
+            for a in actions_taken[last_ce_idx + 1 :]
+        )
+        ce_gate = ""
+        if retrieved_tables:
+            if last_ce_idx == -1 and retrieve_count_total >= 2:
+                ce_gate = (
+                    f"\n⚠️ REQUIRED: You have called {ActionNames.TABLE_RETRIEVE.value} "
+                    f"{retrieve_count_total} time(s) without using {ActionNames.CONTEXT_EXTRACTION.value}. "
+                    f"Calling {ActionNames.TABLE_RETRIEVE.value} again will return the same tables. "
+                    f"Your next plan MUST include {ActionNames.CONTEXT_EXTRACTION.value} to probe the "
+                    f"retrieved tables. Do NOT use {ActionNames.USER_FACING_COMMUNICATION.value} to "
+                    f"indicate data is unavailable until you have done so.\n"
+                )
+            elif last_ce_idx >= 0 and retrieve_since_last_ce >= 1:
+                ce_gate = (
+                    f"\n⚠️ REQUIRED: You used {ActionNames.CONTEXT_EXTRACTION.value} and then called "
+                    f"{ActionNames.TABLE_RETRIEVE.value} again — it returned the same tables. "
+                    f"Do NOT retrieve again. Your next plan must either: "
+                    f"(a) commit to a T+S using what {ActionNames.CONTEXT_EXTRACTION.value} already revealed, or "
+                    f"(b) run {ActionNames.CONTEXT_EXTRACTION.value} again with more targeted questions "
+                    f"(e.g. explore how tables can be composed to answer the question). "
+                    f"Do NOT use {ActionNames.USER_FACING_COMMUNICATION.value} to indicate data is "
+                    f"unavailable without first exhausting option (b).\n"
+                )
         return f"""
 Step {current_step} (out of maximum {self.config.MAX_CONDUCTOR_STEPS} steps)
 
@@ -201,7 +236,7 @@ Retrieved Tables:
 {f"\nExternal tables:\n{convert_retrieval_results_to_str(external_tables)}\n" if len(external_tables) > 0 else ""}
 {f"\nWeb search result:\n{web_search_result}\n" if self.config.ENABLE_WEB_SEARCH and web_search_result else ""}
 {f"\nWeb crawl result:\n{web_crawl_result}\n" if self.config.ENABLE_WEB_CRAWL and web_crawl_result else ""}
-Decide your next plan and output a JSON object of one or more actions.""".strip()
+{ce_gate}Decide your next plan and output a JSON object of one or more actions.""".strip()
 
     def get_skeleton_env_state_prompt(
         self,

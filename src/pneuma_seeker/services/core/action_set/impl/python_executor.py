@@ -156,5 +156,7 @@ class PythonExecutor(Action, Executable):
         exec(code, env)
 
         return self.db_api.execute_query(
-            self.user_id, self.chat_id, f"SELECT * FROM {result_table_id} LIMIT 100;"
+            self.user_id,
+            self.chat_id,
+            f"SELECT * FROM {result_table_id} LIMIT {self.config.MAX_RESULT_PREVIEW_ROWS};",
         )

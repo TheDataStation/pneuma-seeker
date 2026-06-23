@@ -2,7 +2,7 @@
 from collections import deque
 from json import dumps
 from logging import Logger
-from typing import Any
+from typing import Any, Callable
 
 from pandas import DataFrame
 
@@ -51,6 +51,7 @@ class Materializer:
         action_set: ActionSet,
         db_api: DBAPI,
         language_model_api: LanguageModelAPI,
+        log_callback: Callable[[str], None] | None = None,
     ):
         self.user_id = user_id
         self.chat_id = chat_id
@@ -60,6 +61,7 @@ class Materializer:
         self.action_set = action_set
         self.db_api = db_api
         self.language_model_api = language_model_api
+        self.log_callback = log_callback
 
         self.__log(
             f"Initializing Materializer for user_id: {self.user_id}, chat_id: {self.chat_id}"
@@ -954,22 +956,22 @@ class Materializer:
             top_k=self.config.SEMANTIC_JOIN_TOP_K,
         )
         join_code = self.action_set.generate_semantic_join_generator_code(
-            left_table_doc, # type: ignore
-            right_table_doc, # type: ignore
+            left_table_doc,  # type: ignore
+            right_table_doc,  # type: ignore
             relevant_left_cols,
             relevant_right_cols,
             self.config.SEMANTIC_JOIN_TOP_K,
         )
         parent_node_1_id = self.__create_or_get_read_node(
-            left_table_doc, # type: ignore
+            left_table_doc,  # type: ignore
             left_table_doc.retriever_type,  # type: ignore
-            self.action_set.generate_pandas_read_csv_code(left_table_doc), # type: ignore
+            self.action_set.generate_pandas_read_csv_code(left_table_doc),  # type: ignore
             "",
         )
         parent_node_2_id = self.__create_or_get_read_node(
-            right_table_doc, # type: ignore
-            right_table_doc.retriever_type, # type: ignore
-            self.action_set.generate_pandas_read_csv_code(right_table_doc), # type: ignore
+            right_table_doc,  # type: ignore
+            right_table_doc.retriever_type,  # type: ignore
+            self.action_set.generate_pandas_read_csv_code(right_table_doc),  # type: ignore
             "",
         )
         new_node = ProvenanceNode(
@@ -1167,19 +1169,66 @@ class Materializer:
                 LLMMessage(role=Role.USER.value, content=error_msg)
             )
             return
-        try:
-            python_code: str = parse_code(action_args.get("code", ""))
-            exec_res = self.action_set.execute_code(
-                python_code, "materializer_assumption_check"
-            )
-            success_msg = f"Assumption check result: {exec_res}"
-            self.__log(f"==> {success_msg}")
+
+        # Backwards compat: old-style {"code": "..."} arg
+        if "code" in action_args and "uncertainties" not in action_args:
+            self.__log("==> Falling back to legacy code-based context extraction.")
+            try:
+                python_code: str = parse_code(action_args.get("code", ""))
+                exec_res = self.action_set.execute_code(
+                    python_code, "materializer_assumption_check"
+                )
+                success_msg = f"Context extraction result: {exec_res}"
+                self.__log(f"==> {success_msg}")
+                self.llm_messages.append(
+                    LLMMessage(role=Role.USER.value, content=success_msg)
+                )
+                for cleanup_stmt in (
+                    "DROP TABLE IF EXISTS materializer_assumption_check;",
+                    "DROP VIEW IF EXISTS materializer_assumption_check;",
+                ):
+                    try:
+                        self.db_api.execute_query(
+                            self.user_id, self.chat_id, cleanup_stmt
+                        )
+                    except Exception as cleanup_exc:
+                        self.__log(f"Cleanup warning ({cleanup_stmt}): {cleanup_exc}")
+            except Exception as exception:
+                error_msg = f"Error during context extraction: {exception}"
+                self.__log(error_msg)
+                self.llm_messages.append(
+                    LLMMessage(role=Role.USER.value, content=error_msg)
+                )
+            return
+
+        uncertainties = action_args.get("uncertainties")
+        if not isinstance(uncertainties, list) or len(uncertainties) == 0:
+            error_msg = "=> `uncertainties` must be a non-empty list of {table_ids, question} objects"
+            self.__log(f"==> {error_msg}")
             self.llm_messages.append(
-                LLMMessage(role=Role.USER.value, content=success_msg)
+                LLMMessage(role=Role.USER.value, content=error_msg)
             )
-            # Assumption checks may materialize either a *table* or a *view*.
-            # In DuckDB, attempting to DROP the wrong object type throws.
-            # Cleanup must be best-effort and must not turn a successful assumption_check into a failure.
+            return
+
+        available_tables = (
+            self.state.retrieved_tables
+            + self.state.external_tables
+            + list(self.state.intermediate_tables)
+        )
+        try:
+            summary, log_msgs = self.action_set.run_context_extraction(
+                uncertainties, available_tables, "materializer_assumption_check"
+            )
+            if self.log_callback is not None:
+                for msg in log_msgs:
+                    self.log_callback(msg)
+            self.__log(f"==> Context Extraction summary: {summary}")
+            self.llm_messages.append(
+                LLMMessage(
+                    role=Role.USER.value,
+                    content=f"Context extraction result:\n{summary}",
+                )
+            )
             for cleanup_stmt in (
                 "DROP VIEW IF EXISTS materializer_assumption_check;",
                 "DROP TABLE IF EXISTS materializer_assumption_check;",
@@ -1187,11 +1236,9 @@ class Materializer:
                 try:
                     self.db_api.execute_query(self.user_id, self.chat_id, cleanup_stmt)
                 except Exception as cleanup_exc:
-                    self.__log(
-                        f"Assumption check cleanup warning ({cleanup_stmt}): {cleanup_exc}"
-                    )
+                    self.__log(f"Cleanup warning ({cleanup_stmt}): {cleanup_exc}")
         except Exception as exception:
-            error_msg = f"Error during assumption checking: {exception}"
+            error_msg = f"Error during context extraction: {exception}"
             self.__log(error_msg)
             self.llm_messages.append(
                 LLMMessage(role=Role.USER.value, content=error_msg)
@@ -1205,32 +1252,49 @@ class Materializer:
         threshold = action_args.get("threshold")
 
         if not isinstance(source_table_id, str) or not source_table_id.strip():
-            error_msg = "entity_resolution requires a non-empty string 'source_table_id'."
+            error_msg = (
+                "entity_resolution requires a non-empty string 'source_table_id'."
+            )
             self.__log(f"==> {error_msg}")
-            self.llm_messages.append(LLMMessage(role=Role.USER.value, content=error_msg))
+            self.llm_messages.append(
+                LLMMessage(role=Role.USER.value, content=error_msg)
+            )
             return
         if not isinstance(target_column, str) or not target_column.strip():
             error_msg = "entity_resolution requires a non-empty string 'target_column'."
             self.__log(f"==> {error_msg}")
-            self.llm_messages.append(LLMMessage(role=Role.USER.value, content=error_msg))
+            self.llm_messages.append(
+                LLMMessage(role=Role.USER.value, content=error_msg)
+            )
             return
-        if not isinstance(output_mapping_table_id, str) or not output_mapping_table_id.strip():
+        if (
+            not isinstance(output_mapping_table_id, str)
+            or not output_mapping_table_id.strip()
+        ):
             error_msg = "entity_resolution requires a non-empty string 'output_mapping_table_id'."
             self.__log(f"==> {error_msg}")
-            self.llm_messages.append(LLMMessage(role=Role.USER.value, content=error_msg))
+            self.llm_messages.append(
+                LLMMessage(role=Role.USER.value, content=error_msg)
+            )
             return
         if canonical_entities is not None and (
             not isinstance(canonical_entities, list)
             or not all(isinstance(e, str) for e in canonical_entities)
         ):
-            error_msg = "entity_resolution 'canonical_entities' must be a list of strings."
+            error_msg = (
+                "entity_resolution 'canonical_entities' must be a list of strings."
+            )
             self.__log(f"==> {error_msg}")
-            self.llm_messages.append(LLMMessage(role=Role.USER.value, content=error_msg))
+            self.llm_messages.append(
+                LLMMessage(role=Role.USER.value, content=error_msg)
+            )
             return
         if threshold is not None and not isinstance(threshold, (int, float)):
             error_msg = "entity_resolution 'threshold' must be a number."
             self.__log(f"==> {error_msg}")
-            self.llm_messages.append(LLMMessage(role=Role.USER.value, content=error_msg))
+            self.llm_messages.append(
+                LLMMessage(role=Role.USER.value, content=error_msg)
+            )
             return
 
         try:
@@ -1250,13 +1314,15 @@ class Materializer:
                 ),
             )
             self.prov_graph.add_node(new_node, True)
-            self.state.add_intermediate_table(Table(
-                doc_id=output_mapping_table_id,
-                retriever_type=RetrieverType.MATERIALIZER,
-                content=mapping_sample,
-                metadata={},
-                last_node_id=new_node.id,
-            ))
+            self.state.add_intermediate_table(
+                Table(
+                    doc_id=output_mapping_table_id,
+                    retriever_type=RetrieverType.MATERIALIZER,
+                    content=mapping_sample,
+                    metadata={},
+                    last_node_id=new_node.id,
+                )
+            )
             success_msg = (
                 f"Successfully resolved entities in column '{target_column}' of table "
                 f"'{source_table_id}'. Mapping table '{output_mapping_table_id}' is now available "
@@ -1264,11 +1330,15 @@ class Materializer:
                 "get the canonical form."
             )
             self.__log(f"==> {success_msg}")
-            self.llm_messages.append(LLMMessage(role=Role.USER.value, content=success_msg))
+            self.llm_messages.append(
+                LLMMessage(role=Role.USER.value, content=success_msg)
+            )
         except Exception as exc:
             error_msg = f"entity_resolution failed: {exc}"
             self.__log(f"==> {error_msg}")
-            self.llm_messages.append(LLMMessage(role=Role.USER.value, content=error_msg))
+            self.llm_messages.append(
+                LLMMessage(role=Role.USER.value, content=error_msg)
+            )
 
     def __create_or_get_read_node(
         self,

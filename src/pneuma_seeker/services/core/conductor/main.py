@@ -1,5 +1,4 @@
 from collections import deque
-from json import dumps
 from logging import Logger
 from time import time
 from typing import Any, cast
@@ -10,6 +9,7 @@ from pneuma_seeker.provenance.graph import ProvenanceGraph, ProvenanceNode
 from pneuma_seeker.services.core.action_set.main import ActionSet
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
+from pneuma_seeker.services.core.conductor.ds_skeptic import DSSkeptic
 from pneuma_seeker.services.core.conductor.prompt_factory import ConductorPromptFactory
 from pneuma_seeker.services.core.conductor.state import ConductorState
 from pneuma_seeker.services.core.materializer.main import Materializer
@@ -58,6 +58,7 @@ class Conductor:
             self.language_model_api,
         )
         self.prompt_factory = ConductorPromptFactory(self.config, self.action_set)
+        self._log_queue: list[str] = []
         self.materializer = Materializer(
             self.user_id,
             self.chat_id,
@@ -67,7 +68,9 @@ class Conductor:
             self.action_set,
             self.db_api,
             self.language_model_api,
+            log_callback=lambda msg: self._log_queue.append(msg),
         )
+        self.ds_skeptic = DSSkeptic(self.language_model_api, self.config, self.logger)
         self.table_reader = TableReader(
             self.config.OPENWEBUI_BASE_URL, self.config.OPENWEBUI_API_KEY
         )
@@ -86,6 +89,10 @@ class Conductor:
         self.actions: list[str] = []
         self.llm_messages: list[LLMMessage] = []
         self.premade_plans = deque()
+        self._skeptic_rounds = 0
+        self._current_user_input: str = ""
+        self._pending_skeptic_feedback: str | None = None
+        self._skeptic_pushed_back: bool = False
 
         self._action_handlers: dict[str, Any] = {
             ActionNames.SITUATIONAL_ANALYSIS.value: self._handle_situational_analysis,
@@ -119,6 +126,7 @@ class Conductor:
         """Processes user input and yields responses."""
         chat_start_time = time()
         self.__log(f"Processing user input: {user_input}")
+        self._current_user_input = user_input
         self.__reset_conductor()
         self.external_tables = self.table_reader.process_external_tables(
             external_table_paths
@@ -161,7 +169,9 @@ class Conductor:
         current_step = 0
         previous_step_input_tokens = 0
         previous_step_output_tokens = 0
-        last_env_state_idx: int | None = None
+        last_env_state_idx: int | None = (
+            None  # Track the index of the last environment state message for updating with skeleton prompt
+        )
         while (
             not self.is_user_facing_response
             and current_step < self.config.MAX_CONDUCTOR_STEPS
@@ -178,7 +188,7 @@ class Conductor:
                         current_step,
                         self.state,
                         interaction_history,
-                        self.actions[-5:],  # only include last 5 actions for brevity
+                        self.actions,
                         self.retrieved_tables,
                         user_input,
                         self.enumerated_tables,
@@ -238,16 +248,18 @@ class Conductor:
                     self.__log(f"=> {error_msg}")
                     raise ValueError(error_msg)
 
-                plan = cast(list[dict[str, Any]], plan)
                 executor_part_of_plan = False
                 materializer_part_of_plan = False
                 user_facing_communication_part_of_plan = False
                 table_retrieve_part_of_plan = False
                 assumption_check_part_of_plan = False
+
+                plan = cast(list[dict[str, Any]], plan)
                 for action_plan in plan:
-                    assert isinstance(action_plan, dict)
                     if action_plan.get("action") is None:
-                        error_msg = "Action specified is not valid (None)."
+                        error_msg = (
+                            "Action specified is not valid (missing 'action' key)."
+                        )
                         self.__log(f"=> {error_msg}")
                         raise ValueError(error_msg)
                     if not isinstance(action_plan.get("action"), str):
@@ -260,6 +272,7 @@ class Conductor:
                         error_msg = f"Action specified is not valid: {action_plan.get('action')}"
                         self.__log(f"=> {error_msg}")
                         raise ValueError(error_msg)
+
                     if action_plan.get("action") == ActionNames.PYTHON_EXECUTOR.value:
                         executor_part_of_plan = True
                     if (
@@ -276,6 +289,7 @@ class Conductor:
                         == ActionNames.CONTEXT_EXTRACTION.value
                     ):
                         assumption_check_part_of_plan = True
+
                 # Ensure there is no user-facing communication in the same plan as code execution (simply remove the user-facing part)
                 if (
                     executor_part_of_plan
@@ -306,14 +320,35 @@ class Conductor:
                 continue
 
             for action_plan in plan:
-                self.__log(f"=> Executing this action: {action_plan}")
+                self.__log(f"=> Executing action: {action_plan}")
                 action_name: str = action_plan.get("action", "")
                 action_args: dict = action_plan.get("args", {})
+
                 yield f"LOG: Executing action: {action_name}..."
                 action_outcome, _ = self.__execute_action(action_name, action_args)
                 self.llm_messages.append(
                     LLMMessage(role=Role.USER.value, content=action_outcome)
                 )
+
+                # Drain log queue (populated by CONTEXT_EXTRACTION inner loop and Materializer callbacks)
+                for log_msg in self._log_queue:
+                    yield f"LOG: {log_msg}"
+                self._log_queue.clear()
+
+                # DS-Skeptic result is set inside _handle_state_manipulation;
+                # append feedback here so it follows action_outcome in message order.
+                if self._pending_skeptic_feedback is not None:
+                    self.llm_messages.append(
+                        LLMMessage(
+                            role=Role.USER.value,
+                            content=self._pending_skeptic_feedback,
+                        )
+                    )
+                    pushed_back = self._skeptic_pushed_back
+                    self._pending_skeptic_feedback = None
+                    self._skeptic_pushed_back = False
+                    if pushed_back:
+                        break  # abort remaining plan actions
 
             if hasattr(self.language_model_api.llm, "total_input_tokens"):
                 step_input_tokens = self.language_model_api.llm.total_input_tokens - previous_step_input_tokens  # type: ignore
@@ -580,19 +615,63 @@ class Conductor:
 
         if is_T_modified and is_S_modified:
             success_msg = "Successfully modified both T and S."
-            self.__log(success_msg)
-            return success_msg, ActionExecutionStatus.SUCCESS
-        if is_T_modified:
+        elif is_T_modified:
             success_msg = "Successfully modified T."
-            self.__log(success_msg)
-            return success_msg, ActionExecutionStatus.SUCCESS
-        if is_S_modified:
+        elif is_S_modified:
             success_msg = "Successfully modified S."
-            self.__log(success_msg)
-            return success_msg, ActionExecutionStatus.SUCCESS
-        error_msg = "No modification is done."
-        self.__log(error_msg)
-        return error_msg, ActionExecutionStatus.ERROR
+        else:
+            error_msg = "No modification is done."
+            self.__log(error_msg)
+            return error_msg, ActionExecutionStatus.ERROR
+
+        self.__log(success_msg)
+
+        if (
+            self.config.ENABLE_DS_SKEPTIC
+            and self._skeptic_rounds < self.config.MAX_DS_SKEPTIC_ROUNDS
+        ):
+            self._skeptic_rounds += 1
+            message = "DS-Skeptic reviewing analysis plan..."
+            self.__log(message)
+            self._log_queue.append(message)
+
+            _DS_SKEPTIC_TABLE = "ds_skeptic_check"
+
+            def _run_ds_skeptic_ce(uncertainties: list[dict]) -> str:
+                summary, log_msgs = self.action_set.run_context_extraction(
+                    uncertainties,
+                    self.retrieved_tables + self.external_tables,
+                    _DS_SKEPTIC_TABLE,
+                )
+                self._log_queue.extend(log_msgs)
+                for cleanup_stmt in (
+                    f"DROP TABLE IF EXISTS {_DS_SKEPTIC_TABLE};",
+                    f"DROP VIEW IF EXISTS {_DS_SKEPTIC_TABLE};",
+                ):
+                    try:
+                        self.db_api.execute_query(
+                            self.user_id, self.chat_id, cleanup_stmt
+                        )
+                    except Exception as cleanup_exc:
+                        self.__log(f"DS-Skeptic CE cleanup warning: {cleanup_exc}")
+                return summary
+
+            push_back, feedback = self.ds_skeptic.review(
+                self._current_user_input,
+                self.state.T,
+                self.state.column_descriptions,
+                self.state.S or "",
+                self.retrieved_tables,
+                run_ce_fn=_run_ds_skeptic_ce,
+            )
+            self._pending_skeptic_feedback = feedback
+            self._skeptic_pushed_back = push_back
+            if push_back:
+                self._log_queue.append(
+                    "DS-Skeptic has concerns — Conductor will reconsider in the next step."
+                )
+
+        return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_materializer(
         self, action_args: dict[str, Any]
@@ -653,41 +732,63 @@ class Conductor:
     def _handle_context_extraction(
         self, action_args: dict[str, Any]
     ) -> tuple[str, ActionExecutionStatus]:
-        self.__log(f"Assumption Check request with params: {action_args}")
+        self.__log(f"Context Extraction request with params: {action_args}")
         if not isinstance(action_args, dict):
-            error_msg = "=> `args` must be an object with a `code` property"
+            error_msg = "=> `args` must be an object with an `uncertainties` property"
             self.__log(f"=> {error_msg}")
             return error_msg, ActionExecutionStatus.ERROR
-        if "code" not in action_args:
-            error_msg = "=> `args` must have a `code` property"
+
+        # Backwards compat: old-style {"code": "..."} arg
+        if "code" in action_args and "uncertainties" not in action_args:
+            self.__log("=> Falling back to legacy code-based context extraction.")
+            try:
+                execution_result = self.action_set.execute_code(
+                    action_args["code"], "conductor_assumption_check"
+                )
+                self.__log(f"Legacy Context Extraction result: {execution_result}")
+                for cleanup_stmt in (
+                    "DROP TABLE IF EXISTS conductor_assumption_check;",
+                    "DROP VIEW IF EXISTS conductor_assumption_check;",
+                ):
+                    try:
+                        self.db_api.execute_query(
+                            self.user_id, self.chat_id, cleanup_stmt
+                        )
+                    except Exception as cleanup_exc:
+                        self.__log(f"Cleanup warning ({cleanup_stmt}): {cleanup_exc}")
+                return (
+                    f"Executed Context Extraction, which resulted in this output: {execution_result}",
+                    ActionExecutionStatus.SUCCESS,
+                )
+            except Exception as e:
+                error_msg = f"Error during Context Extraction: {e}"
+                self.__log(f"=> {error_msg}")
+                return error_msg, ActionExecutionStatus.ERROR
+
+        uncertainties = action_args.get("uncertainties")
+        if not isinstance(uncertainties, list) or len(uncertainties) == 0:
+            error_msg = "=> `uncertainties` must be a non-empty list of {table_ids, question} objects"
             self.__log(f"=> {error_msg}")
             return error_msg, ActionExecutionStatus.ERROR
-        try:
-            execution_result = self.action_set.execute_code(
-                action_args["code"], "conductor_assumption_check"
-            )
-            self.__log(f"Assumption Check execution result: {execution_result}")
-            # Assumption checks may materialize either a *table* or a *view*.
-            # In DuckDB, attempting to DROP the wrong object type throws.
-            # Cleanup must be best-effort and must not turn a successful assumption_check into a failure.
-            for cleanup_stmt in (
-                "DROP VIEW IF EXISTS conductor_assumption_check;",
-                "DROP TABLE IF EXISTS conductor_assumption_check;",
-            ):
-                try:
-                    self.db_api.execute_query(self.user_id, self.chat_id, cleanup_stmt)
-                except Exception as cleanup_exc:
-                    self.__log(
-                        f"Assumption Check cleanup warning ({cleanup_stmt}): {cleanup_exc}"
-                    )
-            return (
-                f"Executed Assumption Check, which resulted in this output: {execution_result}",
-                ActionExecutionStatus.SUCCESS,
-            )
-        except Exception as e:
-            error_msg = f"Error during Assumption Check execution: {e}"
-            self.__log(f"=> {error_msg}")
-            return error_msg, ActionExecutionStatus.ERROR
+
+        available_tables = self.retrieved_tables + self.external_tables
+        summary, log_msgs = self.action_set.run_context_extraction(
+            uncertainties, available_tables, "conductor_assumption_check"
+        )
+        self._log_queue.extend(log_msgs)
+        self.__log(f"Context Extraction summary: {summary}")
+        for cleanup_stmt in (
+            "DROP TABLE IF EXISTS conductor_assumption_check;",
+            "DROP VIEW IF EXISTS conductor_assumption_check;",
+        ):
+            try:
+                self.db_api.execute_query(self.user_id, self.chat_id, cleanup_stmt)
+            except Exception as cleanup_exc:
+                self.__log(f"Cleanup warning ({cleanup_stmt}): {cleanup_exc}")
+        return (
+            f"Context Extraction result:\n{summary}",
+            ActionExecutionStatus.SUCCESS,
+        )
 
     def __materialize_T_driver(
         self,
@@ -738,6 +839,10 @@ class Conductor:
         self.is_user_facing_response = False
         self.actions = []
         self.llm_messages = []
+        self._log_queue = []
+        self._skeptic_rounds = 0
+        self._pending_skeptic_feedback = None
+        self._skeptic_pushed_back = False
 
         if hasattr(self.language_model_api.llm, "reset_metrics"):
             self.language_model_api.llm.reset_metrics()  # type: ignore

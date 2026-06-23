@@ -91,6 +91,13 @@ class Config:
         self.ENABLE_CONTEXT_EXTRACTION = (
             getenv("ENABLE_CONTEXT_EXTRACTION", "true").lower() == "true"
         )
+        self.MAX_CONTEXT_EXTRACTION_LOOP_STEPS = int(
+            getenv("MAX_CONTEXT_EXTRACTION_LOOP_STEPS", "3")
+        )
+        self.MAX_RESULT_PREVIEW_ROWS = int(getenv("MAX_RESULT_PREVIEW_ROWS", "100"))
+        self.ENABLE_DS_SKEPTIC = getenv("ENABLE_DS_SKEPTIC", "true").lower() == "true"
+        self.MAX_DS_SKEPTIC_ROUNDS = int(getenv("MAX_DS_SKEPTIC_ROUNDS", "2"))
+        self.MAX_DS_SKEPTIC_CE_CALLS = int(getenv("MAX_DS_SKEPTIC_CE_CALLS", "5"))
 
         # Database Settings
         self.ENABLE_FINE_GRAINED_STATE_CHANGE_TRACKING = (
