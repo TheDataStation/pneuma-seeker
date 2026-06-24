@@ -1,4 +1,5 @@
 from collections import deque
+import inspect
 from logging import Logger
 from time import time
 from typing import Any, cast
@@ -325,12 +326,21 @@ class Conductor:
                 action_args: dict = action_plan.get("args", {})
 
                 yield f"LOG: Executing action: {action_name}..."
-                action_outcome, _ = self.__execute_action(action_name, action_args)
+                result = self.__execute_action(action_name, action_args)
+                if inspect.isgenerator(result):
+                    action_outcome = ""
+                    for item in result:
+                        if isinstance(item, tuple):
+                            action_outcome, _ = item
+                        else:
+                            yield f"LOG: {item}"
+                else:
+                    action_outcome, _ = result
                 self.llm_messages.append(
                     LLMMessage(role=Role.USER.value, content=action_outcome)
                 )
 
-                # Drain log queue (populated by CONTEXT_EXTRACTION inner loop and Materializer callbacks)
+                # Drain log queue (CONTEXT_EXTRACTION and other non-streaming actions)
                 for log_msg in self._log_queue:
                     yield f"LOG: {log_msg}"
                 self._log_queue.clear()
@@ -399,10 +409,13 @@ class Conductor:
                 f"==> [PROFILING] Total output tokens for this chat: {self.language_model_api.llm.total_output_tokens} tokens."  # type: ignore
             )
 
-    def __execute_action(
-        self, action_name: str, action_args: dict[str, Any]
-    ) -> tuple[str, ActionExecutionStatus]:
-        """Executes an action and returns the outcome message and status."""
+    def __execute_action(self, action_name: str, action_args: dict[str, Any]):
+        """Executes an action.
+
+        Returns either a tuple[str, ActionExecutionStatus] for regular handlers,
+        or a generator that yields str log messages and finally yields the
+        (outcome, ActionExecutionStatus) tuple, for streaming handlers.
+        """
         handler = self._action_handlers.get(action_name)
         if handler is None:
             return (
@@ -574,13 +587,8 @@ class Conductor:
         is_T_modified = False
         if T is not None and len(T) > 0:
             if column_descriptions is not None:
-                if self.state.T is not None and len(self.state.T) > 0:
-                    for schema_id in self.state.T.keys():
-                        self.db_api.execute_query(
-                            self.user_id,
-                            self.chat_id,
-                            f'DROP TABLE IF EXISTS "{schema_id}";',
-                        )
+                # STATE_MANIPULATION is a pure in-memory schema operation.
+                # MATERIALIZER owns the DB lifecycle of T tables (drop/create).
                 T_docs: dict[str, AbstractDocument] = dict()
                 for schema_id in T:
                     target_schema_df = DataFrame(columns=T[schema_id])
@@ -590,13 +598,6 @@ class Conductor:
                         content=target_schema_df,
                         metadata={},
                         path=schema_id,
-                    )
-                    self.db_api.persist_df(
-                        self.user_id,
-                        self.chat_id,
-                        T_docs[schema_id].content,
-                        T_docs[schema_id].doc_id,
-                        True,
                     )
                 self.state.T = T_docs
                 self.state.column_descriptions = column_descriptions
@@ -673,28 +674,42 @@ class Conductor:
 
         return success_msg, ActionExecutionStatus.SUCCESS
 
-    def _handle_materializer(
-        self, action_args: dict[str, Any]
-    ) -> tuple[str, ActionExecutionStatus]:
+    def _handle_materializer(self, action_args: dict[str, Any]):
+        """Generator handler: yields str log messages then the (outcome, status) tuple.
+
+        Being a generator lets the Conductor stream Materializer progress to the
+        frontend in real-time instead of batching everything until completion.
+        """
         if len(self.state.T.keys()) == 0:
             error_msg = "T has to already be defined before calling Materializer"
             self.__log(f"=> {error_msg}")
-            return error_msg, ActionExecutionStatus.ERROR
+            yield error_msg, ActionExecutionStatus.ERROR
+            return
         note = ""
         if isinstance(action_args, dict) and "note" in action_args:
             note = action_args["note"]
-        self.__log(f"Materializer called (note: {note})")
-        self.state.T = self.__materialize_T_driver(
+        mode = action_args.get("mode", "fresh") if isinstance(action_args, dict) else "fresh"
+        update_mode = mode == "update"
+        self.__log(f"Materializer called (note: {note}, mode={mode})")
+
+        driver_gen = self.__materialize_T_driver(
             self.state.T,
             self.state.column_descriptions,
             self.state.S,
             note,
             self.external_tables,
+            update_mode=update_mode,
         )
+        try:
+            while True:
+                yield next(driver_gen)
+        except StopIteration as e:
+            self.state.T = e.value
+
         self.state.is_T_materialized = True
         success_msg = "Successfully materialized T."
         self.__log(success_msg)
-        return success_msg, ActionExecutionStatus.SUCCESS
+        yield success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_python_executor(
         self, action_args: dict[str, Any]
@@ -705,7 +720,14 @@ class Conductor:
                 self.__log(
                     f"=> Self-triggered materialization from calling {ActionNames.PYTHON_EXECUTOR.value}..."
                 )
-                self.__execute_action(ActionNames.MATERIALIZER.value, {})
+                # Use update mode when prior intermediates exist (T schema was extended,
+                # not redesigned). Fresh mode only for first-ever materialization.
+                auto_mode = "update" if self.materializer._saved_intermediate_tables else "fresh"
+                mat_result = self.__execute_action(ActionNames.MATERIALIZER.value, {"mode": auto_mode})
+                if inspect.isgenerator(mat_result):
+                    for item in mat_result:
+                        if isinstance(item, str):
+                            self._log_queue.append(item)
             else:
                 error_msg = f"T has not been defined. Please define it first before calling {ActionNames.PYTHON_EXECUTOR.value}."
                 self.__log(f"=> {error_msg}")
@@ -797,10 +819,27 @@ class Conductor:
         S: str,
         user_side_note: str,
         external_tables: list[AbstractDocument],
+        update_mode: bool = False,
     ):
-        T_dfs: dict[str, DataFrame] = {}
-        for T_id, T_doc in T.items():
-            T_dfs[T_id] = T_doc.content
+        """Generator: forwards log strings from stream_materialize_T, returns materialized_T."""
+        T_dfs: dict[str, DataFrame] = {T_id: T_doc.content for T_id, T_doc in T.items()}
+
+        mat_gen = self.materializer.stream_materialize_T(
+            T_dfs,
+            col_descriptions,
+            S,
+            user_side_note,
+            update_mode,
+            external_tables,
+            self.retrieved_tables + self.enumerated_tables,
+            self.web_search_result,
+            self.web_crawl_result,
+        )
+        try:
+            while True:
+                yield next(mat_gen)
+        except StopIteration as e:
+            result = e.value
 
         (
             retrieved_tables,
@@ -808,16 +847,7 @@ class Conductor:
             web_crawl_result,
             join_paths,
             materialized_T_dfs,
-        ) = self.materializer.materialize_T(
-            T_dfs,
-            col_descriptions,
-            S,
-            user_side_note,
-            external_tables,
-            self.retrieved_tables + self.enumerated_tables,
-            self.web_search_result,
-            self.web_crawl_result,
-        )
+        ) = result
 
         if len(retrieved_tables) > 0:
             self.retrieved_tables = retrieved_tables

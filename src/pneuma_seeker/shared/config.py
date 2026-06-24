@@ -84,8 +84,12 @@ class Config:
 
         ## Entity Resolution Settings
         self.ENTITY_RESOLUTION_THRESHOLD = float(
-            getenv("ENTITY_RESOLUTION_THRESHOLD", "0.85")
+            getenv("ENTITY_RESOLUTION_THRESHOLD", "0.75")
         )
+        self.ENTITY_RESOLUTION_EMBEDDING_THRESHOLD = float(
+            getenv("ENTITY_RESOLUTION_EMBEDDING_THRESHOLD", "0.60")
+        )
+        self.ENTITY_RESOLUTION_MODE = getenv("ENTITY_RESOLUTION_MODE", "jarowinkler")
 
         ## Other Action Settings
         self.ENABLE_CONTEXT_EXTRACTION = (

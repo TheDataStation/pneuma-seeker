@@ -74,6 +74,7 @@ class Materializer:
         self.last_intermediate_table_ids: set[str] = set()
 
         self.premade_plans = deque()
+        self._saved_intermediate_tables: list[AbstractDocument] = []
 
         self._action_handlers: dict[str, Any] = {
             ActionNames.SITUATIONAL_ANALYSIS.value: self._handle_situational_analysis,
@@ -92,173 +93,231 @@ class Materializer:
             ActionNames.ENTITY_RESOLUTION.value: self._handle_entity_resolution,
         }
 
+    def stream_materialize_T(
+        self,
+        T: dict[str, DataFrame],
+        column_descriptions: dict[str, dict[str, str]],
+        S: str,
+        client_note="",
+        update_mode: bool = False,
+        external_tables: list[AbstractDocument] = [],
+        prefetched_tables: list[AbstractDocument] = [],
+        prefetched_web_search_result: AbstractDocument | None = None,
+        prefetched_web_crawl_result: AbstractDocument | None = None,
+        precomputed_join_paths: str | None = None,
+    ):
+        """Generator version of materialize_T.
+
+        Yields str log messages at step boundaries so callers can stream them to
+        the frontend in real-time.  Returns the same 5-tuple as materialize_T via
+        the generator return value (accessible as StopIteration.value).
+        """
+        step_log_buffer: list[str] = []
+        original_log_callback = self.log_callback
+        self.log_callback = step_log_buffer.append
+
+        def _flush():
+            msgs = list(step_log_buffer)
+            step_log_buffer.clear()
+            return msgs
+
+        try:
+            self.__log(f"Materializing {len(T)} target tables (update_mode={update_mode})...")
+            self.__reset_materializer(update_mode=update_mode)
+            yield from _flush()
+
+            self.state.T = T
+            self.state.column_descriptions = column_descriptions
+            self.state.S = S
+
+            self.db_api.link_dataset_tables(
+                self.user_id, self.chat_id, self.config.DATA_SOURCES[0]
+            )
+
+            if len(prefetched_tables) > 0:
+                self.state.retrieved_tables = prefetched_tables
+            if len(external_tables) > 0:
+                self.state.external_tables = external_tables
+            if prefetched_web_search_result is not None:
+                self.state.web_search_result = prefetched_web_search_result
+            if prefetched_web_crawl_result is not None:
+                self.state.web_crawl_result = prefetched_web_crawl_result
+            if precomputed_join_paths is not None:
+                self.state.join_paths = precomputed_join_paths
+
+            self.llm_messages = [
+                LLMMessage(
+                    role=Role.SYSTEM.value,
+                    content=self.prompt_factory.get_planning_prompt(
+                        self.state.T,
+                        self.state.column_descriptions,
+                        self.state.S,
+                        is_update_mode=update_mode,
+                        prior_intermediate_table_ids=[
+                            i.doc_id for i in self.state.intermediate_tables
+                        ],
+                    ),
+                )
+            ]
+
+            current_step = 0
+            last_env_state_idx: int | None = None
+            while (
+                not self.__check_completion(self.state.T)
+                and current_step < self.config.MAX_MATERIALIZER_STEPS
+            ):
+                self.__log(
+                    f"=> [Step {current_step}/{self.config.MAX_MATERIALIZER_STEPS}] Planning materialization actions..."
+                )
+                current_step += 1
+
+                self.llm_messages.append(
+                    LLMMessage(
+                        role=Role.USER.value,
+                        content=self.prompt_factory.get_context_prompt(
+                            self.state.retrieved_tables,
+                            list(self.state.intermediate_tables),
+                            self.actions[-5:],
+                            current_step,
+                            client_note,
+                            self.state.external_tables,
+                            self.state.web_search_result,
+                            self.state.web_crawl_result,
+                            self.state.join_paths,
+                        ),
+                    )
+                )
+                last_env_state_idx = len(self.llm_messages) - 1
+
+                yield from _flush()  # flush step-start logs before blocking LLM call
+
+                if self.premade_plans:
+                    llm_response = self.premade_plans.popleft()
+                else:
+                    llm_response = "".join(
+                        self.language_model_api.chat(
+                            self.llm_messages,
+                            LLMOption(json_mode=True, max_new_tokens=2500),
+                        )
+                    )
+                self.llm_messages.append(
+                    LLMMessage(
+                        role=Role.ASSISTANT.value,
+                        content=llm_response,
+                    )
+                )
+                if last_env_state_idx is not None:
+                    self.llm_messages[last_env_state_idx]["content"] = (
+                        self.prompt_factory.get_skeleton_context_prompt(
+                            current_step,
+                        )
+                    )
+
+                try:
+                    self.__log("==> Parsing the response...")
+                    plan: list[dict[str, Any]] = parse_json(llm_response).get("plan", [])
+
+                    if not isinstance(plan, list):
+                        raise ValueError("The 'plan' field must be a list.")
+                    if len(plan) == 0:
+                        raise ValueError("The 'plan' list cannot be empty.")
+                    if not all(isinstance(item, dict) for item in plan):
+                        raise ValueError(
+                            "All items in the 'plan' list must be JSON objects."
+                        )
+
+                    for action_plan in plan:
+                        if not isinstance(action_plan, dict):
+                            raise ValueError(
+                                "Each action in the plan must be a JSON object."
+                            )
+                        if "action" not in action_plan:
+                            raise ValueError(
+                                "Each action in the plan must have an 'action' field."
+                            )
+                        if not self.action_set.is_valid_materializer_action(
+                            action_plan["action"]
+                        ):
+                            raise ValueError(
+                                f"Invalid action '{action_plan['action']}' specified."
+                            )
+                    self.actions.append(str(plan))
+                except ValueError as exc:
+                    error_msg = f"Error parsing the the plan: {exc}."
+                    self.__log(f"==> {error_msg}")
+                    self.llm_messages.append(
+                        LLMMessage(
+                            role=Role.USER.value,
+                            content=error_msg,
+                        )
+                    )
+                    current_step -= 1
+                    yield from _flush()
+                    continue
+
+                self.__log(f"==> Executing the planned actions: {plan}...")
+                for action_plan in plan:
+                    action_name: str = action_plan.get("action", "")
+                    action_args: dict[str, Any] = action_plan.get("args", {})
+                    self.__execute_action(action_name, action_args)
+                    yield from _flush()  # flush after each action so logs stream per-action
+
+            self.__log("Materialization completed successfully!")
+            yield from _flush()
+            self.last_intermediate_table_ids = set(
+                i.doc_id for i in self.state.intermediate_tables
+            )
+            self._saved_intermediate_tables = list(self.state.intermediate_tables)
+            final_result: dict[str, DataFrame] = {}
+            for intermediate_table_doc in self.state.intermediate_tables:
+                if intermediate_table_doc.doc_id in self.state.T.keys():
+                    final_result[intermediate_table_doc.doc_id] = (
+                        intermediate_table_doc.content
+                    )
+            return (
+                self.state.retrieved_tables,
+                self.state.web_search_result,
+                self.state.web_crawl_result,
+                self.state.join_paths,
+                final_result,
+            )
+        finally:
+            self.log_callback = original_log_callback
+
     def materialize_T(
         self,
         T: dict[str, DataFrame],
         column_descriptions: dict[str, dict[str, str]],
         S: str,
         client_note="",
+        update_mode: bool = False,
         external_tables: list[AbstractDocument] = [],
         prefetched_tables: list[AbstractDocument] = [],
         prefetched_web_search_result: AbstractDocument | None = None,
         prefetched_web_crawl_result: AbstractDocument | None = None,
         precomputed_join_paths: str | None = None,
     ) -> tuple[
-        list[AbstractDocument],  # Retrieved tables
-        AbstractDocument | None,  # Web search result
-        AbstractDocument | None,  # Web crawl result
-        str | None,  # Join paths
-        dict[str, DataFrame],  # Materialized T
+        list[AbstractDocument],
+        AbstractDocument | None,
+        AbstractDocument | None,
+        str | None,
+        dict[str, DataFrame],
     ]:
-        """Materialize target tables T based on the provided script S and external tables."""
-        self.__log(f"Materializing {len(T)} target tables...")
-        self.__reset_materializer()
+        """Synchronous wrapper: exhausts stream_materialize_T and returns the result tuple.
 
-        self.state.T = T
-        self.state.column_descriptions = column_descriptions
-        self.state.S = S
-
-        self.db_api.link_dataset_tables(
-            self.user_id, self.chat_id, self.config.DATA_SOURCES[0]
+        All existing callers (tests, direct usage) use this method unchanged.
+        The Conductor uses stream_materialize_T directly to stream logs to the frontend.
+        """
+        gen = self.stream_materialize_T(
+            T, column_descriptions, S, client_note, update_mode,
+            external_tables, prefetched_tables, prefetched_web_search_result,
+            prefetched_web_crawl_result, precomputed_join_paths,
         )
-
-        if len(prefetched_tables) > 0:
-            self.state.retrieved_tables = prefetched_tables
-        if len(external_tables) > 0:
-            self.state.external_tables = external_tables
-        if prefetched_web_search_result is not None:
-            self.state.web_search_result = prefetched_web_search_result
-        if prefetched_web_crawl_result is not None:
-            self.state.web_crawl_result = prefetched_web_crawl_result
-        if precomputed_join_paths is not None:
-            self.state.join_paths = precomputed_join_paths
-
-        self.llm_messages = [
-            LLMMessage(
-                role=Role.SYSTEM.value,
-                content=self.prompt_factory.get_planning_prompt(
-                    self.state.T,
-                    self.state.column_descriptions,
-                    self.state.S,
-                ),
-            )
-        ]
-
-        current_step = 0
-        last_env_state_idx: int | None = None
-        while (
-            not self.__check_completion(self.state.T)
-            and current_step < self.config.MAX_MATERIALIZER_STEPS
-        ):
-            self.__log(
-                f"=> [Step {current_step}/{self.config.MAX_MATERIALIZER_STEPS}] Planning materialization actions..."
-            )
-            current_step += 1
-
-            self.llm_messages.append(
-                LLMMessage(
-                    role=Role.USER.value,
-                    content=self.prompt_factory.get_context_prompt(
-                        self.state.retrieved_tables,
-                        list(self.state.intermediate_tables),
-                        self.actions[-5:],  # only include last 5 actions for brevity
-                        current_step,
-                        client_note,
-                        self.state.external_tables,
-                        self.state.web_search_result,
-                        self.state.web_crawl_result,
-                        self.state.join_paths,
-                    ),
-                )
-            )
-            last_env_state_idx = len(self.llm_messages) - 1
-
-            if self.premade_plans:
-                llm_response = self.premade_plans.popleft()
-            else:
-                llm_response = "".join(
-                    self.language_model_api.chat(
-                        self.llm_messages,
-                        LLMOption(json_mode=True, max_new_tokens=2500),
-                    )
-                )
-            self.llm_messages.append(
-                LLMMessage(
-                    role=Role.ASSISTANT.value,
-                    content=llm_response,
-                )
-            )
-            if last_env_state_idx is not None:
-                self.llm_messages[last_env_state_idx]["content"] = (
-                    self.prompt_factory.get_skeleton_context_prompt(
-                        current_step,
-                    )
-                )
-
-            try:
-                self.__log("==> Parsing the response...")
-                plan: list[dict[str, Any]] = parse_json(llm_response).get("plan", [])
-
-                if not isinstance(plan, list):
-                    raise ValueError("The 'plan' field must be a list.")
-                if len(plan) == 0:
-                    raise ValueError("The 'plan' list cannot be empty.")
-                if not all(isinstance(item, dict) for item in plan):
-                    raise ValueError(
-                        "All items in the 'plan' list must be JSON objects."
-                    )
-
-                for action_plan in plan:
-                    if not isinstance(action_plan, dict):
-                        raise ValueError(
-                            "Each action in the plan must be a JSON object."
-                        )
-                    if "action" not in action_plan:
-                        raise ValueError(
-                            "Each action in the plan must have an 'action' field."
-                        )
-                    if not self.action_set.is_valid_materializer_action(
-                        action_plan["action"]
-                    ):
-                        raise ValueError(
-                            f"Invalid action '{action_plan['action']}' specified."
-                        )
-                self.actions.append(str(plan))
-            except ValueError as exc:
-                error_msg = f"Error parsing the the plan: {exc}."
-                self.__log(f"==> {error_msg}")
-                self.llm_messages.append(
-                    LLMMessage(
-                        role=Role.USER.value,
-                        content=error_msg,
-                    )
-                )
-                current_step -= 1
-                continue
-
-            self.__log(f"==> Executing the planned actions: {plan}...")
-            for action_plan in plan:
-                action_name: str = action_plan.get("action", "")
-                action_args: dict[str, Any] = action_plan.get("args", {})
-                self.__execute_action(action_name, action_args)
-
-        self.__log("Materialization completed successfully!")
-        self.last_intermediate_table_ids = set(
-            i.doc_id for i in self.state.intermediate_tables
-        )
-        final_result: dict[str, DataFrame] = {}
-        for intermediate_table_doc in self.state.intermediate_tables:
-            if intermediate_table_doc.doc_id in self.state.T.keys():
-                final_result[intermediate_table_doc.doc_id] = (
-                    intermediate_table_doc.content
-                )
-        return (
-            self.state.retrieved_tables,
-            self.state.web_search_result,
-            self.state.web_crawl_result,
-            self.state.join_paths,
-            final_result,
-        )
+        try:
+            while True:
+                next(gen)
+        except StopIteration as e:
+            return e.value
 
     def __execute_action(
         self,
@@ -1443,28 +1502,44 @@ class Materializer:
         )
         return is_complete
 
-    def __reset_materializer(self):
-        """Reset the state and clear intermediate files."""
-        self.__log("Resetting materializer...")
+    def __reset_materializer(self, update_mode: bool = False):
+        """Reset the state and clear intermediate files.
+
+        In update_mode the intermediate tables from the prior run are kept in the
+        database (STATE_MANIPULATION no longer wipes T tables) and pre-loaded into
+        the fresh state so the LLM can build on them incrementally.
+        """
+        self.__log(f"Resetting materializer (update_mode={update_mode})...")
+        saved = list(self._saved_intermediate_tables)
+
         self.state.reset()
-        self.prov_graph.reset_materialization_nodes()
+        if not update_mode:
+            self.prov_graph.reset_materialization_nodes()
         self.actions = []
         self.llm_messages = []
         self.join_paths = None
 
-        for doc_id in self.last_intermediate_table_ids:
-            try:
-                self.db_api.execute_query(
-                    self.user_id,
-                    self.chat_id,
-                    f'DROP TABLE IF EXISTS "{doc_id}";',
-                )
-            except Exception as e:
-                self.__log(
-                    f"Warning: failed to delete intermediate table {doc_id} from the database: {e}"
-                )
-                continue
-        self.last_intermediate_table_ids = set()
+        if not update_mode:
+            for doc_id in self.last_intermediate_table_ids:
+                try:
+                    self.db_api.execute_query(
+                        self.user_id,
+                        self.chat_id,
+                        f'DROP TABLE IF EXISTS "{doc_id}";',
+                    )
+                except Exception as e:
+                    self.__log(
+                        f"Warning: failed to delete intermediate table {doc_id} from the database: {e}"
+                    )
+                    continue
+            self.last_intermediate_table_ids = set()
+        else:
+            # Pre-populate state with intermediates from the prior run.
+            # Because STATE_MANIPULATION is now a pure in-memory operation, these tables
+            # are still present in the database and can be used directly.
+            for doc in saved:
+                self.state.add_intermediate_table(doc)
+
         self.__log("Materializer reset complete.")
 
     def __log(self, text: str):

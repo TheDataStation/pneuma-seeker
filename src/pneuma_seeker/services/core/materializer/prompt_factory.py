@@ -24,6 +24,8 @@ class MaterializerPromptFactory:
         T: dict[str, DataFrame],
         column_descriptions: dict[str, dict[str, str]],
         S: str,
+        is_update_mode: bool = False,
+        prior_intermediate_table_ids: list[str] | None = None,
     ) -> str:
         """Generates the planning prompt for Materializer."""
         return f"""
@@ -80,7 +82,31 @@ Return **one JSON object** describing your planned actions for this step, e.g.,
     ...
   ]
 }}
-""".strip()
+{self.__get_update_mode_section(is_update_mode, prior_intermediate_table_ids or [])}""".strip()
+
+    def __get_update_mode_section(
+        self, is_update_mode: bool, prior_intermediate_table_ids: list[str]
+    ) -> str:
+        if not is_update_mode:
+            return ""
+        ids_str = (
+            ", ".join(f'"{tid}"' for tid in prior_intermediate_table_ids)
+            if prior_intermediate_table_ids
+            else "(none)"
+        )
+        return f"""
+
+# Update Mode
+T was previously materialized. The following intermediate tables from the prior run are
+already present in the database and can be reused directly: {ids_str}
+
+Your job is to apply the **delta only** — update or extend existing tables to satisfy
+the new T schema rather than re-deriving everything from scratch.
+- Use {ActionNames.CONTEXT_EXTRACTION.value} to inspect the pre-loaded intermediates and
+  confirm what columns they already have before deciding what work remains.
+- If a pre-loaded table already satisfies the new T schema for that table ID, no further
+  action is needed for it.
+- Only redo work that is genuinely no longer valid given the updated T."""
 
     def __get_actions_section(self) -> str:
         actions = self.action_set.registry.get_for_agent(AgentType.MATERIALIZER)

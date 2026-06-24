@@ -29,6 +29,17 @@ from pneuma_seeker.shared.schemas.core.ir_system import (
 )
 
 
+def _mat_gen(result):
+    """One-shot generator that immediately returns `result` via StopIteration.
+
+    The unreachable `yield` below is intentional: it makes Python treat this
+    function as a generator function so that calling it returns a generator
+    object (required for the Conductor's streaming dispatch).
+    """
+    return result
+    yield  # noqa: unreachable
+
+
 class ConductorTests(unittest.TestCase):
     def setUp(self):
         config = Config(".env.test")
@@ -264,14 +275,21 @@ class ConductorTests(unittest.TestCase):
         self.assertFalse(state.is_T_materialized)
         self.assertFalse(state.is_S_executed)
 
-    def test_state_manipulation_redefines_T_cleans_previous_tables(self):
+    def test_state_manipulation_redefines_T_updates_in_memory_only(self):
+        """STATE_MANIPULATION is a pure in-memory op; it must not create or drop DB tables."""
+        baseline_tables = set(
+            self.conductor.db_api.execute_query(
+                self.conductor.user_id, self.conductor.chat_id, "SHOW TABLES;"
+            )["name"].tolist()
+        )
+
+        # First STATE_MANIPULATION: define T={t1}
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
             {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"T set"}}}}
         ]}}"""
         ]
-
         responses = list(
             self.conductor.chat(
                 user_input="set T",
@@ -281,20 +299,25 @@ class ConductorTests(unittest.TestCase):
         )
         self.assertIn("T set", responses[-1])
 
+        # In-memory state updated
+        self.assertIn("t1", self.conductor.state.T)
+        self.assertFalse(self.conductor.state.is_T_materialized)
+
+        # DB must be unchanged — no t1 table created
         tables_after_first = set(
             self.conductor.db_api.execute_query(
                 self.conductor.user_id, self.conductor.chat_id, "SHOW TABLES;"
             )["name"].tolist()
         )
-        self.assertIn("t1", tables_after_first)
+        self.assertEqual(tables_after_first, baseline_tables)
 
+        # Second STATE_MANIPULATION: redefine T={t2}
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
             {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t2":["a","b"]}},"column_descriptions":{{"t2":{{"a":"col a"}}}}}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"T reset"}}}}
         ]}}"""
         ]
-
         responses = list(
             self.conductor.chat(
                 user_input="set T again",
@@ -304,13 +327,136 @@ class ConductorTests(unittest.TestCase):
         )
         self.assertIn("T reset", responses[-1])
 
+        # In-memory: t1 replaced by t2
+        self.assertNotIn("t1", self.conductor.state.T)
+        self.assertIn("t2", self.conductor.state.T)
+        self.assertFalse(self.conductor.state.is_T_materialized)
+
+        # DB still unchanged — neither t1 nor t2 created
         tables_after_second = set(
             self.conductor.db_api.execute_query(
                 self.conductor.user_id, self.conductor.chat_id, "SHOW TABLES;"
             )["name"].tolist()
         )
-        self.assertIn("t2", tables_after_second)
-        self.assertNotIn("t1", tables_after_second)
+        self.assertEqual(tables_after_second, baseline_tables)
+
+    def test_state_manipulation_does_not_drop_existing_t_tables_from_db(self):
+        """Manually persist a T table; STATE_MANIPULATION redefining T must leave it in DB."""
+        self.conductor.db_api.persist_df(
+            self.conductor.user_id,
+            self.conductor.chat_id,
+            pd.DataFrame({"a": [1, 2], "b": [3, 4]}),
+            "t1",
+            True,
+        )
+
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
+            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b","c"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"T redefined"}}}}
+        ]}}"""
+        ]
+        list(
+            self.conductor.chat(
+                user_input="redefine T",
+                interaction_history=[],
+                external_table_paths=[],
+            )
+        )
+
+        # t1 must still exist in DB with original content
+        result = self.conductor.db_api.execute_query(
+            self.conductor.user_id, self.conductor.chat_id, 'SELECT * FROM "t1";'
+        )
+        self.assertEqual(len(result), 2)
+        self.assertListEqual(list(result.columns), ["a", "b"])
+
+    def test_materializer_mode_update_passed_correctly(self):
+        """MATERIALIZER with mode=update must call stream_materialize_T with update_mode=True."""
+        captured = {}
+
+        def fake_stream(T, col_desc, S, note="", update_mode=False, *args, **kwargs):
+            captured["update_mode"] = update_mode
+            return _mat_gen(([], None, None, None, {"t1": pd.DataFrame({"a": [1]})}))
+
+        self.conductor.materializer.stream_materialize_T = fake_stream  # type: ignore
+
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
+            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
+            {{"action":"{ActionNames.MATERIALIZER.value}","args":{{"note":"add col","mode":"update"}}}}
+        ]}}""",
+            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{"message":"done"}}}}]}}""",
+        ]
+        list(
+            self.conductor.chat(
+                user_input="update mode test",
+                interaction_history=[],
+                external_table_paths=[],
+            )
+        )
+        self.assertTrue(
+            captured.get("update_mode"),
+            "materialize_T must be called with update_mode=True when mode='update'",
+        )
+
+    def test_materializer_mode_fresh_when_mode_omitted(self):
+        """MATERIALIZER without mode arg must call stream_materialize_T with update_mode=False."""
+        captured = {}
+
+        def fake_stream(T, col_desc, S, note="", update_mode=False, *args, **kwargs):
+            captured["update_mode"] = update_mode
+            return _mat_gen(([], None, None, None, {"t1": pd.DataFrame({"a": [1]})}))
+
+        self.conductor.materializer.stream_materialize_T = fake_stream  # type: ignore
+
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
+            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
+            {{"action":"{ActionNames.MATERIALIZER.value}","args":{{"note":""}}}}
+        ]}}""",
+            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{"message":"done"}}}}]}}""",
+        ]
+        list(
+            self.conductor.chat(
+                user_input="fresh mode test",
+                interaction_history=[],
+                external_table_paths=[],
+            )
+        )
+        self.assertFalse(
+            captured.get("update_mode"),
+            "materialize_T must be called with update_mode=False when mode is omitted",
+        )
+
+    def test_materializer_mode_fresh_when_mode_is_reset(self):
+        """MATERIALIZER with mode=reset must call stream_materialize_T with update_mode=False."""
+        captured = {}
+
+        def fake_stream(T, col_desc, S, note="", update_mode=False, *args, **kwargs):
+            captured["update_mode"] = update_mode
+            return _mat_gen(([], None, None, None, {"t1": pd.DataFrame({"a": [1]})}))
+
+        self.conductor.materializer.stream_materialize_T = fake_stream  # type: ignore
+
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
+            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
+            {{"action":"{ActionNames.MATERIALIZER.value}","args":{{"note":"","mode":"reset"}}}}
+        ]}}""",
+            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{"message":"done"}}}}]}}""",
+        ]
+        list(
+            self.conductor.chat(
+                user_input="reset mode test",
+                interaction_history=[],
+                external_table_paths=[],
+            )
+        )
+        self.assertFalse(
+            captured.get("update_mode"),
+            "materialize_T must be called with update_mode=False when mode='reset'",
+        )
 
     def test_materializer_and_executor(self):
         self.conductor.language_model_api.llm._responses = [  # type: ignore
@@ -323,13 +469,10 @@ class ConductorTests(unittest.TestCase):
                 {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"materialization and execution done"}}}}
             ]}}""",
         ]
-        self.conductor.materializer.materialize_T = MagicMock(
-            return_value=(
-                [],
-                None,
-                None,
-                None,
-                {"t1": pd.DataFrame({"a": [1, 2], "b": [3, 4]})},
+        expected_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+        self.conductor.materializer.stream_materialize_T = MagicMock(
+            side_effect=lambda *a, **kw: _mat_gen(
+                ([], None, None, None, {"t1": expected_df})
             )
         )
         self.conductor.action_set.execute_code = MagicMock(

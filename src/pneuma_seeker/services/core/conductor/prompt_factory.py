@@ -105,6 +105,13 @@ You must respect the following boundary between `{ActionNames.MATERIALIZER.value
 
 **Correct pattern**: Define T as one (or a minimal set of) unified output table(s). Use the `note` argument when calling `{ActionNames.MATERIALIZER.value}` to pass integration hints (e.g., "join orders and customers on customer_id, keep only APAC region"). S then performs the final analytics step (e.g., rank by revenue, compute percentages).
 
+**Refinement pattern**: When the user requests a change to an already-materialized result, follow these steps:
+1. Call `{ActionNames.STATE_MANIPULATION.value}` to update T and/or S with the new schema.
+2. Call `{ActionNames.MATERIALIZER.value}` with the appropriate `mode`:
+   - `"mode": "update"` — slight change (e.g., add a column, remap values). Materializer reuses prior intermediate tables; pass a `note` describing exactly what changed (e.g., `"Added 'revenue' column to 'sales_summary'"`).
+   - `"mode": "reset"` or omit `mode` — major redesign; Materializer starts from scratch.
+3. Do **not** call `{ActionNames.MATERIALIZER.value}` in `"update"` mode unless T schema actually changed; if only S changed and T is already materialized, go directly to `{ActionNames.PYTHON_EXECUTOR.value}`.
+
 **Anti-pattern to avoid**: Defining T with one table per source (e.g., `T = {{orders: [...], customers: [...]}}`) and then joining them inside S. S should be a clean, readable final-stage script — not an integration layer. If you find yourself writing a JOIN or UNION in S, stop and push that logic into T's definition and Materializer's `note`.
 
 # Actions
