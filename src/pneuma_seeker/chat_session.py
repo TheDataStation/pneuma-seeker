@@ -5,6 +5,7 @@ from pneuma_seeker.provenance.graph import ProvenanceGraph
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
 from pneuma_seeker.services.core.conductor.main import Conductor
+from pneuma_seeker.services.skill_based_core.agent import SkillsAgent
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.schemas.core.conductor import UserConductorInteraction
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
@@ -30,7 +31,9 @@ class ChatSession:
         self.logger = logger
         self.db_api = db_api
         self.language_model_api = language_model_api
-        self.conductor = Conductor(
+
+        _agent_cls = SkillsAgent if config.USE_SKILLS_AGENT else Conductor
+        self.conductor = _agent_cls(
             self.user_id,
             self.chat_id,
             self.config,

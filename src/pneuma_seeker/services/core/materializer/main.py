@@ -122,7 +122,9 @@ class Materializer:
             return msgs
 
         try:
-            self.__log(f"Materializing {len(T)} target tables (update_mode={update_mode})...")
+            self.__log(
+                f"Materializing {len(T)} target tables (update_mode={update_mode})..."
+            )
             self.__reset_materializer(update_mode=update_mode)
             yield from _flush()
 
@@ -215,7 +217,9 @@ class Materializer:
 
                 try:
                     self.__log("==> Parsing the response...")
-                    plan: list[dict[str, Any]] = parse_json(llm_response).get("plan", [])
+                    plan: list[dict[str, Any]] = parse_json(llm_response).get(
+                        "plan", []
+                    )
 
                     if not isinstance(plan, list):
                         raise ValueError("The 'plan' field must be a list.")
@@ -309,9 +313,16 @@ class Materializer:
         The Conductor uses stream_materialize_T directly to stream logs to the frontend.
         """
         gen = self.stream_materialize_T(
-            T, column_descriptions, S, client_note, update_mode,
-            external_tables, prefetched_tables, prefetched_web_search_result,
-            prefetched_web_crawl_result, precomputed_join_paths,
+            T,
+            column_descriptions,
+            S,
+            client_note,
+            update_mode,
+            external_tables,
+            prefetched_tables,
+            prefetched_web_search_result,
+            prefetched_web_crawl_result,
+            precomputed_join_paths,
         )
         try:
             while True:
@@ -1350,6 +1361,27 @@ class Materializer:
             return
         if threshold is not None and not isinstance(threshold, (int, float)):
             error_msg = "entity_resolution 'threshold' must be a number."
+            self.__log(f"==> {error_msg}")
+            self.llm_messages.append(
+                LLMMessage(role=Role.USER.value, content=error_msg)
+            )
+            return
+
+        all_available = (
+            self.state.retrieved_tables
+            + self.state.external_tables
+            + list(self.state.intermediate_tables)
+        )
+        available_ids = sorted({t.doc_id for t in all_available})
+        # Also accept schema-qualified forms like proc_spend."fy2025_gems_card_data"
+        bare_id = source_table_id.split(".")[-1].strip('"')
+        if source_table_id not in available_ids and bare_id not in available_ids:
+            error_msg = (
+                f"entity_resolution: source table '{source_table_id}' is not available. "
+                f"Available tables: {available_ids}. "
+                "For retrieved tables use the dataset-qualified form (e.g. 'dataset.\"table_id\"'). "
+                "For tables not yet in scope, use query_executor to create an intermediate first."
+            )
             self.__log(f"==> {error_msg}")
             self.llm_messages.append(
                 LLMMessage(role=Role.USER.value, content=error_msg)
