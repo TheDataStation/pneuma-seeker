@@ -1,9 +1,11 @@
 # src/pneuma_seeker/core/materializer/main.py
+from json import dumps
 from logging import Logger
 from time import time
 from typing import Any, Callable
 
 from pandas import DataFrame
+from tiktoken import encoding_for_model
 
 from pneuma_seeker.services.core.action_set.main import ActionSet
 from pneuma_seeker.shared.schemas.core.action import ActionExecutionStatus, ActionNames
@@ -16,6 +18,7 @@ from pneuma_seeker.shared.schemas.core.ir_system import (
     AbstractDocument,
     RetrieverType,
     Table,
+    convert_retrieval_results_to_str,
 )
 from pneuma_seeker.services.core.materializer.prompt_factory import (
     MaterializerPromptFactory,
@@ -147,20 +150,24 @@ class Materializer:
         ]
 
         current_step = 0
-        prev_accumulated_in_tokens = 0
-        prev_accumulated_out_tokens = 0
-        prev_accumulated_llm_time = 0.0
+        llm = self.language_model_api.llm
+        prev_accumulated_in_tokens = llm.total_input_tokens
+        prev_accumulated_out_tokens = llm.total_output_tokens
+        prev_accumulated_llm_time = llm.total_llm_time
+        baseline_in_tokens = prev_accumulated_in_tokens
+        baseline_out_tokens = prev_accumulated_out_tokens
+        baseline_llm_time = prev_accumulated_llm_time
 
         while (
             not self._check_completion(self.state.T)
             and current_step < self.config.MAX_MATERIALIZER_STEPS
         ):
             step_start_time = time()
+
+            current_step += 1
             message = f"[Step {current_step} / up to {self.config.MAX_MATERIALIZER_STEPS}]: Planning actions..."
             self._log(message)
             self.log_callback(message)
-
-            current_step += 1
 
             context_msg = LLMMessage(
                 role=Role.USER.value,
@@ -245,7 +252,14 @@ class Materializer:
             )
 
         materializer_end_time = time()
-        self._log_overall_profiling(materializer_start_time, materializer_end_time)
+        llm = self.language_model_api.llm
+        self._log_overall_profiling(
+            materializer_start_time,
+            materializer_end_time,
+            llm.total_input_tokens - baseline_in_tokens,
+            llm.total_output_tokens - baseline_out_tokens,
+            llm.total_llm_time - baseline_llm_time,
+        )
 
         message = f"Materialization completed successfuly!"
         self._log(message)
@@ -289,15 +303,33 @@ class Materializer:
         action_args: dict[str, Any],
     ):
         self._log(f"==> Executing action {action_name}...")
+        action_start_time = time()
+        llm = self.language_model_api.llm
+        llm_time_before = llm.total_llm_time
+
+        action_json = dumps({"action": action_name, "args": action_args})
+        try:
+            enc = encoding_for_model("o4-mini")
+            plan_tokens = len(enc.encode(action_json))
+        except Exception:
+            plan_tokens = len(action_json.split())
+
         handler = self._action_handlers.get(action_name)
         if handler is None:
             error_msg = f"{action_name} is not a valid action."
             self._log(f"==> {error_msg}")
-            self.llm_messages.append(
-                LLMMessage(role=Role.USER.value, content=error_msg)
-            )
-            return
-        outcome, _ = handler(action_args)
+            outcome = error_msg
+            status = ActionExecutionStatus.ERROR
+        else:
+            outcome, status = handler(action_args)
+
+        self._log_action_profiling(
+            action_name,
+            status,
+            plan_tokens,
+            time() - action_start_time,
+            llm.total_llm_time - llm_time_before,
+        )
         self.llm_messages.append(LLMMessage(role=Role.USER.value, content=outcome))
 
     def _handle_situational_analysis(
@@ -348,6 +380,7 @@ class Materializer:
                 )
                 if node_id is not None:
                     doc.last_node_id = node_id
+        self._log_table_repr_tokens(self.state.retrieved_tables)
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_web_search(
@@ -1382,16 +1415,49 @@ class Materializer:
             f"[PROFILING] Input tokens: {input_tokens}, Output tokens: {output_tokens}"
         )
 
-    def _log_overall_profiling(self, start_time: float, end_time: float) -> None:
-        llm = self.language_model_api.llm
+    def _log_overall_profiling(
+        self,
+        start_time: float,
+        end_time: float,
+        input_tokens: int,
+        output_tokens: int,
+        llm_time: float,
+    ) -> None:
         total_time = end_time - start_time
-        llm_time = llm.total_llm_time
         self._log(
             f"[PROFILING] Time taken: {total_time:.2f}s (CPU: {total_time - llm_time:.2f}s, LLM: {llm_time:.2f}s)"
         )
         self._log(
-            f"[PROFILING] Input tokens: {llm.total_input_tokens}, Output tokens: {llm.total_output_tokens}"
+            f"[PROFILING] Input tokens: {input_tokens}, Output tokens: {output_tokens}"
         )
+
+    def _log_table_repr_tokens(self, tables: list[AbstractDocument]) -> None:
+        text = convert_retrieval_results_to_str(tables)
+        try:
+            enc = encoding_for_model("o4-mini")
+            n = len(enc.encode(text))
+            self._log(
+                f"[PROFILING] Retrieved tables repr: ~{n} tokens (tiktoken approx)"
+            )
+        except Exception:
+            n = len(text.split())
+            self._log(
+                f"[PROFILING] Retrieved tables repr: ~{n} tokens (whitespace approx)"
+            )
+
+    def _log_action_profiling(
+        self,
+        action_name: str,
+        status: ActionExecutionStatus,
+        plan_tokens: int,
+        total_time: float,
+        llm_time: float,
+    ) -> None:
+        tag = "OK" if status == ActionExecutionStatus.SUCCESS else "ERR"
+        self._log(
+            f"[PROFILING][{action_name}][{tag}] Time taken: {total_time:.2f}s (CPU: {total_time - llm_time:.2f}s, LLM: {llm_time:.2f}s)"
+        )
+        self._log(f"[PROFILING][{action_name}][{tag}] Plan JSON: ~{plan_tokens} tokens")
 
     def _log(self, text: str):
         formatted_log(self.logger, "Materializer", text)

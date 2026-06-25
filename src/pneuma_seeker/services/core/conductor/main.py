@@ -1,8 +1,10 @@
+from json import dumps
 from logging import Logger
 from time import time
 from typing import Any, Callable
 
 from pandas import DataFrame
+from tiktoken import encoding_for_model
 
 from pneuma_seeker.provenance.graph import ProvenanceGraph
 from pneuma_seeker.services.core.action_set.main import ActionSet
@@ -24,6 +26,7 @@ from pneuma_seeker.shared.schemas.core.ir_system import (
     AbstractDocument,
     RetrieverType,
     Table,
+    convert_retrieval_results_to_str,
 )
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.schemas.language_model.option import LLMOption
@@ -345,11 +348,31 @@ class Conductor:
     def _execute_action(
         self, user_message: str, action_name: str, action_args: dict[str, Any]
     ) -> None:
+        action_start_time = time()
+        llm = self.language_model_api.llm
+        llm_time_before = llm.total_llm_time
+
+        action_json = dumps({"action": action_name, "args": action_args})
+        try:
+            enc = encoding_for_model("o4-mini")
+            plan_tokens = len(enc.encode(action_json))
+        except Exception:
+            plan_tokens = len(action_json.split())
+
         handler = self._action_handlers.get(action_name)
         if handler is None:
             outcome = f"Tool calling failed; {action_name} is unknown"
+            status = ActionExecutionStatus.ERROR
         else:
-            outcome, _ = handler(user_message, action_args)
+            outcome, status = handler(user_message, action_args)
+
+        self._log_action_profiling(
+            action_name,
+            status,
+            plan_tokens,
+            time() - action_start_time,
+            llm.total_llm_time - llm_time_before,
+        )
         self.llm_messages.append(LLMMessage(role=Role.USER.value, content=outcome))
 
     def _handle_situational_analysis(
@@ -409,6 +432,7 @@ class Conductor:
             self._log(f"=> Error during join path extraction: {e}")
         success_msg = "Successfully retrieved tables from Table Retrieve. Notice that the `RETRIEVED TABLES` has been updated."
         self._log(success_msg)
+        self._log_table_repr_tokens(self.retrieved_tables)
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_web_search(
@@ -792,6 +816,34 @@ class Conductor:
         self._log(
             f"[PROFILING] Input tokens: {llm.total_input_tokens}, Output tokens: {llm.total_output_tokens}"
         )
+
+    def _log_table_repr_tokens(self, tables: list[AbstractDocument]) -> None:
+        text = convert_retrieval_results_to_str(tables)
+        try:
+            enc = encoding_for_model("o4-mini")
+            n = len(enc.encode(text))
+            self._log(
+                f"[PROFILING] Retrieved tables repr: ~{n} tokens (tiktoken approx)"
+            )
+        except Exception:
+            n = len(text.split())
+            self._log(
+                f"[PROFILING] Retrieved tables repr: ~{n} tokens (whitespace approx)"
+            )
+
+    def _log_action_profiling(
+        self,
+        action_name: str,
+        status: ActionExecutionStatus,
+        plan_tokens: int,
+        total_time: float,
+        llm_time: float,
+    ) -> None:
+        tag = "OK" if status == ActionExecutionStatus.SUCCESS else "ERR"
+        self._log(
+            f"[PROFILING][{action_name}][{tag}] Time taken: {total_time:.2f}s (CPU: {total_time - llm_time:.2f}s, LLM: {llm_time:.2f}s)"
+        )
+        self._log(f"[PROFILING][{action_name}][{tag}] Plan JSON: ~{plan_tokens} tokens")
 
     def _log(self, text):
         formatted_log(self.logger, "Conductor", text)
