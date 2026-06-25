@@ -50,7 +50,7 @@ class Config:
         # Action Settings
         ## Retrieval Action Settings
         self.ENABLE_WEB_SEARCH = getenv("ENABLE_WEB_SEARCH", "false").lower() == "true"
-        self.ENABLE_WEB_CRAWL = getenv("ENABLE_WEB_CRAWL", "true").lower() == "true"
+        self.ENABLE_WEB_CRAWL = getenv("ENABLE_WEB_CRAWL", "false").lower() == "true"
         self.WEB_CRAWL_MAX_CHARS = int(getenv("WEB_CRAWL_MAX_CHARS", "5000"))
         self.JOIN_PATH_EXTRACTION_ALPHA = float(
             getenv("JOIN_PATH_EXTRACTION_NAME_SIMILARITY_WEIGHT", "0.6")
@@ -100,7 +100,7 @@ class Config:
             getenv("MAX_CONTEXT_EXTRACTION_LOOP_STEPS", "3")
         )
         self.MAX_RESULT_PREVIEW_ROWS = int(getenv("MAX_RESULT_PREVIEW_ROWS", "100"))
-        self.ENABLE_DS_SKEPTIC = getenv("ENABLE_DS_SKEPTIC", "true").lower() == "true"
+        self.ENABLE_DS_SKEPTIC = getenv("ENABLE_DS_SKEPTIC", "false").lower() == "true"
         self.MAX_DS_SKEPTIC_ROUNDS = int(getenv("MAX_DS_SKEPTIC_ROUNDS", "2"))
         self.MAX_DS_SKEPTIC_CE_CALLS = int(getenv("MAX_DS_SKEPTIC_CE_CALLS", "5"))
 
