@@ -14,6 +14,7 @@ sys.path.insert(
 
 from pneuma_seeker.routers import chat
 from pneuma_seeker.routers.auth import get_current_user
+from pneuma_seeker.services.core.conductor.models import ConductorResponse, ConductorResponseType
 from pneuma_seeker.services.db.users.models import UserRecord
 
 
@@ -49,9 +50,9 @@ class TestChatRouter(unittest.TestCase):
         mock_chat_session = MagicMock()
         # Mock chat loop returning distinct output actions
         mock_chat_session.chat.return_value = [
-            "LOG: Analyzing structures",
-            "SELECT * FROM alpha",
-            "DONE",
+            ConductorResponse(ConductorResponseType.LOG, "Analyzing structures"),
+            ConductorResponse(ConductorResponseType.FINAL_RESPONSE, "SELECT * FROM alpha"),
+            ConductorResponse(ConductorResponseType.DONE, ""),
         ]
         mock_session_manager.get_chat_session.return_value = mock_chat_session
 

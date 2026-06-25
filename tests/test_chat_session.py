@@ -16,7 +16,7 @@ from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 class DummyConductor:
     """A clean mock replacement for the Conductor."""
 
-    def __init__(self, user_id, chat_id, config, logger, prov_graph, db_api, lm_api):
+    def __init__(self, user_id, chat_id, config, logger, prov_graph, db_api, lm_api, frontend_callback):
         self.user_id = user_id
         self.chat_id = chat_id
         self.config = config

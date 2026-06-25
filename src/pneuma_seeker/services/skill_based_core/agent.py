@@ -1,6 +1,6 @@
 from logging import Logger
 from time import time
-from typing import cast
+from typing import Callable, cast
 
 from pandas import DataFrame
 
@@ -23,7 +23,6 @@ from pneuma_seeker.shared.schemas.core.ir_system import (
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.schemas.language_model.option import LLMOption
 from pneuma_seeker.shared.schemas.language_model.role import Role
-from pneuma_seeker.shared.table_reader import TableReader
 
 _SYSTEM_PROMPT_TEMPLATE = """\
 You are **SkillsAgent**, a data assistant that answers questions by calling skills one at a time.
@@ -75,6 +74,7 @@ class SkillsAgent:
         prov_graph: ProvenanceGraph,
         db_api: DBAPI,
         language_model_api: LanguageModelAPI,
+        frontend_callback: Callable[[ConductorResponse], None],
     ) -> None:
         self.user_id = user_id
         self.chat_id = chat_id
@@ -83,12 +83,10 @@ class SkillsAgent:
         self.prov_graph = prov_graph
         self.db_api = db_api
         self.language_model_api = language_model_api
+        self.frontend_callback = frontend_callback
 
         self.action_set = ActionSet(
             user_id, chat_id, config, logger, prov_graph, db_api, language_model_api
-        )
-        self.table_reader = TableReader(
-            config.OPENWEBUI_BASE_URL, config.OPENWEBUI_API_KEY
         )
 
         # Skill registry + assembled system prompt (built once at init)
@@ -132,14 +130,12 @@ class SkillsAgent:
         self,
         user_input: str,
         interaction_history: list[LLMMessage],
-        external_table_paths: list[str],
+        external_table_paths: list[str],  # TODO: handle reading external tables
     ):
         """Drive the skills loop; yields LOG strings then the final user response."""
         chat_start_time = time()
         self._log(f"Processing: {user_input}")
         self._reset()
-
-        self._load_external_tables(external_table_paths)
 
         self._messages = [
             LLMMessage(role=Role.SYSTEM.value, content=self._system_prompt)
@@ -151,7 +147,7 @@ class SkillsAgent:
         step = 0
         while not self._done and step < self.MAX_STEPS:
             step += 1
-            yield ConductorResponse(ConductorResponseType.LOG, f"[Step {step} / {self.MAX_STEPS}] Deciding next skill...")
+            self.frontend_callback(ConductorResponse(ConductorResponseType.LOG, f"[Step {step} / {self.MAX_STEPS}] Deciding next skill..."))
             self._log(f"Step {step}/{self.MAX_STEPS}")
 
             ctx = self._build_context(step, user_input, interaction_history)
@@ -167,7 +163,7 @@ class SkillsAgent:
                 )
             except Exception as exc:
                 self._log(f"LLM error: {exc}")
-                yield ConductorResponse(ConductorResponseType.LOG, f"LLM error: {exc}")
+                self.frontend_callback(ConductorResponse(ConductorResponseType.LOG, f"LLM error: {exc}"))
                 raise exc
 
             self._log(f"LLM: {full_response}")
@@ -189,25 +185,20 @@ class SkillsAgent:
                 self._messages.append(
                     LLMMessage(role=Role.USER.value, content=result_content)
                 )
-                yield ConductorResponse(ConductorResponseType.LOG, f"Skill '{skill_name}' executed.")
+                self.frontend_callback(ConductorResponse(ConductorResponseType.LOG, f"Skill '{skill_name}' executed."))
             except Exception as exc:
                 err = f"Error parsing/executing skill: {exc}"
                 self._log(err)
                 self._messages.append(LLMMessage(role=Role.USER.value, content=err))
 
             # Per-step token profiling (mirrors Conductor)
-            if hasattr(self.language_model_api.llm, "total_input_tokens"):
-                step_in = (
-                    self.language_model_api.llm.total_input_tokens - prev_input_tokens  # type: ignore
-                )
-                prev_input_tokens = self.language_model_api.llm.total_input_tokens  # type: ignore
-                self._log(f"[PROFILING] Step {step} input tokens: {step_in}")
-            if hasattr(self.language_model_api.llm, "total_output_tokens"):
-                step_out = (
-                    self.language_model_api.llm.total_output_tokens - prev_output_tokens  # type: ignore
-                )
-                prev_output_tokens = self.language_model_api.llm.total_output_tokens  # type: ignore
-                self._log(f"[PROFILING] Step {step} output tokens: {step_out}")
+            llm = self.language_model_api.llm
+            step_in = llm.total_input_tokens - prev_input_tokens
+            prev_input_tokens = llm.total_input_tokens
+            self._log(f"[PROFILING] Step {step} input tokens: {step_in}")
+            step_out = llm.total_output_tokens - prev_output_tokens
+            prev_output_tokens = llm.total_output_tokens
+            self._log(f"[PROFILING] Step {step} output tokens: {step_out}")
 
         if not self._done:
             self._log("Max steps reached — forcing final response")
@@ -228,19 +219,12 @@ class SkillsAgent:
 
         chat_end_time = time()
         elapsed = chat_end_time - chat_start_time
+        llm = self.language_model_api.llm
         self._log(f"[PROFILING] Chat completed in {elapsed:.2f}s")
-        if hasattr(self.language_model_api.llm, "total_llm_time"):
-            llm_time = self.language_model_api.llm.total_llm_time  # type: ignore
-            self._log(f"[PROFILING] LLM time: {llm_time:.2f}s")
-            self._log(f"[PROFILING] Non-LLM time: {elapsed - llm_time:.2f}s")
-        if hasattr(self.language_model_api.llm, "total_input_tokens"):
-            self._log(
-                f"[PROFILING] Total input tokens: {self.language_model_api.llm.total_input_tokens}"  # type: ignore
-            )
-        if hasattr(self.language_model_api.llm, "total_output_tokens"):
-            self._log(
-                f"[PROFILING] Total output tokens: {self.language_model_api.llm.total_output_tokens}"  # type: ignore
-            )
+        self._log(f"[PROFILING] LLM time: {llm.total_llm_time:.2f}s")
+        self._log(f"[PROFILING] Non-LLM time: {elapsed - llm.total_llm_time:.2f}s")
+        self._log(f"[PROFILING] Total input tokens: {llm.total_input_tokens}")
+        self._log(f"[PROFILING] Total output tokens: {llm.total_output_tokens}")
 
     # ------------------------------------------------------------------
     # Skill dispatch
@@ -305,45 +289,12 @@ class SkillsAgent:
         parts += ["", "Call the next skill."]
         return "\n".join(parts)
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    def _load_external_tables(self, external_table_paths: list[str]) -> None:
-        self.external_tables = self.table_reader.process_external_tables(
-            external_table_paths
-        )
-        if not self.external_tables:
-            return
-        self._log("External tables loaded")
-        for idx, doc in enumerate(self.external_tables):
-            last_id = getattr(doc, "last_node_id", None)
-            if last_id and self.prov_graph.get_node_by_id(last_id):
-                continue
-            node = ProvenanceNode(
-                source_retriever=RetrieverType.USER,
-                python_code=self.action_set.generate_read_external_tables_code(
-                    idx + 1, doc
-                ),
-                description="Reads a user-uploaded table.",
-            )
-            self.prov_graph.add_node(node, True)
-            doc.last_node_id = node.id
-            self.db_api.persist_df(
-                self.user_id,
-                self.chat_id,
-                cast(DataFrame, doc.content),
-                doc.doc_id,
-                True,
-            )
-
     def _reset(self) -> None:
         self._done = False
         self._user_response = ""
         self._messages = []
         self._skill_calls = []
-        if hasattr(self.language_model_api.llm, "reset_metrics"):
-            self.language_model_api.llm.reset_metrics()  # type: ignore
+        self.language_model_api.llm.reset_metrics()
 
     def _log(self, text: str) -> None:
         formatted_log(self.logger, "SKILLS_AGENT", text)

@@ -58,6 +58,7 @@ class SkillsAgentTests(unittest.TestCase):
                 workspace_db_path=str(workspace_db_path),
             ),
             language_model_api=LanguageModelAPI(config, self.logger),
+            frontend_callback=lambda _: None,
         )
 
     # ------------------------------------------------------------------
@@ -321,8 +322,8 @@ class SkillsAgentTests(unittest.TestCase):
     # Token tracking
     # ------------------------------------------------------------------
 
-    def test_token_profiling_silent_without_counters(self):
-        """MockLLM has no token counters; hasattr guards must be silent."""
+    def test_token_profiling_defaults_to_zero(self):
+        """All models have token counters on AbstractModel; default values are 0."""
         self.agent.language_model_api.llm._responses = [  # type: ignore
             '{"skill": "respond", "args": {"message": "ok"}}',
         ]
@@ -332,16 +333,14 @@ class SkillsAgentTests(unittest.TestCase):
         )
 
         self.assertEqual(responses[-1].message, "ok")
-        self.assertFalse(
-            hasattr(self.agent.language_model_api.llm, "total_input_tokens")
-        )
+        self.assertEqual(self.agent.language_model_api.llm.total_input_tokens, 0)
+        self.assertEqual(self.agent.language_model_api.llm.total_output_tokens, 0)
 
     def test_token_profiling_reads_counters_when_present(self):
         llm = self.agent.language_model_api.llm
         llm.total_input_tokens = 100  # type: ignore
         llm.total_output_tokens = 50  # type: ignore
         llm.total_llm_time = 1.5  # type: ignore
-        llm.reset_metrics = lambda: None  # type: ignore
 
         self.agent.language_model_api.llm._responses = [  # type: ignore
             '{"skill": "respond", "args": {"message": "counted"}}',
@@ -352,44 +351,6 @@ class SkillsAgentTests(unittest.TestCase):
         )
 
         self.assertIn("counted", responses[-1].message)
-
-    # ------------------------------------------------------------------
-    # External table upload
-    # ------------------------------------------------------------------
-
-    def test_external_table_upload_creates_provenance_node(self):
-        import tempfile as tmp_mod
-
-        df = pd.DataFrame({"col1": [1, 2], "col2": ["a", "b"]})
-        tmp = tmp_mod.NamedTemporaryFile(delete=False, suffix=".csv")
-        tmp_path = tmp.name
-        tmp.close()
-        df.to_csv(tmp_path, index=False)
-
-        from pneuma_seeker.shared.schemas.core.ir_system import Table
-
-        uploaded = Table(
-            doc_id="uploaded_table_1",
-            retriever_type=RetrieverType.USER,
-            content=pd.DataFrame(),
-            metadata={},
-            path=tmp_path,
-        )
-        self.agent.table_reader.process_external_tables = MagicMock(
-            return_value=[uploaded]
-        )
-
-        self.agent.language_model_api.llm._responses = [  # type: ignore
-            '{"skill": "respond", "args": {"message": "External data read successfully."}}'
-        ]
-
-        list(
-            self.agent.chat(
-                "upload", interaction_history=[], external_table_paths=[tmp_path]
-            )
-        )
-
-        self.assertEqual(len(self.agent.prov_graph.nodes), 2)
 
     # ------------------------------------------------------------------
     # Relational reification (define_target)

@@ -28,17 +28,6 @@ from pneuma_seeker.shared.schemas.core.ir_system import (
 )
 
 
-def _mat_gen(result):
-    """One-shot generator that immediately returns `result` via StopIteration.
-
-    The unreachable `yield` below is intentional: it makes Python treat this
-    function as a generator function so that calling it returns a generator
-    object (required for the Conductor's streaming dispatch).
-    """
-    return result
-    yield  # noqa: unreachable
-
-
 class ConductorTests(unittest.TestCase):
     def setUp(self):
         config = Config(".env.test")
@@ -67,6 +56,7 @@ class ConductorTests(unittest.TestCase):
                 workspace_db_path=str(workspace_db_path),
             ),
             language_model_api=LanguageModelAPI(config, self.logger),
+            frontend_callback=lambda _: None,
         )
 
     def tearDown(self):
@@ -113,7 +103,7 @@ class ConductorTests(unittest.TestCase):
         self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
             {{"action":"{ActionNames.WEB_SEARCH.value}","args":{{"prompt":"web search query"}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"web done"}}}}
-        ]}}"""]  # type: ignore
+        ]}}"""]
         self.conductor.action_set.retrieve_documents = MagicMock(
             return_value=[
                 Text(
@@ -131,7 +121,9 @@ class ConductorTests(unittest.TestCase):
             external_table_paths=[],
         )
         responses = list(gen)
-        self.assertIn("web done", responses[-1].message, "Expected web done in final response")
+        self.assertIn(
+            "web done", responses[-1].message, "Expected web done in final response"
+        )
         self.assertIsNotNone(
             self.conductor.web_search_result,
             "web_search_result should be set after web_search call",
@@ -161,7 +153,9 @@ class ConductorTests(unittest.TestCase):
         )
         responses = list(gen)
         self.assertIn(
-            "web crawl done", responses[-1].message, "Expected web crawl done in final response"
+            "web crawl done",
+            responses[-1].message,
+            "Expected web crawl done in final response",
         )
         self.assertIsNotNone(
             self.conductor.web_crawl_result,
@@ -353,14 +347,14 @@ class ConductorTests(unittest.TestCase):
         self.assertListEqual(list(result.columns), ["a", "b"])
 
     def test_materializer_mode_update_passed_correctly(self):
-        """MATERIALIZER with mode=update must call stream_materialize_T with update_mode=True."""
+        """MATERIALIZER with mode=update must call materialize_T with update_mode=True."""
         captured = {}
 
         def fake_stream(T, col_desc, S, note="", update_mode=False, *args, **kwargs):
             captured["update_mode"] = update_mode
-            return _mat_gen(([], None, None, None, {"t1": pd.DataFrame({"a": [1]})}))
+            return ([], None, None, None, {"t1": pd.DataFrame({"a": [1]})})
 
-        self.conductor.materializer.stream_materialize_T = fake_stream  # type: ignore
+        self.conductor.materializer.materialize_T = fake_stream  # type: ignore
 
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
@@ -382,14 +376,14 @@ class ConductorTests(unittest.TestCase):
         )
 
     def test_materializer_mode_fresh_when_mode_omitted(self):
-        """MATERIALIZER without mode arg must call stream_materialize_T with update_mode=False."""
+        """MATERIALIZER without mode arg must call materialize_T with update_mode=False."""
         captured = {}
 
         def fake_stream(T, col_desc, S, note="", update_mode=False, *args, **kwargs):
             captured["update_mode"] = update_mode
-            return _mat_gen(([], None, None, None, {"t1": pd.DataFrame({"a": [1]})}))
+            return ([], None, None, None, {"t1": pd.DataFrame({"a": [1]})})
 
-        self.conductor.materializer.stream_materialize_T = fake_stream  # type: ignore
+        self.conductor.materializer.materialize_T = fake_stream  # type: ignore
 
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
@@ -411,14 +405,14 @@ class ConductorTests(unittest.TestCase):
         )
 
     def test_materializer_mode_fresh_when_mode_is_reset(self):
-        """MATERIALIZER with mode=reset must call stream_materialize_T with update_mode=False."""
+        """MATERIALIZER with mode=reset must call materialize_T with update_mode=False."""
         captured = {}
 
         def fake_stream(T, col_desc, S, note="", update_mode=False, *args, **kwargs):
             captured["update_mode"] = update_mode
-            return _mat_gen(([], None, None, None, {"t1": pd.DataFrame({"a": [1]})}))
+            return ([], None, None, None, {"t1": pd.DataFrame({"a": [1]})})
 
-        self.conductor.materializer.stream_materialize_T = fake_stream  # type: ignore
+        self.conductor.materializer.materialize_T = fake_stream  # type: ignore
 
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
@@ -451,10 +445,8 @@ class ConductorTests(unittest.TestCase):
             ]}}""",
         ]
         expected_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
-        self.conductor.materializer.stream_materialize_T = MagicMock(
-            side_effect=lambda *a, **kw: _mat_gen(
-                ([], None, None, None, {"t1": expected_df})
-            )
+        self.conductor.materializer.materialize_T = MagicMock(
+            return_value=([], None, None, None, {"t1": expected_df})
         )
         self.conductor.action_set.execute_code = MagicMock(
             return_value=pd.DataFrame({"sum": [3]})
@@ -505,50 +497,6 @@ class ConductorTests(unittest.TestCase):
         )
         responses = list(gen)
         self.assertIn("info provided", responses[-1].message)
-
-    def test_external_table_upload_creates_provenance_node(self):
-        """Tests that uploading an external table results in a new provenance node."""
-        import tempfile
-
-        df = pd.DataFrame({"col1": [1, 2], "col2": ["a", "b"]})
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".csv")
-        tmp_path = tmp.name
-        tmp.close()
-        df.to_csv(tmp_path, index=False)
-
-        uploaded_table = Table(
-            doc_id="uploaded_table_1",
-            retriever_type=RetrieverType.USER,
-            content=pd.DataFrame(),
-            metadata={},
-            path=tmp_path,
-        )
-        self.conductor.table_reader.process_external_tables = MagicMock(
-            return_value=[uploaded_table]
-        )
-
-        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
-            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"External data read successfuly."}}}}
-        ]}}"""]  # type: ignore
-        gen = self.conductor.chat(
-            user_message="upload",
-            interaction_history=[],
-            external_table_paths=[tmp_path],
-        )
-        list(gen)
-
-        self.assertTrue(len(self.conductor.prov_graph.nodes) == 2)
-        prov_graph_code_lines = [
-            self.conductor.prov_graph.ROOT_NODE_CODE,
-            self.conductor.action_set.generate_read_external_tables_code(
-                1, uploaded_table
-            ),
-        ]
-        expected_prov_graph_code_concat = "\n\n".join(prov_graph_code_lines)
-        self.assertEqual(
-            expected_prov_graph_code_concat,
-            self.conductor.prov_graph.get_graph_code(),
-        )
 
 
 if __name__ == "__main__":

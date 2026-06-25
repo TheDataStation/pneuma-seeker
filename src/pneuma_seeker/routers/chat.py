@@ -25,6 +25,10 @@ from fastapi.responses import (
 
 from pneuma_seeker.models import ChatHistoryResponse, EndpointTag, PermissionKey
 from pneuma_seeker.routers.auth import get_current_user, get_current_user_permissions
+from pneuma_seeker.services.core.conductor.models import (
+    ConductorResponse,
+    ConductorResponseType,
+)
 from pneuma_seeker.services.db.pneuma_db import PneumaDB
 from pneuma_seeker.services.db.users.models import UserRecord
 from pneuma_seeker.session_manager import SessionManager
@@ -77,14 +81,26 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
 
         response_queue: Queue[str | None] = Queue()
 
-        def iter_chat_responses():
-            assert latest_user_message is not None
-            return chat_session.chat(latest_user_message, files)
+        def send_to_frontend(resp: ConductorResponse) -> None:
+            if resp.type == ConductorResponseType.LOG:
+                response_queue.put(stream_payload("log", resp.message))
+            elif resp.type == ConductorResponseType.FINAL_RESPONSE:
+                response_queue.put(stream_payload("assistant", resp.message))
+            elif resp.type == ConductorResponseType.DONE:
+                response_queue.put(
+                    stream_payload(
+                        "done",
+                        f"Processing done in {datetime.now().timestamp() - start:.2f}s.",
+                    )
+                )
 
         def run_chat():
+            assert latest_user_message is not None
             try:
-                for msg in iter_chat_responses():
-                    response_queue.put(msg)
+                for response in chat_session.chat(
+                    latest_user_message, files, frontend_callback=send_to_frontend
+                ):
+                    send_to_frontend(response)
             finally:
                 response_queue.put(None)
 
@@ -110,12 +126,15 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
 
             peak_rss = baseline_rss
 
+            assert latest_user_message is not None
             try:
-                for msg in iter_chat_responses():
+                for response in chat_session.chat(
+                    latest_user_message, files, frontend_callback=send_to_frontend
+                ):
                     cur = rss_mb()
                     peak_rss = max(peak_rss, cur)
                     logger.info(f"[MEM] RSS now: {cur:.2f} MB")
-                    response_queue.put(msg)
+                    send_to_frontend(response)
             finally:
                 cur, peak = get_traced_memory()
                 stop()
@@ -143,17 +162,7 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                     if response is None:
                         break
 
-                    if response.startswith("LOG"):
-                        payload = stream_payload("log", response)
-                    elif response.startswith("DONE"):
-                        payload = stream_payload(
-                            "done",
-                            f"Processing done in {datetime.now().timestamp() - start:.2f}s.",
-                        )
-                    else:
-                        payload = stream_payload("assistant", response)
-
-                    yield payload
+                    yield response
                     await sleep(0)
                 except Exception as e:
                     logger.info(f"Exception raised: {e}")
@@ -231,7 +240,7 @@ async def get_state(chat_id: str, current_user: UserRecord = Depends(get_current
     prov_steps: list[str] = []
     if conductor.state.is_T_materialized:
         prov_explanation_steps_markdown = (
-            conductor.materializer.prov_graph.get_graph_explanation()
+            conductor.materializer.prov_graph.get_graph_explanation()  # type: ignore
         )
         if prov_explanation_steps_markdown:
             prov_steps = [str(step_md) for step_md in prov_explanation_steps_markdown]
@@ -318,7 +327,7 @@ def get_e2e_script(chat_id: str, current_user: UserRecord = Depends(get_current_
     """
     user_id = current_user.user_id
     chat_session = session_manager.get_chat_session(user_id, chat_id)
-    materializer_code = chat_session.conductor.materializer.prov_graph.get_graph_code()
+    materializer_code = chat_session.conductor.materializer.prov_graph.get_graph_code()  # type: ignore
 
     file_stream = BytesIO()
     file_stream.write(materializer_code.encode("utf-8"))
@@ -347,7 +356,7 @@ async def get_provenance_nodes(
 
     # Get the provenance graph instance
     chat_session = session_manager.get_chat_session(user_id, chat_id)
-    prov_graph = chat_session.conductor.materializer.prov_graph
+    prov_graph = chat_session.conductor.materializer.prov_graph  # type: ignore
 
     # Convert all nodes to JSON-serializable format
     nodes_json = []

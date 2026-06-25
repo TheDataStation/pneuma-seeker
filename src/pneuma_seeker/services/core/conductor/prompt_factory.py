@@ -175,7 +175,7 @@ Return **one JSON object** describing your planned actions for this step, e.g.:
             f"- {a.get_description(AgentType.CONDUCTOR)}" for a in actions
         )
 
-    def get_env_state_prompt(
+    def get_curr_state_prompt(
         self,
         current_step: int,
         info_need_state: ConductorState,
@@ -246,7 +246,7 @@ Retrieved Tables:
 {f"\nWeb crawl result:\n{web_crawl_result}\n" if self.config.ENABLE_WEB_CRAWL and web_crawl_result else ""}
 {ce_gate}Decide your next plan and output a JSON object of one or more actions.""".strip()
 
-    def get_skeleton_env_state_prompt(
+    def get_skeleton_curr_state_prompt(
         self,
         current_step: int,
     ) -> str:

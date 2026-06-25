@@ -1,5 +1,6 @@
 # src/pneuma_seeker/chat_session.py
 from logging import Logger
+from typing import Callable
 
 from pneuma_seeker.provenance.graph import ProvenanceGraph
 from pneuma_seeker.services.core.conductor.models import (
@@ -45,6 +46,7 @@ class ChatSession:
             ProvenanceGraph(self.logger),
             self.db_api,
             self.language_model_api,
+            frontend_callback=lambda _: None,
         )
 
         (
@@ -77,6 +79,7 @@ class ChatSession:
         self,
         user_message: str,
         external_table_paths: list[str] | None = None,
+        frontend_callback: Callable[[ConductorResponse], None] = lambda _: None,
     ):
         """Processes a user message and yields responses from Conductor."""
         external_table_paths = external_table_paths or []
@@ -92,6 +95,7 @@ class ChatSession:
             )
         )
 
+        self.conductor.frontend_callback = frontend_callback
         final_response = ""
         for conductor_response in self.conductor.chat(
             user_message,
