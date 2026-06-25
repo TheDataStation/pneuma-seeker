@@ -179,6 +179,9 @@ class ActionSet:
             {"query": query, "result_table_id": result_table_id}
         )
 
+    def user_facing_communication(self, args: dict) -> str:
+        return self.registry.get(ActionNames.USER_FACING_COMMUNICATION).execute(args)  # type: ignore[union-attr]
+
     def join_semantic(
         self,
         left_table_id: str,

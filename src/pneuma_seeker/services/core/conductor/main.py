@@ -371,19 +371,14 @@ class Conductor:
     def _handle_user_facing_communication(
         self, user_message: str, action_args: dict[str, Any]
     ) -> tuple[str, ActionExecutionStatus]:
-        self._log(f"User-Facing Communication request with params: {action_args}")
-        message = action_args.get("message")
-        if not isinstance(message, str):
-            error_msg = "=> `args` must be an object with a `message` property"
-            self._log(f"=> {error_msg}")
-            return error_msg, ActionExecutionStatus.ERROR
-        if len(message.strip()) == 0:
-            error_msg = "=> `message` must be a non-empty string"
-            self._log(f"=> {error_msg}")
-            return error_msg, ActionExecutionStatus.ERROR
+        try:
+            message = self.action_set.user_facing_communication(action_args)
+        except ValueError as e:
+            self._log(f"=> {e}")
+            return str(e), ActionExecutionStatus.ERROR
         self.user_facing_response = message
         success_msg = f"You communicated to the user: {message}"
-        self._log(f"=> {success_msg}")
+        self._log(success_msg)
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_table_retrieve(
