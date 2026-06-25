@@ -5,11 +5,12 @@ from pneuma_seeker.services.core.conductor.state import ConductorState
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.schemas.core.action import ActionNames
 from pneuma_seeker.shared.schemas.core.agent import AgentType
-from pneuma_seeker.shared.schemas.core.conductor import UserConductorInteraction
 from pneuma_seeker.shared.schemas.core.ir_system import (
     AbstractDocument,
     convert_retrieval_results_to_str,
 )
+from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
+from pneuma_seeker.shared.schemas.language_model.role import Role
 
 
 class ConductorPromptFactory:
@@ -178,7 +179,7 @@ Return **one JSON object** describing your planned actions for this step, e.g.:
         self,
         current_step: int,
         info_need_state: ConductorState,
-        interaction_history: list[UserConductorInteraction],
+        interaction_history: list[LLMMessage],
         actions_taken: list[str],
         retrieved_tables: list[AbstractDocument],
         user_input: str,
@@ -285,11 +286,12 @@ Please output your decision in the following format:
         """Gets the direct response anyway prompt for Conductor."""
         return f"""You have reached the maximum number of steps. Please answer the current user input. You are essentially asked to produce a `{ActionNames.USER_FACING_COMMUNICATION.value}` response but without the JSON format requirements. Simply output the response answering the current user input."""
 
-    def __convert_interactions_to_str(
-        self, interactions: list[UserConductorInteraction]
-    ) -> str:
+    def __convert_interactions_to_str(self, messages: list[LLMMessage]) -> str:
         interaction_repr = ""
-        for interaction in interactions:
-            interaction_repr += f"- {interaction}\n"
-        interaction_repr = interaction_repr.strip()
-        return interaction_repr
+        for i in range(0, len(messages) - 1, 2):
+            if (
+                messages[i]["role"] == Role.USER.value
+                and messages[i + 1]["role"] == Role.ASSISTANT.value
+            ):
+                interaction_repr += f'- {{"user input": {messages[i]["content"]}, "your response": {messages[i + 1]["content"]}}}\n'
+        return interaction_repr.strip()

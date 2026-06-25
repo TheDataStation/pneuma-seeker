@@ -110,6 +110,11 @@ class Config:
             == "true"
         )
 
+        # Session Manager Settings
+        self.SESSION_MANAGER_MAX_SESSIONS = int(
+            getenv("SESSION_MANAGER_MAX_SESSIONS", "1000")
+        )
+
         # Auth Settings
         self.AUTH_TOKEN_TTL_SECONDS = int(getenv("AUTH_TOKEN_TTL_SECONDS", "36000"))
         self.AUTH_PASSWORD_HASH_ITERATIONS = int(

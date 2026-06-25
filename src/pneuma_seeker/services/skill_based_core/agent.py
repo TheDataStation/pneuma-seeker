@@ -11,10 +11,10 @@ from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
 from pneuma_seeker.services.core.conductor.state import ConductorState
 from pneuma_seeker.services.skill_based_core.skills import discover_skills
 from pneuma_seeker.services.skill_based_core.skills.base import SkillBase
+from pneuma_seeker.services.core.conductor.models import ConductorResponse, ConductorResponseType
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import formatted_log
 from pneuma_seeker.shared.parser import parse_json
-from pneuma_seeker.shared.schemas.core.conductor import UserConductorInteraction
 from pneuma_seeker.shared.schemas.core.ir_system import (
     AbstractDocument,
     RetrieverType,
@@ -131,7 +131,7 @@ class SkillsAgent:
     def chat(
         self,
         user_input: str,
-        interaction_history: list[UserConductorInteraction],
+        interaction_history: list[LLMMessage],
         external_table_paths: list[str],
     ):
         """Drive the skills loop; yields LOG strings then the final user response."""
@@ -151,7 +151,7 @@ class SkillsAgent:
         step = 0
         while not self._done and step < self.MAX_STEPS:
             step += 1
-            yield f"LOG: [Step {step} / {self.MAX_STEPS}] Deciding next skill..."
+            yield ConductorResponse(ConductorResponseType.LOG, f"[Step {step} / {self.MAX_STEPS}] Deciding next skill...")
             self._log(f"Step {step}/{self.MAX_STEPS}")
 
             ctx = self._build_context(step, user_input, interaction_history)
@@ -167,7 +167,7 @@ class SkillsAgent:
                 )
             except Exception as exc:
                 self._log(f"LLM error: {exc}")
-                yield f"LOG: LLM error: {exc}"
+                yield ConductorResponse(ConductorResponseType.LOG, f"LLM error: {exc}")
                 raise exc
 
             self._log(f"LLM: {full_response}")
@@ -189,7 +189,7 @@ class SkillsAgent:
                 self._messages.append(
                     LLMMessage(role=Role.USER.value, content=result_content)
                 )
-                yield f"LOG: Skill '{skill_name}' executed."
+                yield ConductorResponse(ConductorResponseType.LOG, f"Skill '{skill_name}' executed.")
             except Exception as exc:
                 err = f"Error parsing/executing skill: {exc}"
                 self._log(err)
@@ -224,7 +224,7 @@ class SkillsAgent:
                 self.language_model_api.chat(self._messages, LLMOption(stream=True))
             )
 
-        yield self._user_response
+        yield ConductorResponse(ConductorResponseType.FINAL_RESPONSE, self._user_response)
 
         chat_end_time = time()
         elapsed = chat_end_time - chat_start_time
@@ -267,7 +267,7 @@ class SkillsAgent:
         self,
         step: int,
         user_input: str,
-        interaction_history: list[UserConductorInteraction],
+        interaction_history: list[LLMMessage],
     ) -> str:
         parts: list[str] = [
             f"Step {step} / {self.MAX_STEPS}",
@@ -276,8 +276,10 @@ class SkillsAgent:
         ]
         if interaction_history:
             parts += ["", "Recent interactions:"]
-            for h in interaction_history[-3:]:
-                parts.append(f"  {h}")
+            recent = interaction_history[-6:]
+            for i in range(0, len(recent) - 1, 2):
+                if recent[i]["role"] == Role.USER.value and recent[i + 1]["role"] == Role.ASSISTANT.value:
+                    parts.append(f'  {{"user input": {recent[i]["content"]}, "your response": {recent[i + 1]["content"]}}}')
         if self.external_tables:
             parts += ["", "External tables (user-uploaded):"]
             parts.append(convert_retrieval_results_to_str(self.external_tables))

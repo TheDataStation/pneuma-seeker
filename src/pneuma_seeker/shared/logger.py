@@ -46,4 +46,7 @@ def setup_logger(
 
 
 def formatted_log(logger: logging.Logger, component_name: str, text: str):
+    """
+    Logs a message with a specific format, including the component name.
+    """
     logger.info(f"[{component_name}] {text}")

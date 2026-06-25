@@ -5,7 +5,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-
 sys.path.insert(
     0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../src"))
 )
@@ -95,14 +94,14 @@ class ConductorTests(unittest.TestCase):
         )
 
         gen = self.conductor.chat(
-            user_input="Find relevant tables",
+            user_message="Find relevant tables",
             interaction_history=[],
             external_table_paths=[],
         )
         responses = list(gen)
         self.assertIn(
             "done",
-            responses[-1],
+            responses[-1].message,
             "Expected final user-facing response to contain 'done'",
         )
         self.assertTrue(
@@ -111,12 +110,10 @@ class ConductorTests(unittest.TestCase):
         )
 
     def test_web_search_sets_web_search_result(self):
-        self.conductor.language_model_api.llm._responses = [  # type: ignore
-            f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
             {{"action":"{ActionNames.WEB_SEARCH.value}","args":{{"prompt":"web search query"}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"web done"}}}}
-        ]}}"""
-        ]
+        ]}}"""]  # type: ignore
         self.conductor.action_set.retrieve_documents = MagicMock(
             return_value=[
                 Text(
@@ -129,24 +126,22 @@ class ConductorTests(unittest.TestCase):
         )
 
         gen = self.conductor.chat(
-            user_input="Look up web",
+            user_message="Look up web",
             interaction_history=[],
             external_table_paths=[],
         )
         responses = list(gen)
-        self.assertIn("web done", responses[-1], "Expected web done in final response")
+        self.assertIn("web done", responses[-1].message, "Expected web done in final response")
         self.assertIsNotNone(
             self.conductor.web_search_result,
             "web_search_result should be set after web_search call",
         )
 
     def test_web_crawl_sets_web_crawl_result(self):
-        self.conductor.language_model_api.llm._responses = [  # type: ignore
-            f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
             {{"action":"{ActionNames.WEB_CRAWL.value}","args":{{"url":"http://example.com"}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"web crawl done"}}}}
-        ]}}"""
-        ]
+        ]}}"""]  # type: ignore
 
         self.conductor.action_set.retrieve_documents = MagicMock(
             return_value=[
@@ -160,13 +155,13 @@ class ConductorTests(unittest.TestCase):
         )
 
         gen = self.conductor.chat(
-            user_input="Look up this URL: http://example.com",
+            user_message="Look up this URL: http://example.com",
             interaction_history=[],
             external_table_paths=[],
         )
         responses = list(gen)
         self.assertIn(
-            "web crawl done", responses[-1], "Expected web crawl done in final response"
+            "web crawl done", responses[-1].message, "Expected web crawl done in final response"
         )
         self.assertIsNotNone(
             self.conductor.web_crawl_result,
@@ -174,12 +169,10 @@ class ConductorTests(unittest.TestCase):
         )
 
     def test_table_enumerator_updates_enumerated_ids(self):
-        self.conductor.language_model_api.llm._responses = [  # type: ignore
-            f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
             {{"action":"{ActionNames.TABLE_ENUMERATION.value}","args":{{"patterns":["pattern"]}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"enum done"}}}}
-        ]}}"""
-        ]
+        ]}}"""]  # type: ignore
 
         self.conductor.action_set.retrieve_multi_topic_documents = MagicMock(
             return_value=[
@@ -193,28 +186,26 @@ class ConductorTests(unittest.TestCase):
         )
 
         gen = self.conductor.chat(
-            user_input="enumerate",
+            user_message="enumerate",
             interaction_history=[],
             external_table_paths=[],
         )
         responses = list(gen)
-        self.assertIn("enum done", responses[-1])
+        self.assertIn("enum done", responses[-1].message)
         self.assertIsInstance(self.conductor.enumerated_tables, list)
 
     def test_state_manipulation_sets_only_S(self):
-        self.conductor.language_model_api.llm._responses = [  # type: ignore
-            f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
             {{"action":"state_manipulation","args":{{"S":"result = something"}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"S set"}}}}
-        ]}}"""
-        ]
+        ]}}"""]  # type: ignore
         gen = self.conductor.chat(
-            user_input="set S",
+            user_message="set S",
             interaction_history=[],
             external_table_paths=[],
         )
         responses = list(gen)
-        self.assertIn("S set", responses[-1])
+        self.assertIn("S set", responses[-1].message)
 
         state = self.conductor.state
         self.assertEqual(state.S, "result = something")
@@ -224,20 +215,18 @@ class ConductorTests(unittest.TestCase):
         self.assertEqual(state.column_descriptions, {})
 
     def test_state_manipulation_sets_only_T(self):
-        self.conductor.language_model_api.llm._responses = [  # type: ignore
-            f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
             {{"action":"state_manipulation","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"T set"}}}}
-        ]}}"""
-        ]
+        ]}}"""]  # type: ignore
 
         gen = self.conductor.chat(
-            user_input="set T",
+            user_message="set T",
             interaction_history=[],
             external_table_paths=[],
         )
         responses = list(gen)
-        self.assertIn("T set", responses[-1])
+        self.assertIn("T set", responses[-1].message)
 
         state = self.conductor.state
         self.assertIn("t1", state.T)
@@ -249,20 +238,18 @@ class ConductorTests(unittest.TestCase):
         self.assertFalse(state.is_S_executed)
 
     def test_state_manipulation_sets_S_and_T(self):
-        self.conductor.language_model_api.llm._responses = [  # type: ignore
-            f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
             {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"S":"result = pd.DataFrame({{'sum': [tables['t1']['a'].sum()]}})"}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"state done"}}}}
-        ]}}"""
-        ]
+        ]}}"""]  # type: ignore
         gen = self.conductor.chat(
-            user_input="set S and T",
+            user_message="set S and T",
             interaction_history=[],
             external_table_paths=[],
         )
         responses = list(gen)
 
-        self.assertIn("state done", responses[-1])
+        self.assertIn("state done", responses[-1].message)
 
         state = self.conductor.state
         self.assertIn("t1", state.T)
@@ -284,20 +271,18 @@ class ConductorTests(unittest.TestCase):
         )
 
         # First STATE_MANIPULATION: define T={t1}
-        self.conductor.language_model_api.llm._responses = [  # type: ignore
-            f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
             {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"T set"}}}}
-        ]}}"""
-        ]
+        ]}}"""]  # type: ignore
         responses = list(
             self.conductor.chat(
-                user_input="set T",
+                user_message="set T",
                 interaction_history=[],
                 external_table_paths=[],
             )
         )
-        self.assertIn("T set", responses[-1])
+        self.assertIn("T set", responses[-1].message)
 
         # In-memory state updated
         self.assertIn("t1", self.conductor.state.T)
@@ -312,20 +297,18 @@ class ConductorTests(unittest.TestCase):
         self.assertEqual(tables_after_first, baseline_tables)
 
         # Second STATE_MANIPULATION: redefine T={t2}
-        self.conductor.language_model_api.llm._responses = [  # type: ignore
-            f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
             {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t2":["a","b"]}},"column_descriptions":{{"t2":{{"a":"col a"}}}}}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"T reset"}}}}
-        ]}}"""
-        ]
+        ]}}"""]  # type: ignore
         responses = list(
             self.conductor.chat(
-                user_input="set T again",
+                user_message="set T again",
                 interaction_history=[],
                 external_table_paths=[],
             )
         )
-        self.assertIn("T reset", responses[-1])
+        self.assertIn("T reset", responses[-1].message)
 
         # In-memory: t1 replaced by t2
         self.assertNotIn("t1", self.conductor.state.T)
@@ -350,15 +333,13 @@ class ConductorTests(unittest.TestCase):
             True,
         )
 
-        self.conductor.language_model_api.llm._responses = [  # type: ignore
-            f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
             {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b","c"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"T redefined"}}}}
-        ]}}"""
-        ]
+        ]}}"""]  # type: ignore
         list(
             self.conductor.chat(
-                user_input="redefine T",
+                user_message="redefine T",
                 interaction_history=[],
                 external_table_paths=[],
             )
@@ -390,7 +371,7 @@ class ConductorTests(unittest.TestCase):
         ]
         list(
             self.conductor.chat(
-                user_input="update mode test",
+                user_message="update mode test",
                 interaction_history=[],
                 external_table_paths=[],
             )
@@ -419,7 +400,7 @@ class ConductorTests(unittest.TestCase):
         ]
         list(
             self.conductor.chat(
-                user_input="fresh mode test",
+                user_message="fresh mode test",
                 interaction_history=[],
                 external_table_paths=[],
             )
@@ -448,7 +429,7 @@ class ConductorTests(unittest.TestCase):
         ]
         list(
             self.conductor.chat(
-                user_input="reset mode test",
+                user_message="reset mode test",
                 interaction_history=[],
                 external_table_paths=[],
             )
@@ -480,7 +461,7 @@ class ConductorTests(unittest.TestCase):
         )
 
         gen = self.conductor.chat(
-            user_input="materialize T",
+            user_message="materialize T",
             interaction_history=[],
             external_table_paths=[],
         )
@@ -518,12 +499,12 @@ class ConductorTests(unittest.TestCase):
         ]}}""",
         ]
         gen = self.conductor.chat(
-            user_input="check assumptions",
+            user_message="check assumptions",
             interaction_history=[],
             external_table_paths=[],
         )
         responses = list(gen)
-        self.assertIn("info provided", responses[-1])
+        self.assertIn("info provided", responses[-1].message)
 
     def test_external_table_upload_creates_provenance_node(self):
         """Tests that uploading an external table results in a new provenance node."""
@@ -546,13 +527,11 @@ class ConductorTests(unittest.TestCase):
             return_value=[uploaded_table]
         )
 
-        self.conductor.language_model_api.llm._responses = [  # type: ignore
-            f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"External data read successfuly."}}}}
-        ]}}"""
-        ]
+        ]}}"""]  # type: ignore
         gen = self.conductor.chat(
-            user_input="upload",
+            user_message="upload",
             interaction_history=[],
             external_table_paths=[tmp_path],
         )

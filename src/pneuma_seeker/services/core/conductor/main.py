@@ -11,6 +11,7 @@ from pneuma_seeker.services.core.action_set.main import ActionSet
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
 from pneuma_seeker.services.core.conductor.ds_skeptic import DSSkeptic
+from pneuma_seeker.services.core.conductor.models import ConductorResponse, ConductorResponseType
 from pneuma_seeker.services.core.conductor.prompt_factory import ConductorPromptFactory
 from pneuma_seeker.services.core.conductor.state import ConductorState
 from pneuma_seeker.services.core.materializer.main import Materializer
@@ -18,7 +19,6 @@ from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import formatted_log
 from pneuma_seeker.shared.parser import parse_json
 from pneuma_seeker.shared.schemas.core.action import ActionExecutionStatus, ActionNames
-from pneuma_seeker.shared.schemas.core.conductor import UserConductorInteraction
 from pneuma_seeker.shared.schemas.core.ir_system import (
     AbstractDocument,
     RetrieverType,
@@ -91,7 +91,7 @@ class Conductor:
         self.llm_messages: list[LLMMessage] = []
         self.premade_plans = deque()
         self._skeptic_rounds = 0
-        self._current_user_input: str = ""
+        self._current_user_message: str = ""
         self._pending_skeptic_feedback: str | None = None
         self._skeptic_pushed_back: bool = False
 
@@ -120,14 +120,14 @@ class Conductor:
 
     def chat(
         self,
-        user_input: str,
-        interaction_history: list[UserConductorInteraction],
+        user_message: str,
+        interaction_history: list[LLMMessage],
         external_table_paths: list[str],
     ):
         """Processes user input and yields responses."""
         chat_start_time = time()
-        self.__log(f"Processing user input: {user_input}")
-        self._current_user_input = user_input
+        self.__log(f"Processing user input: {user_message}")
+        self._current_user_message = user_message
         self.__reset_conductor()
         self.external_tables = self.table_reader.process_external_tables(
             external_table_paths
@@ -178,7 +178,7 @@ class Conductor:
             and current_step < self.config.MAX_CONDUCTOR_STEPS
         ):
             current_step += 1
-            yield f"LOG: [Step {current_step} / up to {self.config.MAX_CONDUCTOR_STEPS}] Planning the next sequence of actions..."
+            yield ConductorResponse(ConductorResponseType.LOG, f"[Step {current_step} / up to {self.config.MAX_CONDUCTOR_STEPS}] Planning the next sequence of actions...")
             self.__log(
                 f"Asking the model to produce a sequence of actions (Current step: {current_step}/{self.config.MAX_CONDUCTOR_STEPS})..."
             )
@@ -191,7 +191,7 @@ class Conductor:
                         interaction_history,
                         self.actions,
                         self.retrieved_tables,
-                        user_input,
+                        user_message,
                         self.enumerated_tables,
                         self.external_tables,
                         self.web_search_result,
@@ -217,7 +217,7 @@ class Conductor:
                     f"An unexpected error occurred while generating the plan: {exc}."
                 )
                 self.__log(error_msg)
-                yield f"LOG: {error_msg}"
+                yield ConductorResponse(ConductorResponseType.LOG, error_msg)
                 raise exc
             self.__log(f"=> Model responded with a plan: {full_response}")
             self.llm_messages.append(
@@ -311,7 +311,7 @@ class Conductor:
                 self.actions.append(str(plan))
             except Exception as exc:
                 self.__log(f"=> Unexpected error occurred: {exc}")
-                yield "LOG: Fixing error in produced plan..."
+                yield ConductorResponse(ConductorResponseType.LOG, "Fixing error in produced plan...")
                 self.llm_messages.append(
                     LLMMessage(
                         role=Role.USER.value,
@@ -325,7 +325,7 @@ class Conductor:
                 action_name: str = action_plan.get("action", "")
                 action_args: dict = action_plan.get("args", {})
 
-                yield f"LOG: Executing action: {action_name}..."
+                yield ConductorResponse(ConductorResponseType.LOG, f"Executing action: {action_name}...")
                 result = self.__execute_action(action_name, action_args)
                 if inspect.isgenerator(result):
                     action_outcome = ""
@@ -333,7 +333,7 @@ class Conductor:
                         if isinstance(item, tuple):
                             action_outcome, _ = item
                         else:
-                            yield f"LOG: {item}"
+                            yield ConductorResponse(ConductorResponseType.LOG, item)
                 else:
                     action_outcome, _ = result
                 self.llm_messages.append(
@@ -342,7 +342,7 @@ class Conductor:
 
                 # Drain log queue (CONTEXT_EXTRACTION and other non-streaming actions)
                 for log_msg in self._log_queue:
-                    yield f"LOG: {log_msg}"
+                    yield ConductorResponse(ConductorResponseType.LOG, log_msg)
                 self._log_queue.clear()
 
                 # DS-Skeptic result is set inside _handle_state_manipulation;
@@ -387,7 +387,7 @@ class Conductor:
             )
             self.is_user_facing_response = True
 
-        yield self.user_facing_response
+        yield ConductorResponse(ConductorResponseType.FINAL_RESPONSE, self.user_facing_response)
 
         chat_end_time = time()
         if hasattr(self.language_model_api.llm, "total_llm_time"):
@@ -658,7 +658,7 @@ class Conductor:
                 return summary
 
             push_back, feedback = self.ds_skeptic.review(
-                self._current_user_input,
+                self._current_user_message,
                 self.state.T,
                 self.state.column_descriptions,
                 self.state.S or "",
@@ -688,7 +688,11 @@ class Conductor:
         note = ""
         if isinstance(action_args, dict) and "note" in action_args:
             note = action_args["note"]
-        mode = action_args.get("mode", "fresh") if isinstance(action_args, dict) else "fresh"
+        mode = (
+            action_args.get("mode", "fresh")
+            if isinstance(action_args, dict)
+            else "fresh"
+        )
         update_mode = mode == "update"
         self.__log(f"Materializer called (note: {note}, mode={mode})")
 
@@ -722,8 +726,14 @@ class Conductor:
                 )
                 # Use update mode when prior intermediates exist (T schema was extended,
                 # not redesigned). Fresh mode only for first-ever materialization.
-                auto_mode = "update" if self.materializer._saved_intermediate_tables else "fresh"
-                mat_result = self.__execute_action(ActionNames.MATERIALIZER.value, {"mode": auto_mode})
+                auto_mode = (
+                    "update"
+                    if self.materializer._saved_intermediate_tables
+                    else "fresh"
+                )
+                mat_result = self.__execute_action(
+                    ActionNames.MATERIALIZER.value, {"mode": auto_mode}
+                )
                 if inspect.isgenerator(mat_result):
                     for item in mat_result:
                         if isinstance(item, str):

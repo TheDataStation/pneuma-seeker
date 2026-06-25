@@ -88,7 +88,7 @@ class SkillsAgentTests(unittest.TestCase):
             )
         )
 
-        self.assertIn("done", responses[-1])
+        self.assertIn("done", responses[-1].message)
         self.assertTrue(len(self.agent.retrieved_tables) > 0)
 
     def test_web_search_sets_web_search_result(self):
@@ -115,7 +115,7 @@ class SkillsAgentTests(unittest.TestCase):
             )
         )
 
-        self.assertIn("web done", responses[-1])
+        self.assertIn("web done", responses[-1].message)
         self.assertIsNotNone(self.agent.web_search_result)
 
     def test_web_crawl_sets_web_crawl_result(self):
@@ -142,7 +142,7 @@ class SkillsAgentTests(unittest.TestCase):
             )
         )
 
-        self.assertIn("crawl done", responses[-1])
+        self.assertIn("crawl done", responses[-1].message)
         self.assertIsNotNone(self.agent.web_crawl_result)
 
     def test_enumerate_tables_populates_enumerated_tables(self):
@@ -167,7 +167,7 @@ class SkillsAgentTests(unittest.TestCase):
             )
         )
 
-        self.assertIn("enum done", responses[-1])
+        self.assertIn("enum done", responses[-1].message)
         self.assertTrue(len(self.agent.enumerated_tables) > 0)
 
     # ------------------------------------------------------------------
@@ -187,7 +187,7 @@ class SkillsAgentTests(unittest.TestCase):
             self.agent.chat("compute", interaction_history=[], external_table_paths=[])
         )
 
-        self.assertIn("python done", responses[-1])
+        self.assertIn("python done", responses[-1].message)
         self.assertIn("my_result", self.agent.workspace_table_ids)
 
     def test_run_sql_creates_workspace_table(self):
@@ -203,7 +203,7 @@ class SkillsAgentTests(unittest.TestCase):
             self.agent.chat("run sql", interaction_history=[], external_table_paths=[])
         )
 
-        self.assertIn("sql done", responses[-1])
+        self.assertIn("sql done", responses[-1].message)
         self.assertIn("sql_out", self.agent.workspace_table_ids)
 
     def test_project_table_registers_workspace_table(self):
@@ -219,7 +219,7 @@ class SkillsAgentTests(unittest.TestCase):
             self.agent.chat("project", interaction_history=[], external_table_paths=[])
         )
 
-        self.assertIn("project done", responses[-1])
+        self.assertIn("project done", responses[-1].message)
         self.assertIn("proj_out", self.agent.workspace_table_ids)
 
     def test_join_tables_registers_workspace_table(self):
@@ -235,7 +235,7 @@ class SkillsAgentTests(unittest.TestCase):
             self.agent.chat("join", interaction_history=[], external_table_paths=[])
         )
 
-        self.assertIn("join done", responses[-1])
+        self.assertIn("join done", responses[-1].message)
         self.assertIn("joined", self.agent.workspace_table_ids)
 
     # ------------------------------------------------------------------
@@ -266,7 +266,7 @@ class SkillsAgentTests(unittest.TestCase):
             self.agent.chat("probe", interaction_history=[], external_table_paths=[])
         )
 
-        self.assertIn("probe done", responses[-1])
+        self.assertIn("probe done", responses[-1].message)
 
     # ------------------------------------------------------------------
     # Control flow
@@ -282,7 +282,7 @@ class SkillsAgentTests(unittest.TestCase):
             self.agent.chat("say hi", interaction_history=[], external_table_paths=[])
         )
 
-        self.assertEqual(responses[-1], "hello user")
+        self.assertEqual(responses[-1].message, "hello user")
         self.assertEqual(
             len(self.agent.language_model_api.llm._responses),  # type: ignore
             1,
@@ -301,7 +301,7 @@ class SkillsAgentTests(unittest.TestCase):
             )
         )
 
-        self.assertIn("final", responses[-1])
+        self.assertIn("final", responses[-1].message)
 
     def test_unknown_skill_does_not_crash(self):
         self.agent.language_model_api.llm._responses = [  # type: ignore
@@ -315,7 +315,7 @@ class SkillsAgentTests(unittest.TestCase):
             )
         )
 
-        self.assertIn("recovered", responses[-1])
+        self.assertIn("recovered", responses[-1].message)
 
     # ------------------------------------------------------------------
     # Token tracking
@@ -331,7 +331,7 @@ class SkillsAgentTests(unittest.TestCase):
             self.agent.chat("anything", interaction_history=[], external_table_paths=[])
         )
 
-        self.assertEqual(responses[-1], "ok")
+        self.assertEqual(responses[-1].message, "ok")
         self.assertFalse(
             hasattr(self.agent.language_model_api.llm, "total_input_tokens")
         )
@@ -351,7 +351,7 @@ class SkillsAgentTests(unittest.TestCase):
             self.agent.chat("count", interaction_history=[], external_table_paths=[])
         )
 
-        self.assertIn("counted", responses[-1])
+        self.assertIn("counted", responses[-1].message)
 
     # ------------------------------------------------------------------
     # External table upload
@@ -408,7 +408,7 @@ class SkillsAgentTests(unittest.TestCase):
             )
         )
 
-        self.assertIn("target set", responses[-1])
+        self.assertIn("target set", responses[-1].message)
         self.assertIn("summary", self.agent.state.T)
         self.assertEqual(
             list(self.agent.state.T["summary"].content.columns),
@@ -434,7 +434,7 @@ class SkillsAgentTests(unittest.TestCase):
             )
         )
 
-        self.assertIn("S set", responses[-1])
+        self.assertIn("S set", responses[-1].message)
         self.assertIn("tables['t1']", self.agent.state.S)
         self.assertFalse(self.agent.state.T)  # T untouched (still empty)
 
@@ -452,7 +452,7 @@ class SkillsAgentTests(unittest.TestCase):
         )
 
         # Loop must continue after the error and reach respond
-        self.assertIn("recovered", responses[-1])
+        self.assertIn("recovered", responses[-1].message)
         # T must not have been set
         self.assertFalse(self.agent.state.T)
 
