@@ -125,8 +125,8 @@ class Conductor:
         ]
 
         current_step = 0
-        previous_step_input_tokens = 0
-        previous_step_output_tokens = 0
+        prev_accumulated_in_tokens = 0
+        prev_accumulated_out_tokens = 0
 
         while (
             self.user_facing_response == ""
@@ -224,8 +224,6 @@ class Conductor:
                     LLMMessage(role=Role.USER.value, content=action_outcome)
                 )
 
-                # DS-Skeptic result is set inside _handle_state_manipulation;
-                # append feedback here so it follows action_outcome in message order.
                 if self._pending_skeptic_feedback is not None:
                     self.llm_messages.append(
                         LLMMessage(
@@ -239,25 +237,16 @@ class Conductor:
                     if pushed_back:
                         break  # abort remaining plan actions
 
-            step_input_tokens = (
-                self.language_model_api.llm.total_input_tokens
-                - previous_step_input_tokens
-            )
-            previous_step_input_tokens = self.language_model_api.llm.total_input_tokens
-            self._log(
-                f"[PROFILING] Total input tokens for this step: {step_input_tokens} tokens."
-            )
+            current_input_tokens = self.language_model_api.llm.total_input_tokens
+            current_output_tokens = self.language_model_api.llm.total_output_tokens
 
-            step_output_tokens = (
-                self.language_model_api.llm.total_output_tokens
-                - previous_step_output_tokens
-            )
-            previous_step_output_tokens = (
-                self.language_model_api.llm.total_output_tokens
-            )
-            self._log(
-                f"[PROFILING] Total output tokens for this step: {step_output_tokens} tokens."
-            )
+            step_input_tokens = current_input_tokens - prev_accumulated_in_tokens
+            step_output_tokens = current_output_tokens - prev_accumulated_out_tokens
+
+            prev_accumulated_in_tokens = current_input_tokens
+            prev_accumulated_out_tokens = current_output_tokens
+
+            self._log_step_token_usage(step_input_tokens, step_output_tokens)
 
         if self.user_facing_response == "":
             self._log("Force produce user-facing response")
@@ -277,22 +266,7 @@ class Conductor:
         )
 
         chat_end_time = time()
-        llm = self.language_model_api.llm
-        self._log(
-            f"[PROFILING] Total LLM time for this chat: {llm.total_llm_time:.2f} seconds."
-        )
-        self._log(
-            f"[PROFILING] Total Non-LLM time for this chat: {(chat_end_time - chat_start_time) - llm.total_llm_time:.2f} seconds."
-        )
-        self._log(
-            f"[PROFILING] [OVERALL] Chat completed in {chat_end_time - chat_start_time:.2f} seconds."
-        )
-        self._log(
-            f"[PROFILING] Total input tokens for this chat: {llm.total_input_tokens} tokens."
-        )
-        self._log(
-            f"[PROFILING] Total output tokens for this chat: {llm.total_output_tokens} tokens."
-        )
+        self._log_profiler_metrics(chat_start_time, chat_end_time)
 
     def _validate_plan(self, plan: Any) -> list[dict[str, Any]]:
         if not isinstance(plan, list):
@@ -802,6 +776,29 @@ class Conductor:
         self._skeptic_pushed_back = False
 
         self.language_model_api.llm.reset_metrics()
+
+    def _log_step_token_usage(self, input_tokens: int, output_tokens: int):
+        self._log(
+            f"[PROFILING] Input tokens = {input_tokens}, Output tokens = {output_tokens}"
+        )
+
+    def _log_profiler_metrics(self, start_time: float, end_time: float):
+        llm = self.language_model_api.llm
+        self._log(
+            f"[PROFILING] Total LLM time for this chat: {llm.total_llm_time:.2f} seconds."
+        )
+        self._log(
+            f"[PROFILING] Total Non-LLM time for this chat: {(end_time - start_time) - llm.total_llm_time:.2f} seconds."
+        )
+        self._log(
+            f"[PROFILING] [OVERALL] Chat completed in {end_time - start_time:.2f} seconds."
+        )
+        self._log(
+            f"[PROFILING] Total input tokens for this chat: {llm.total_input_tokens} tokens."
+        )
+        self._log(
+            f"[PROFILING] Total output tokens for this chat: {llm.total_output_tokens} tokens."
+        )
 
     def _log(self, text):
         formatted_log(self.logger, "CONDUCTOR", text)
