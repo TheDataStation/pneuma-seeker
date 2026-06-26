@@ -165,7 +165,13 @@ class DBAPI:
         If no session is found, returns empty structures.
         """
         return self.pneuma_db.load_session(user_id, chat_id)
-    
+
+    def update_script_description(
+        self, user_id: str, chat_id: str, description: str
+    ) -> None:
+        """Persists a lazily-generated script description to session_metadata."""
+        self.pneuma_db.update_script_description(user_id, chat_id, description)
+
     def get_user_chat_sessions(
         self, user_id: str, limit: int = 10, offset: int = 0
     ) -> dict[str, Any]:

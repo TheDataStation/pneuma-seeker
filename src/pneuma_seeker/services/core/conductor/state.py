@@ -18,6 +18,7 @@ class ConductorState:
         self.column_descriptions: dict[str, dict[str, str]] = dict()
 
         self.S: str = ""
+        self.s_description: str = ""
         self.is_S_executed = False
 
     def __str__(self) -> str:
@@ -42,5 +43,6 @@ Script (S) to be run over T (is executed yet? {self.is_S_executed}):
             "is_T_materialized": self.is_T_materialized,
             "column_descriptions": self.column_descriptions,
             "S": self.S,
+            "s_description": self.s_description,
             "is_S_executed": self.is_S_executed,
         }

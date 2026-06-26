@@ -35,6 +35,7 @@ from pneuma_seeker.services.db.users.models import UserRecord
 from pneuma_seeker.session_manager import SessionManager
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import setup_logger
+from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.table_serializer import serialize_dataframe
 
 router = APIRouter(
@@ -467,6 +468,70 @@ async def query_table(
             "columns": columns,
         }
     )
+
+
+@router.get("/explain_script/{chat_id}", response_class=JSONResponse)
+async def explain_script(
+    chat_id: str,
+    current_user: UserRecord = Depends(get_current_user),
+):
+    """
+    Lazily generate and cache a plain-language description of the current script (S).
+    Returns the cached description on subsequent calls without re-invoking the LLM.
+    """
+    user_id = current_user.user_id
+    try:
+        chat_session = session_manager.get_chat_session(user_id, chat_id)
+    except Exception:
+        raise HTTPException(
+            status_code=404, detail=f"Chat session '{chat_id}' not found."
+        )
+
+    conductor = chat_session.conductor
+    script = conductor.state.S.strip()
+
+    if not script:
+        raise HTTPException(status_code=400, detail="No script to explain.")
+
+    # Return cached description without calling the LLM
+    if conductor.state.s_description:
+        return JSONResponse(content={"description": conductor.state.s_description})
+
+    # Build a brief context of target table schemas for the LLM
+    table_context = ""
+    if conductor.state.T:
+        lines = []
+        for table_id, doc in conductor.state.T.items():
+            try:
+                cols = list(doc.content.columns)[:15]
+                lines.append(f"- {table_id}: {', '.join(cols)}")
+            except Exception:
+                lines.append(f"- {table_id}")
+        if lines:
+            table_context = "\n\nTarget tables:\n" + "\n".join(lines)
+
+    prompt = (
+        "Explain in 2-3 sentences what the following Python/SQL script does, "
+        "in plain language suitable for a non-technical user. "
+        "Focus on what data is retrieved or calculated, not the implementation."
+        f"\n\nScript:\n{script[:2000]}"
+        f"{table_context}"
+    )
+
+    messages = [LLMMessage(role="user", content=prompt)]
+    raw = await to_thread.run_sync(
+        lambda: chat_session.language_model_api.chat(messages)
+    )
+    description = ("".join(raw) if not isinstance(raw, str) else raw).strip()
+
+    conductor.state.s_description = description
+    await to_thread.run_sync(
+        lambda: conductor.db_api.update_script_description(
+            user_id, chat_id, description
+        )
+    )
+
+    return JSONResponse(content={"description": description})
 
 
 @router.get("/table_download/{chat_id}")

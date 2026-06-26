@@ -158,8 +158,14 @@ class WorkspaceManager:
 
             con.execute("""
                     CREATE TABLE IF NOT EXISTS session_metadata (
-                        dataset_name  VARCHAR NOT NULL
+                        dataset_name  VARCHAR NOT NULL,
+                        s_description VARCHAR DEFAULT ''
                     );
+                """)
+            # Idempotent migration: add column to pre-existing DBs that lack it
+            con.execute("""
+                    ALTER TABLE session_metadata
+                    ADD COLUMN IF NOT EXISTS s_description VARCHAR DEFAULT '';
                 """)
 
             con.commit()
@@ -298,10 +304,15 @@ class WorkspaceManager:
             )
             con.execute(
                 """
-                INSERT INTO session_metadata (dataset_name)
-                SELECT ? WHERE NOT EXISTS (SELECT 1 FROM session_metadata);
+                INSERT INTO session_metadata (dataset_name, s_description)
+                SELECT ?, ?
+                WHERE NOT EXISTS (SELECT 1 FROM session_metadata);
                 """,
-                (dataset_name,),
+                (dataset_name, conductor_state.s_description),
+            )
+            con.execute(
+                "UPDATE session_metadata SET s_description = ?;",
+                (conductor_state.s_description,),
             )
             con.execute(
                 """
@@ -643,9 +654,12 @@ class WorkspaceManager:
                 parent_node.add_child(child_node)
 
         meta_row = con.execute(
-            "SELECT dataset_name FROM session_metadata LIMIT 1"
+            "SELECT dataset_name, s_description FROM session_metadata LIMIT 1"
         ).fetchone()
         dataset_name: str | None = meta_row[0] if meta_row else None
+        s_description: str = (meta_row[1] or "") if meta_row else ""
+
+        conductor_state.s_description = s_description
 
         retrieved_tables: list[AbstractDocument] = []
         enumerated_tables: list[AbstractDocument] = []
@@ -901,6 +915,14 @@ class WorkspaceManager:
             "has_more": has_more,
             "next_offset": next_offset,
         }
+
+    def update_script_description(
+        self, user_id: str, chat_id: str, description: str
+    ) -> None:
+        """Persists a lazily-generated script description to session_metadata."""
+        con = self.get_ws_db_connection(user_id, chat_id)
+        con.execute("UPDATE session_metadata SET s_description = ?;", (description,))
+        con.checkpoint()
 
     def prepare_chat_deletion(self, user_id: str, chat_id: str) -> Path:
         """

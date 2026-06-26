@@ -261,6 +261,12 @@ class PneumaDB:
             user_id, query, limit, offset
         )
 
+    def update_script_description(
+        self, user_id: str, chat_id: str, description: str
+    ) -> None:
+        """Persists a lazily-generated script description to session_metadata."""
+        self.workspace_manager.update_script_description(user_id, chat_id, description)
+
     def prepare_chat_deletion(self, user_id: str, chat_id: str) -> Path:
         """Closes the workspace connection and returns the directory path for background removal."""
         return self.workspace_manager.prepare_chat_deletion(user_id, chat_id)
