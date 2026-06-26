@@ -499,5 +499,110 @@ class ConductorTests(unittest.TestCase):
         self.assertIn("info provided", responses[-1].message)
 
 
+    def test_max_steps_force_response(self):
+        """When all conductor steps are exhausted without a response, a fallback is force-produced."""
+        self.conductor.config.MAX_CONDUCTOR_STEPS = 1
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"still thinking"}}}}]}}""",
+            "Fallback answer",  # consumed by the force-produce LLM call
+        ]
+        responses = list(
+            self.conductor.chat("test", interaction_history=[], external_table_paths=[])
+        )
+        self.assertEqual(responses[-1].message, "Fallback answer")
+
+    def test_llm_exception_propagates(self):
+        """An exception raised by the LLM during planning is re-raised, not swallowed."""
+        with patch.object(
+            self.conductor.language_model_api,
+            "chat",
+            side_effect=RuntimeError("LLM unavailable"),
+        ):
+            with self.assertRaises(RuntimeError):
+                list(
+                    self.conductor.chat(
+                        "test", interaction_history=[], external_table_paths=[]
+                    )
+                )
+
+    def test_plan_parse_error_retries_with_feedback(self):
+        """A structurally invalid LLM plan is fed back as an error and the conductor retries."""
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            '{"plan": "not a list"}',  # plan must be a list — triggers retry
+            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{"message":"recovered"}}}}]}}""",
+        ]
+        responses = list(
+            self.conductor.chat("test", interaction_history=[], external_table_paths=[])
+        )
+        self.assertIn("recovered", responses[-1].message)
+
+    def test_validate_plan_strips_user_facing_with_execution_action(self):
+        """_validate_plan removes user_facing_communication when an execution action is present."""
+        plan = [
+            {"action": ActionNames.PYTHON_EXECUTOR.value, "args": {}},
+            {"action": ActionNames.USER_FACING_COMMUNICATION.value, "args": {"message": "done"}},
+        ]
+        result = self.conductor._validate_plan(plan)
+        action_names = [p["action"] for p in result]
+        self.assertNotIn(ActionNames.USER_FACING_COMMUNICATION.value, action_names)
+        self.assertIn(ActionNames.PYTHON_EXECUTOR.value, action_names)
+
+    def test_validate_plan_preserves_user_facing_without_execution_action(self):
+        """_validate_plan does NOT strip user_facing_communication when no execution action is present."""
+        plan = [
+            {"action": ActionNames.SITUATIONAL_ANALYSIS.value, "args": {"message": "thinking"}},
+            {"action": ActionNames.USER_FACING_COMMUNICATION.value, "args": {"message": "done"}},
+        ]
+        result = self.conductor._validate_plan(plan)
+        action_names = [p["action"] for p in result]
+        self.assertIn(ActionNames.USER_FACING_COMMUNICATION.value, action_names)
+
+    def test_ds_skeptic_pushback_aborts_remaining_plan(self):
+        """DS-Skeptic pushback causes actions after state_manipulation to be skipped in that step."""
+        self.conductor.config.ENABLE_DS_SKEPTIC = True
+        self.conductor.config.MAX_DS_SKEPTIC_ROUNDS = 1
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
+                {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"S":"result=1"}}}},
+                {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{"message":"first attempt"}}}}
+            ]}}""",
+            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{"message":"reconsidered"}}}}]}}""",
+        ]
+        self.conductor.ds_skeptic.review = MagicMock(return_value=(True, "Skeptic has concerns"))
+
+        responses = list(
+            self.conductor.chat("test", interaction_history=[], external_table_paths=[])
+        )
+
+        self.assertEqual(responses[-1].message, "reconsidered")
+        self.conductor.ds_skeptic.review.assert_called_once()
+
+    def test_context_extraction_new_uncertainties_path(self):
+        """Context extraction with the uncertainties format calls run_context_extraction."""
+        self.conductor.retrieved_tables = [
+            Table(
+                doc_id="table1",
+                retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+                content=pd.DataFrame({"A": [1, 2]}),
+                metadata={},
+            )
+        ]
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
+                {{"action":"{ActionNames.CONTEXT_EXTRACTION.value}","args":{{"uncertainties":[{{"table_ids":["table1"],"question":"what is the range of A?"}}]}}}}
+            ]}}""",
+            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{"message":"done"}}}}]}}""",
+        ]
+        self.conductor.action_set.run_context_extraction = MagicMock(
+            return_value=("A ranges from 1 to 2", [])
+        )
+
+        responses = list(
+            self.conductor.chat("check assumptions", interaction_history=[], external_table_paths=[])
+        )
+        self.assertIn("done", responses[-1].message)
+        self.conductor.action_set.run_context_extraction.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

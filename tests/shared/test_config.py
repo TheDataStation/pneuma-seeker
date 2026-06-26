@@ -29,8 +29,6 @@ class ConfigTests(unittest.TestCase):
             "USE_AZURE_LLM",
             "USE_AZURE_EMBED_MODEL",
             "ALLOWED_ORIGINS",
-            "OPENWEBUI_BASE_URL",
-            "OPENWEBUI_API_KEY",
             "MAX_CONDUCTOR_STEPS",
             "MAX_MATERIALIZER_STEPS",
             "ENABLE_WEB_SEARCH",
@@ -71,8 +69,6 @@ class ConfigTests(unittest.TestCase):
         self.assertIsInstance(cfg.USE_AZURE_EMBED_MODEL, bool)
         
         self.assertIsInstance(cfg.ALLOWED_ORIGINS, list)
-        self.assertIsInstance(cfg.OPENWEBUI_BASE_URL, str)
-        self.assertIsInstance(cfg.OPENWEBUI_API_KEY, str)
         self.assertIsInstance(cfg.TABLE_MAX_ROWS_DISPLAY, int)
         
         self.assertIsInstance(cfg.MAX_CONDUCTOR_STEPS, int)
@@ -304,13 +300,11 @@ class ConfigTests(unittest.TestCase):
         """Test string values containing special characters."""
         os.environ["OPENAI_API_KEY"] = "sk-test_key-with-dashes_and_underscores"
         os.environ["AZURE_OPENAI_ENDPOINT"] = "https://example.openai.azure.com/"
-        os.environ["OPENWEBUI_BASE_URL"] = "http://localhost:3000/api/v1/"
         
         cfg = Config()
         
         self.assertEqual(cfg.OPENAI_API_KEY, "sk-test_key-with-dashes_and_underscores")
         self.assertEqual(cfg.AZURE_OPENAI_ENDPOINT, "https://example.openai.azure.com/")
-        self.assertEqual(cfg.OPENWEBUI_BASE_URL, "http://localhost:3000/api/v1/")
 
     def test_empty_string_values(self):
         """Test that empty string values are preserved."""
@@ -403,8 +397,6 @@ class ConfigTests(unittest.TestCase):
         os.environ["USE_AZURE_LLM"] = "false"
         os.environ["USE_AZURE_EMBED_MODEL"] = "false"
         os.environ["ALLOWED_ORIGINS"] = "http://localhost:3000,https://prod.example.com"
-        os.environ["OPENWEBUI_BASE_URL"] = "http://openwebui:8080/"
-        os.environ["OPENWEBUI_API_KEY"] = "openwebui-key"
         os.environ["MAX_CONDUCTOR_STEPS"] = "10"
         os.environ["MAX_MATERIALIZER_STEPS"] = "150"
         os.environ["ENABLE_WEB_SEARCH"] = "true"
@@ -430,8 +422,6 @@ class ConfigTests(unittest.TestCase):
         self.assertFalse(cfg.USE_AZURE_LLM)
         self.assertFalse(cfg.USE_AZURE_EMBED_MODEL)
         self.assertEqual(cfg.ALLOWED_ORIGINS, ["http://localhost:3000", "https://prod.example.com"])
-        self.assertEqual(cfg.OPENWEBUI_BASE_URL, "http://openwebui:8080/")
-        self.assertEqual(cfg.OPENWEBUI_API_KEY, "openwebui-key")
         self.assertEqual(cfg.MAX_CONDUCTOR_STEPS, 10)
         self.assertEqual(cfg.MAX_MATERIALIZER_STEPS, 150)
         self.assertTrue(cfg.ENABLE_WEB_SEARCH)

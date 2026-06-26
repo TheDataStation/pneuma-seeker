@@ -625,5 +625,61 @@ class MaterializerTests(unittest.TestCase):
         self.assertEqual(tables_after_second - baseline_tables, {"t2"})
 
 
+    def test_check_completion_extra_columns_allowed(self):
+        """Extra columns in a materialized table do not prevent completion."""
+        T = {"t1": pd.DataFrame(columns=["a", "b"])}
+        self.materializer.state.T = T
+        self.materializer.state.add_intermediate_table(
+            Table(
+                doc_id="t1",
+                retriever_type=RetrieverType.MATERIALIZER,
+                content=pd.DataFrame({"a": [1], "b": [2], "extra": [3]}),
+                metadata={},
+            )
+        )
+        self.assertTrue(self.materializer._check_completion(T))
+
+    def test_check_completion_missing_required_columns_not_complete(self):
+        """A materialized table missing required columns does not satisfy completion."""
+        T = {"t1": pd.DataFrame(columns=["a", "b", "required_col"])}
+        self.materializer.state.T = T
+        self.materializer.state.add_intermediate_table(
+            Table(
+                doc_id="t1",
+                retriever_type=RetrieverType.MATERIALIZER,
+                content=pd.DataFrame({"a": [1], "b": [2]}),  # missing required_col
+                metadata={},
+            )
+        )
+        self.assertFalse(self.materializer._check_completion(T))
+
+    def test_plan_parse_error_retries_without_counting_step(self):
+        """A malformed LLM plan retries without consuming a step, so a tight limit still allows completion."""
+        self.materializer.config.MAX_MATERIALIZER_STEPS = 1  # only 1 real step allowed
+
+        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find"]}}}}'
+        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
+        self.lm_api.llm._responses = [  # type: ignore
+            '{"plan": "not a list"}',           # bad — triggers retry without incrementing step
+            f'{{"plan": [{plan1}, {plan2}]}}',  # good — completes within the 1 allowed step
+        ]
+
+        table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+        os.makedirs(Path(self.tmpdir) / "test_ds", exist_ok=True)
+        table_df.to_csv(Path(self.tmpdir) / "test_ds" / "table_1.csv", index=False)
+        self.db_api.ingest_dataset("test_ds", str(Path(self.tmpdir) / "test_ds"))
+        table_doc = Table(
+            doc_id="table_1",
+            retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+            content=table_df,
+            metadata={},
+        )
+        self.action_set.retrieve_multi_topic_documents = MagicMock(return_value=[table_doc])
+
+        T = {"t1": pd.DataFrame(columns=["a", "b"])}
+        result = self.materializer.materialize_T(T=T, column_descriptions={}, S="")
+        self.assertIn("t1", result[-1])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,7 @@ from datetime import datetime
 from io import BytesIO, StringIO
 from json import dumps
 from queue import Queue
+from re import match
 from typing import Any
 from zipfile import ZipFile, ZIP_DEFLATED
 
@@ -232,9 +233,8 @@ async def execute_code(
     response_class=JSONResponse,
 )
 async def get_state(chat_id: str, current_user: UserRecord = Depends(get_current_user)):
-    conductor = session_manager.get_chat_session(
-        current_user.user_id, chat_id
-    ).conductor
+    chat_session = session_manager.get_chat_session(current_user.user_id, chat_id)
+    conductor = chat_session.conductor
     state = conductor.state.get_current_state_instance(config.TABLE_MAX_ROWS_DISPLAY)
 
     prov_steps: list[str] = []
@@ -255,6 +255,7 @@ async def get_state(chat_id: str, current_user: UserRecord = Depends(get_current
             "state": state,
             "prov_steps": prov_steps,
             "retrieved_tables": retrieved_tables,
+            "dataset_name": chat_session.dataset_name,
         }
     )
 
@@ -381,6 +382,151 @@ async def get_provenance_nodes(
             "node_count": len(nodes_json),
             "nodes": nodes_json,
         }
+    )
+
+
+@router.get("/table_query/{chat_id}", response_class=JSONResponse)
+async def query_table(
+    chat_id: str,
+    table_id: str,
+    limit: int = 50,
+    offset: int = 0,
+    order_by: str | None = None,
+    order_dir: str = "asc",
+    search: str | None = None,
+    dataset_name: str | None = None,
+    current_user: UserRecord = Depends(get_current_user),
+):
+    if not match(r"^[a-zA-Z0-9_]+$", table_id):
+        raise HTTPException(status_code=400, detail="Invalid table_id")
+    if order_dir.lower() not in ("asc", "desc"):
+        order_dir = "asc"
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+
+    user_id = current_user.user_id
+    try:
+        conductor = session_manager.get_chat_session(user_id, chat_id).conductor
+    except Exception:
+        raise HTTPException(
+            status_code=404, detail=f"Chat session '{chat_id}' not found."
+        )
+
+    db_api = conductor.db_api
+
+    # Qualify the table reference with the dataset schema for retrieved tables.
+    # dataset_name is sanitized by stripping quotes; table_id is regex-validated above.
+    if dataset_name:
+        safe_ds = dataset_name.replace('"', "")
+        db_api.link_dataset_tables(user_id, chat_id, safe_ds)
+        table_ref = f'"{safe_ds}"."{table_id}"'
+    else:
+        table_ref = f'"{table_id}"'
+
+    try:
+        cols_df = db_api.execute_query(
+            user_id, chat_id, f"SELECT * FROM {table_ref} LIMIT 0"
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=404, detail=f"Table '{table_id}' not found in session."
+        )
+
+    columns = list(cols_df.columns)
+
+    where_sql = ""
+    sql_params: tuple = ()
+    if search and columns:
+        conditions = " OR ".join(f'CAST("{col}" AS VARCHAR) ILIKE ?' for col in columns)
+        where_sql = f" WHERE {conditions}"
+        sql_params = tuple([f"%{search}%"] * len(columns))
+
+    count_df = db_api.execute_query(
+        user_id,
+        chat_id,
+        f"SELECT COUNT(*) AS cnt FROM {table_ref}{where_sql}",
+        sql_params,
+    )
+    total_count = int(count_df.iloc[0]["cnt"])
+
+    order_sql = ""
+    if order_by and match(r"^[a-zA-Z0-9_]+$", order_by):
+        order_sql = f' ORDER BY "{order_by}" {order_dir.upper()}'
+
+    rows_df = db_api.execute_query(
+        user_id,
+        chat_id,
+        f"SELECT * FROM {table_ref}{where_sql}{order_sql} LIMIT {limit} OFFSET {offset}",
+        sql_params,
+    )
+
+    return JSONResponse(
+        content={
+            "rows": serialize_dataframe(rows_df, limit),
+            "total_count": total_count,
+            "columns": columns,
+        }
+    )
+
+
+@router.get("/table_download/{chat_id}")
+async def download_table(
+    chat_id: str,
+    table_id: str,
+    dataset_name: str | None = None,
+    current_user: UserRecord = Depends(get_current_user),
+):
+    if not match(r"^[a-zA-Z0-9_]+$", table_id):
+        raise HTTPException(status_code=400, detail="Invalid table_id")
+
+    user_id = current_user.user_id
+    try:
+        conductor = session_manager.get_chat_session(user_id, chat_id).conductor
+    except Exception:
+        raise HTTPException(
+            status_code=404, detail=f"Chat session '{chat_id}' not found."
+        )
+
+    db_api = conductor.db_api
+
+    if dataset_name:
+        safe_ds = dataset_name.replace('"', "")
+        db_api.link_dataset_tables(user_id, chat_id, safe_ds)
+        table_ref = f'"{safe_ds}"."{table_id}"'
+    else:
+        table_ref = f'"{table_id}"'
+
+    _CHUNK = 5_000
+
+    async def generate_csv():
+        offset = 0
+        first = True
+        while True:
+            _offset = offset
+            _first = first
+            df = await to_thread.run_sync(
+                lambda: db_api.execute_query(
+                    user_id,
+                    chat_id,
+                    f"SELECT * FROM {table_ref} LIMIT {_CHUNK} OFFSET {_offset}",
+                )
+            )
+            if df.empty:
+                break
+            buf = StringIO()
+            df.to_csv(buf, index=False, header=_first)
+            yield buf.getvalue().encode("utf-8")
+            first = False
+            if len(df) < _CHUNK:
+                break
+            offset += _CHUNK
+
+    return StreamingResponse(
+        generate_csv(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{table_id}.csv"',
+        },
     )
 
 
