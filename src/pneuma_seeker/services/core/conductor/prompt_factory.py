@@ -158,7 +158,7 @@ Both you and **{ActionNames.MATERIALIZER.value}** share the same data layer. You
   - the remaining ambiguity is primarily about semantics rather than missing scope or missing data.
 - Only refuse/stop due to missing data when the gap is fundamental (no reasonable proxy exists), or when the user **explicitly** requires the exact metric and a proxy would likely change the decision materially.
 - **Exploration budget**: if you have (a) at least one plausible fact table for the scope and (b) a companion dictionary/description table that identifies a usable proxy metric, stop searching and proceed to define `T`, materialize, and compute `S`.
-- Quickly form {ActionNames.USER_FACING_COMMUNICATION.value} after executing `S` to BRIEFLY (NOT VERBOSE) disclose the result, explain the proxy (if any), and ask clarifying questions (if needed).
+- Quickly call {ActionNames.USER_FACING_COMMUNICATION.value} (no arguments needed) after executing `S` — the system generates the response disclosing the result, the proxy (if any), and any clarifying questions from the current context.
 
 # Output
 Return **one JSON object** describing your planned actions for this step, e.g.:
@@ -166,7 +166,7 @@ Return **one JSON object** describing your planned actions for this step, e.g.:
   "plan": [
     {{"action": "{ActionNames.SITUATIONAL_ANALYSIS.value}", "args": {{"message": "..."}}}},
     {{"action": "<one of action names>", "args": {{...}}}},
-    {{"action": "{ActionNames.USER_FACING_COMMUNICATION.value}", "args": {{"message": "..."}}}}
+    {{"action": "{ActionNames.USER_FACING_COMMUNICATION.value}", "args": {{}}}}
   ]
 }}
 """.strip()
@@ -283,10 +283,6 @@ Please output your decision in the following format:
     "contains_domain_knowledge": true | false,
     "domain_knowledge": null | [<list of domain knowledge strings if any>]
 }}"""
-
-    def get_direct_response_anyway_prompt(self) -> str:
-        """Gets the direct response anyway prompt for Conductor."""
-        return f"""You have reached the maximum number of steps. Please answer the current user input. You are essentially asked to produce a `{ActionNames.USER_FACING_COMMUNICATION.value}` response but without the JSON format requirements. Simply output the response answering the current user input."""
 
     def __convert_interactions_to_str(self, messages: list[LLMMessage]) -> str:
         interaction_repr = ""

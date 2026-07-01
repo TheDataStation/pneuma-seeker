@@ -26,6 +26,7 @@ from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.schemas.core.action import ActionNames
 from pneuma_seeker.shared.schemas.core.agent import AgentType
 from pneuma_seeker.shared.schemas.core.ir_system import AbstractDocument, RetrieverType
+from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 
 
 class ActionSet:
@@ -179,8 +180,21 @@ class ActionSet:
             {"query": query, "result_table_id": result_table_id}
         )
 
-    def user_facing_communication(self, args: dict) -> str:
-        return self.registry.get(ActionNames.USER_FACING_COMMUNICATION).execute(args)  # type: ignore[union-attr]
+    def user_facing_communication(
+        self,
+        planning_messages: list[LLMMessage],
+        user_message: str,
+        interaction_history: list[LLMMessage],
+        forced: bool = False,
+    ) -> str:
+        return self.registry.get(ActionNames.USER_FACING_COMMUNICATION).execute(  # type: ignore[union-attr]
+            {
+                "planning_messages": planning_messages,
+                "user_message": user_message,
+                "interaction_history": interaction_history,
+                "forced": forced,
+            }
+        )
 
     def join_semantic(
         self,

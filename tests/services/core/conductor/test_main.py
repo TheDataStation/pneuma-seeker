@@ -69,8 +69,9 @@ class ConductorTests(unittest.TestCase):
             {{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}
         ]}}""",
             f"""{{"plan": [
-            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"done"}}}}
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
         ]}}""",
+            "done",
         ]
         self.conductor.action_set.retrieve_multi_topic_documents = MagicMock(
             return_value=[
@@ -100,10 +101,13 @@ class ConductorTests(unittest.TestCase):
         )
 
     def test_web_search_sets_web_search_result(self):
-        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [
+            f"""{{"plan": [
             {{"action":"{ActionNames.WEB_SEARCH.value}","args":{{"prompt":"web search query"}}}},
-            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"web done"}}}}
-        ]}}"""]
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
+        ]}}""",
+            "web done",
+        ]
         self.conductor.action_set.retrieve_documents = MagicMock(
             return_value=[
                 Text(
@@ -130,10 +134,13 @@ class ConductorTests(unittest.TestCase):
         )
 
     def test_web_crawl_sets_web_crawl_result(self):
-        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
             {{"action":"{ActionNames.WEB_CRAWL.value}","args":{{"url":"http://example.com"}}}},
-            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"web crawl done"}}}}
-        ]}}"""]  # type: ignore
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
+        ]}}""",
+            "web crawl done",
+        ]
 
         self.conductor.action_set.retrieve_documents = MagicMock(
             return_value=[
@@ -163,10 +170,13 @@ class ConductorTests(unittest.TestCase):
         )
 
     def test_table_enumerator_updates_enumerated_ids(self):
-        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
             {{"action":"{ActionNames.TABLE_ENUMERATION.value}","args":{{"patterns":["pattern"]}}}},
-            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"enum done"}}}}
-        ]}}"""]  # type: ignore
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
+        ]}}""",
+            "enum done",
+        ]
 
         self.conductor.action_set.retrieve_multi_topic_documents = MagicMock(
             return_value=[
@@ -189,10 +199,13 @@ class ConductorTests(unittest.TestCase):
         self.assertIsInstance(self.conductor.enumerated_tables, list)
 
     def test_state_manipulation_sets_only_S(self):
-        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
             {{"action":"state_manipulation","args":{{"S":"result = something"}}}},
-            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"S set"}}}}
-        ]}}"""]  # type: ignore
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
+        ]}}""",
+            "S set",
+        ]
         gen = self.conductor.chat(
             user_message="set S",
             interaction_history=[],
@@ -209,10 +222,13 @@ class ConductorTests(unittest.TestCase):
         self.assertEqual(state.column_descriptions, {})
 
     def test_state_manipulation_sets_only_T(self):
-        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
             {{"action":"state_manipulation","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
-            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"T set"}}}}
-        ]}}"""]  # type: ignore
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
+        ]}}""",
+            "T set",
+        ]
 
         gen = self.conductor.chat(
             user_message="set T",
@@ -232,10 +248,13 @@ class ConductorTests(unittest.TestCase):
         self.assertFalse(state.is_S_executed)
 
     def test_state_manipulation_sets_S_and_T(self):
-        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
             {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"S":"result = pd.DataFrame({{'sum': [tables['t1']['a'].sum()]}})"}}}},
-            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"state done"}}}}
-        ]}}"""]  # type: ignore
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
+        ]}}""",
+            "state done",
+        ]
         gen = self.conductor.chat(
             user_message="set S and T",
             interaction_history=[],
@@ -265,10 +284,13 @@ class ConductorTests(unittest.TestCase):
         )
 
         # First STATE_MANIPULATION: define T={t1}
-        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
             {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
-            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"T set"}}}}
-        ]}}"""]  # type: ignore
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
+        ]}}""",
+            "T set",
+        ]
         responses = list(
             self.conductor.chat(
                 user_message="set T",
@@ -291,10 +313,13 @@ class ConductorTests(unittest.TestCase):
         self.assertEqual(tables_after_first, baseline_tables)
 
         # Second STATE_MANIPULATION: redefine T={t2}
-        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
             {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t2":["a","b"]}},"column_descriptions":{{"t2":{{"a":"col a"}}}}}}}},
-            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"T reset"}}}}
-        ]}}"""]  # type: ignore
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
+        ]}}""",
+            "T reset",
+        ]
         responses = list(
             self.conductor.chat(
                 user_message="set T again",
@@ -327,10 +352,13 @@ class ConductorTests(unittest.TestCase):
             True,
         )
 
-        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
             {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b","c"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
-            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"T redefined"}}}}
-        ]}}"""]  # type: ignore
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
+        ]}}""",
+            "T redefined",
+        ]
         list(
             self.conductor.chat(
                 user_message="redefine T",
@@ -361,7 +389,8 @@ class ConductorTests(unittest.TestCase):
             {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
             {{"action":"{ActionNames.MATERIALIZER.value}","args":{{"note":"add col","mode":"update"}}}}
         ]}}""",
-            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{"message":"done"}}}}]}}""",
+            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{}}}}]}}""",
+            "done",
         ]
         list(
             self.conductor.chat(
@@ -390,7 +419,8 @@ class ConductorTests(unittest.TestCase):
             {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
             {{"action":"{ActionNames.MATERIALIZER.value}","args":{{"note":""}}}}
         ]}}""",
-            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{"message":"done"}}}}]}}""",
+            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{}}}}]}}""",
+            "done",
         ]
         list(
             self.conductor.chat(
@@ -419,7 +449,8 @@ class ConductorTests(unittest.TestCase):
             {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
             {{"action":"{ActionNames.MATERIALIZER.value}","args":{{"note":"","mode":"reset"}}}}
         ]}}""",
-            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{"message":"done"}}}}]}}""",
+            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{}}}}]}}""",
+            "done",
         ]
         list(
             self.conductor.chat(
@@ -441,8 +472,9 @@ class ConductorTests(unittest.TestCase):
                 {{"action":"{ActionNames.PYTHON_EXECUTOR.value}","args":{{}}}}
             ]}}""",
             f"""{{"plan": [
-                {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"materialization and execution done"}}}}
+                {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
             ]}}""",
+            "materialization and execution done",
         ]
         expected_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
         self.conductor.materializer.materialize_T = MagicMock(
@@ -487,8 +519,9 @@ class ConductorTests(unittest.TestCase):
             {{"action":"{ActionNames.CONTEXT_EXTRACTION.value}","args":{{"code":"result = tables['table1']['A'].mean()"}}}},
         ]}}""",
             f"""{{"plan": [
-            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"info provided"}}}}
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
         ]}}""",
+            "info provided",
         ]
         gen = self.conductor.chat(
             user_message="check assumptions",
@@ -529,7 +562,8 @@ class ConductorTests(unittest.TestCase):
         """A structurally invalid LLM plan is fed back as an error and the conductor retries."""
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             '{"plan": "not a list"}',  # plan must be a list — triggers retry
-            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{"message":"recovered"}}}}]}}""",
+            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{}}}}]}}""",
+            "recovered",
         ]
         responses = list(
             self.conductor.chat("test", interaction_history=[], external_table_paths=[])
@@ -546,6 +580,10 @@ class ConductorTests(unittest.TestCase):
         action_names = [p["action"] for p in result]
         self.assertNotIn(ActionNames.USER_FACING_COMMUNICATION.value, action_names)
         self.assertIn(ActionNames.PYTHON_EXECUTOR.value, action_names)
+        self.assertIsNotNone(
+            self.conductor._pending_plan_feedback,
+            "Stripping user_facing_communication must surface feedback for the next planning turn",
+        )
 
     def test_validate_plan_preserves_user_facing_without_execution_action(self):
         """_validate_plan does NOT strip user_facing_communication when no execution action is present."""
@@ -556,6 +594,7 @@ class ConductorTests(unittest.TestCase):
         result = self.conductor._validate_plan(plan)
         action_names = [p["action"] for p in result]
         self.assertIn(ActionNames.USER_FACING_COMMUNICATION.value, action_names)
+        self.assertIsNone(self.conductor._pending_plan_feedback)
 
     def test_ds_skeptic_pushback_aborts_remaining_plan(self):
         """DS-Skeptic pushback causes actions after state_manipulation to be skipped in that step."""
@@ -564,9 +603,10 @@ class ConductorTests(unittest.TestCase):
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
                 {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"S":"result=1"}}}},
-                {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{"message":"first attempt"}}}}
+                {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{}}}}
             ]}}""",
-            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{"message":"reconsidered"}}}}]}}""",
+            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{}}}}]}}""",
+            "reconsidered",
         ]
         self.conductor.ds_skeptic.review = MagicMock(return_value=(True, "Skeptic has concerns"))
 
@@ -581,10 +621,13 @@ class ConductorTests(unittest.TestCase):
         """When STATE_MANIPULATION updates S, s_description must be cleared."""
         self.conductor.state.s_description = "Old explanation."
 
-        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [
+            f"""{{"plan": [
             {{"action":"state_manipulation","args":{{"S":"result = 42"}}}},
-            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"S updated"}}}}
-        ]}}"""]
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
+        ]}}""",
+            "S updated",
+        ]
         list(self.conductor.chat(
             user_message="update S",
             interaction_history=[],
@@ -602,10 +645,13 @@ class ConductorTests(unittest.TestCase):
         """When STATE_MANIPULATION updates both S and T, s_description must be cleared."""
         self.conductor.state.s_description = "Old explanation."
 
-        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [
+            f"""{{"plan": [
             {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"S":"result = 1"}}}},
-            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"both updated"}}}}
-        ]}}"""]
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
+        ]}}""",
+            "both updated",
+        ]
         list(self.conductor.chat(
             user_message="update S and T",
             interaction_history=[],
@@ -618,10 +664,13 @@ class ConductorTests(unittest.TestCase):
         """When STATE_MANIPULATION updates only T (not S), s_description must be preserved."""
         self.conductor.state.s_description = "Existing explanation."
 
-        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
+        self.conductor.language_model_api.llm._responses = [
+            f"""{{"plan": [
             {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
-            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"T only"}}}}
-        ]}}"""]
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
+        ]}}""",
+            "T only",
+        ]
         list(self.conductor.chat(
             user_message="update T only",
             interaction_history=[],
@@ -648,7 +697,8 @@ class ConductorTests(unittest.TestCase):
             f"""{{"plan": [
                 {{"action":"{ActionNames.CONTEXT_EXTRACTION.value}","args":{{"uncertainties":[{{"table_ids":["table1"],"question":"what is the range of A?"}}]}}}}
             ]}}""",
-            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{"message":"done"}}}}]}}""",
+            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{}}}}]}}""",
+            "done",
         ]
         self.conductor.action_set.run_context_extraction = MagicMock(
             return_value=("A ranges from 1 to 2", [])
