@@ -102,6 +102,18 @@ class Config:
         self.MAX_DS_SKEPTIC_ROUNDS = int(getenv("MAX_DS_SKEPTIC_ROUNDS", "2"))
         self.MAX_DS_SKEPTIC_CE_CALLS = int(getenv("MAX_DS_SKEPTIC_CE_CALLS", "5"))
 
+        ## Column Compaction Settings
+        self.COLUMN_COMPACTION_ENABLED = (
+            getenv("COLUMN_COMPACTION_ENABLED", "false").lower() == "true"
+        )
+        self.COLUMN_COMPACTION_SIM_THRESHOLD = float(
+            getenv("COLUMN_COMPACTION_SIM_THRESHOLD", "0.6")
+        )
+        self.COLUMN_COMPACTION_ALPHA = float(getenv("COLUMN_COMPACTION_ALPHA", "0.85"))
+        self.COLUMN_COMPACTION_USE_LLM_THRESHOLD = (
+            getenv("COLUMN_COMPACTION_USE_LLM_THRESHOLD", "false").lower() == "true"
+        )
+
         # Database Settings
         self.ENABLE_FINE_GRAINED_STATE_CHANGE_TRACKING = (
             getenv("ENABLE_FINE_GRAINED_STATE_CHANGE_TRACKING", "false").lower()

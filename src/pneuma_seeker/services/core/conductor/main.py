@@ -425,6 +425,31 @@ class Conductor:
         self.retrieved_tables = self.action_set.retrieve_multi_topic_documents(
             action_args["prompts"], RetrieverType.PNEUMA_RETRIEVER, 10, True, 3
         )
+
+        # Deduplicate: same table may appear for multiple prompts — keep first occurrence
+        seen: set[str] = set()
+        deduped: list[AbstractDocument] = []
+        for doc in self.retrieved_tables:
+            if doc.doc_id not in seen:
+                seen.add(doc.doc_id)
+                deduped.append(doc)
+        self.retrieved_tables = deduped
+
+        if self.config.COLUMN_COMPACTION_ENABLED:
+            from pneuma_seeker.services.core.ir_system.retriever.impl.attribute_retriever import (
+                retrieve_attribute,
+            )
+
+            self.retrieved_tables = retrieve_attribute(
+                action_args["prompts"],
+                self.retrieved_tables,  # type: ignore
+                self.config.DATA_SOURCES[0],
+                self.language_model_api,
+                alpha=self.config.COLUMN_COMPACTION_ALPHA,
+                sim_threshold=self.config.COLUMN_COMPACTION_SIM_THRESHOLD,
+                use_llm_threshold=self.config.COLUMN_COMPACTION_USE_LLM_THRESHOLD,
+            )
+
         self._log(f"Retrieved tables:\n {[i.doc_id for i in self.retrieved_tables]}")
         try:
             self.join_paths = self.action_set.discover_join_paths(self.retrieved_tables)

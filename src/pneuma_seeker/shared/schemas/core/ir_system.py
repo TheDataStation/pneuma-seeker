@@ -140,10 +140,10 @@ class Table(AbstractDocument):
         lines = [header]
 
         if len(table) > 0:
-            sample_rows = table.sample(min(5, len(table)), random_state=42).sort_index()
+            sample_rows = table.sample(min(1, len(table)), random_state=42).sort_index()
             for idx, (_, row) in enumerate(sample_rows.iterrows(), start=1):
                 row_str = " | ".join(str(row[col]) for col in table.columns)
-                lines.append(f"sample row {idx}: {row_str}")
+                lines.append(f"sample row: {row_str}")
 
         return "\n".join(lines)
 
