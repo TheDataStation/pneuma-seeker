@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import numpy as np
+
 sys.path.insert(
     0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../../src"))
 )
@@ -23,7 +25,9 @@ class EntityResolutionTests(unittest.TestCase):
         self.temp_dir = tempfile.mkdtemp()
         self.config = Config()
         self.config.DATA_SOURCES = ["test_ds"]
-        self.config.ENTITY_RESOLUTION_THRESHOLD = 0.85
+        self.config.ENTITY_RESOLUTION_THRESHOLD = 0.75
+        self.config.ENTITY_RESOLUTION_EMBEDDING_THRESHOLD = 0.60
+        self.config.ENTITY_RESOLUTION_MODE = "jarowinkler"
         self.logger = MagicMock()
         self.lm_api = MagicMock()
         self.db_api = DBAPI(
@@ -228,7 +232,7 @@ class EntityResolutionTests(unittest.TestCase):
         self.assertEqual(set(mapping["original_value"].tolist()), {"X", "Y"})
 
     # ------------------------------------------------------------------
-    # Supervised mode
+    # Supervised — jarowinkler mode (default)
     # ------------------------------------------------------------------
 
     def test_supervised_maps_close_strings_to_canonical_entity(self):
@@ -322,6 +326,169 @@ class EntityResolutionTests(unittest.TestCase):
         )
         self.assertEqual(mapping.iloc[0]["canonical_value"], _UNRESOLVED_SENTINEL)
 
+    def test_supervised_uses_config_mode(self):
+        """mode defaults to ENTITY_RESOLUTION_MODE from config."""
+        self.config.ENTITY_RESOLUTION_MODE = "jarowinkler"
+        self.db_api.execute_query(
+            self.user_id, self.chat_id,
+            "CREATE OR REPLACE TABLE src AS SELECT 'Gooogle' AS name;",
+        )
+
+        self.action.apply({
+            "source_table_id": "src",
+            "target_column": "name",
+            "output_mapping_table_id": "name_map",
+            "canonical_entities": ["Google"],
+            "threshold": 0.80,
+        })
+
+        mapping = self.db_api.execute_query(
+            self.user_id, self.chat_id,
+            'SELECT canonical_value FROM "name_map";',
+        )
+        self.assertEqual(mapping.iloc[0]["canonical_value"], "Google")
+
+    # ------------------------------------------------------------------
+    # Supervised — embedding mode
+    # ------------------------------------------------------------------
+
+    def test_supervised_embedding_mode_uses_cosine_similarity(self):
+        """embedding mode should map by highest cosine similarity above threshold."""
+        self.db_api.execute_query(
+            self.user_id, self.chat_id,
+            "CREATE OR REPLACE TABLE src AS SELECT unnest(['close_to_A', 'close_to_B']) AS name;",
+        )
+        canonical_entities = ["EntityA", "EntityB"]
+
+        # EntityA → [1,0], EntityB → [0,1]; items lean toward their respective entity
+        vec_map = {
+            "EntityA": np.array([1.0, 0.0], dtype=np.float32),
+            "EntityB": np.array([0.0, 1.0], dtype=np.float32),
+            "close_to_A": np.array([0.95, 0.05], dtype=np.float32),
+            "close_to_B": np.array([0.05, 0.95], dtype=np.float32),
+        }
+        self.lm_api.encode.side_effect = lambda texts: np.array(
+            [vec_map[t] for t in texts], dtype=np.float32
+        )
+
+        self.action.apply({
+            "source_table_id": "src",
+            "target_column": "name",
+            "output_mapping_table_id": "name_map",
+            "canonical_entities": canonical_entities,
+            "mode": "embedding",
+            "threshold": 0.5,
+        })
+
+        mapping = self.db_api.execute_query(
+            self.user_id, self.chat_id,
+            'SELECT original_value, canonical_value FROM "name_map";',
+        )
+        orig_to_canon = dict(zip(mapping["original_value"], mapping["canonical_value"]))
+        self.assertEqual(orig_to_canon["close_to_A"], "EntityA")
+        self.assertEqual(orig_to_canon["close_to_B"], "EntityB")
+
+    def test_supervised_embedding_mode_below_threshold_gets_sentinel(self):
+        """embedding mode: values below cosine threshold → sentinel."""
+        self.db_api.execute_query(
+            self.user_id, self.chat_id,
+            "CREATE OR REPLACE TABLE src AS SELECT 'far_away' AS name;",
+        )
+        vec_map = {
+            "EntityA": np.array([1.0, 0.0], dtype=np.float32),
+            "far_away": np.array([0.0, 1.0], dtype=np.float32),  # cosine sim = 0
+        }
+        self.lm_api.encode.side_effect = lambda texts: np.array(
+            [vec_map[t] for t in texts], dtype=np.float32
+        )
+
+        self.action.apply({
+            "source_table_id": "src",
+            "target_column": "name",
+            "output_mapping_table_id": "name_map",
+            "canonical_entities": ["EntityA"],
+            "mode": "embedding",
+            "threshold": 0.5,
+        })
+
+        mapping = self.db_api.execute_query(
+            self.user_id, self.chat_id,
+            'SELECT canonical_value FROM "name_map";',
+        )
+        self.assertEqual(mapping.iloc[0]["canonical_value"], _UNRESOLVED_SENTINEL)
+
+    # ------------------------------------------------------------------
+    # Supervised — hybrid mode
+    # ------------------------------------------------------------------
+
+    def test_supervised_hybrid_mode_requires_both_thresholds(self):
+        """hybrid: must pass both JW and embedding; fails JW → sentinel even if embedding is high."""
+        self.db_api.execute_query(
+            self.user_id, self.chat_id,
+            # "Amzn" is syntactically close to "Amazon"; "Xyz123" is not
+            "CREATE OR REPLACE TABLE src AS SELECT unnest(['Amzn', 'Xyz123']) AS name;",
+        )
+        canonical_entities = ["Amazon"]
+
+        vec_map = {
+            "Amazon": np.array([1.0, 0.0], dtype=np.float32),
+            "Amzn": np.array([0.95, 0.05], dtype=np.float32),   # high embedding sim
+            "Xyz123": np.array([0.90, 0.10], dtype=np.float32),  # high embedding sim but bad JW
+        }
+        self.lm_api.encode.side_effect = lambda texts: np.array(
+            [vec_map[t] for t in texts], dtype=np.float32
+        )
+
+        self.action.apply({
+            "source_table_id": "src",
+            "target_column": "name",
+            "output_mapping_table_id": "name_map",
+            "canonical_entities": canonical_entities,
+            "mode": "hybrid",
+            "threshold": {"jarowinkler": 0.75, "embedding": 0.5},
+        })
+
+        mapping = self.db_api.execute_query(
+            self.user_id, self.chat_id,
+            'SELECT original_value, canonical_value FROM "name_map";',
+        )
+        orig_to_canon = dict(zip(mapping["original_value"], mapping["canonical_value"]))
+        # "Amzn" passes JW (syntactically close to Amazon) and embedding → resolved
+        self.assertEqual(orig_to_canon["Amzn"], "Amazon")
+        # "Xyz123" fails JW threshold → unresolved despite high embedding
+        self.assertEqual(orig_to_canon["Xyz123"], _UNRESOLVED_SENTINEL)
+
+    def test_supervised_hybrid_mode_per_mode_config_defaults(self):
+        """hybrid with no threshold arg uses ENTITY_RESOLUTION_THRESHOLD and ENTITY_RESOLUTION_EMBEDDING_THRESHOLD."""
+        self.config.ENTITY_RESOLUTION_THRESHOLD = 1.0       # impossible JW match
+        self.config.ENTITY_RESOLUTION_EMBEDDING_THRESHOLD = 0.5
+        self.db_api.execute_query(
+            self.user_id, self.chat_id,
+            "CREATE OR REPLACE TABLE src AS SELECT 'Amazn' AS name;",
+        )
+        vec_map = {
+            "Amazon": np.array([1.0, 0.0], dtype=np.float32),
+            "Amazn": np.array([0.95, 0.05], dtype=np.float32),
+        }
+        self.lm_api.encode.side_effect = lambda texts: np.array(
+            [vec_map[t] for t in texts], dtype=np.float32
+        )
+
+        self.action.apply({
+            "source_table_id": "src",
+            "target_column": "name",
+            "output_mapping_table_id": "name_map",
+            "canonical_entities": ["Amazon"],
+            "mode": "hybrid",
+            # no threshold → uses config defaults; JW threshold=1.0 means nothing passes
+        })
+
+        mapping = self.db_api.execute_query(
+            self.user_id, self.chat_id,
+            'SELECT canonical_value FROM "name_map";',
+        )
+        self.assertEqual(mapping.iloc[0]["canonical_value"], _UNRESOLVED_SENTINEL)
+
     # ------------------------------------------------------------------
     # Return value
     # ------------------------------------------------------------------
@@ -366,10 +533,16 @@ class EntityResolutionTests(unittest.TestCase):
         desc = self.action.get_description()
         self.assertIn(ActionNames.ENTITY_RESOLUTION.value, desc)
 
-    def test_get_description_mentions_both_modes(self):
+    def test_get_description_mentions_both_resolution_modes(self):
         desc = self.action.get_description()
         self.assertIn("Unsupervised", desc)
         self.assertIn("Supervised", desc)
+
+    def test_get_description_mentions_all_matching_strategies(self):
+        desc = self.action.get_description()
+        self.assertIn("jarowinkler", desc)
+        self.assertIn("embedding", desc)
+        self.assertIn("hybrid", desc)
 
 
 if __name__ == "__main__":

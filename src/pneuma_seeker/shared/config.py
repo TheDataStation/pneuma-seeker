@@ -34,13 +34,12 @@ class Config:
 
         # Frontend-Backend Interaction Settings
         self.ALLOWED_ORIGINS = getenv("ALLOWED_ORIGINS", "*").split(",")
-        self.OPENWEBUI_BASE_URL = getenv("OPENWEBUI_BASE_URL", "http://0.0.0.0:8080/")
-        self.OPENWEBUI_API_KEY = getenv("OPENWEBUI_API_KEY", "")
         self.TABLE_MAX_ROWS_DISPLAY = int(getenv("TABLE_MAX_ROWS_DISPLAY", "10"))
 
         # Core Configuration Settings
         self.MAX_CONDUCTOR_STEPS = int(getenv("MAX_CONDUCTOR_STEPS", "10"))
         self.MAX_MATERIALIZER_STEPS = int(getenv("MAX_MATERIALIZER_STEPS", "10"))
+        self.USE_SKILLS_AGENT = getenv("USE_SKILLS_AGENT", "false").lower() == "true"
         self.DATA_SOURCES = [getenv("DATA_SOURCE", "archeology")]
         self.ENABLE_MEMORY_PROFILING = (
             getenv("ENABLE_MEMORY_PROFILING", "false").lower() == "true"
@@ -49,7 +48,7 @@ class Config:
         # Action Settings
         ## Retrieval Action Settings
         self.ENABLE_WEB_SEARCH = getenv("ENABLE_WEB_SEARCH", "false").lower() == "true"
-        self.ENABLE_WEB_CRAWL = getenv("ENABLE_WEB_CRAWL", "true").lower() == "true"
+        self.ENABLE_WEB_CRAWL = getenv("ENABLE_WEB_CRAWL", "false").lower() == "true"
         self.WEB_CRAWL_MAX_CHARS = int(getenv("WEB_CRAWL_MAX_CHARS", "5000"))
         self.JOIN_PATH_EXTRACTION_ALPHA = float(
             getenv("JOIN_PATH_EXTRACTION_NAME_SIMILARITY_WEIGHT", "0.6")
@@ -84,18 +83,34 @@ class Config:
 
         ## Entity Resolution Settings
         self.ENTITY_RESOLUTION_THRESHOLD = float(
-            getenv("ENTITY_RESOLUTION_THRESHOLD", "0.85")
+            getenv("ENTITY_RESOLUTION_THRESHOLD", "0.75")
         )
+        self.ENTITY_RESOLUTION_EMBEDDING_THRESHOLD = float(
+            getenv("ENTITY_RESOLUTION_EMBEDDING_THRESHOLD", "0.60")
+        )
+        self.ENTITY_RESOLUTION_MODE = getenv("ENTITY_RESOLUTION_MODE", "jarowinkler")
 
         ## Other Action Settings
         self.ENABLE_CONTEXT_EXTRACTION = (
             getenv("ENABLE_CONTEXT_EXTRACTION", "true").lower() == "true"
         )
+        self.MAX_CONTEXT_EXTRACTION_LOOP_STEPS = int(
+            getenv("MAX_CONTEXT_EXTRACTION_LOOP_STEPS", "3")
+        )
+        self.MAX_RESULT_PREVIEW_ROWS = int(getenv("MAX_RESULT_PREVIEW_ROWS", "100"))
+        self.ENABLE_DS_SKEPTIC = getenv("ENABLE_DS_SKEPTIC", "false").lower() == "true"
+        self.MAX_DS_SKEPTIC_ROUNDS = int(getenv("MAX_DS_SKEPTIC_ROUNDS", "2"))
+        self.MAX_DS_SKEPTIC_CE_CALLS = int(getenv("MAX_DS_SKEPTIC_CE_CALLS", "5"))
 
         # Database Settings
         self.ENABLE_FINE_GRAINED_STATE_CHANGE_TRACKING = (
             getenv("ENABLE_FINE_GRAINED_STATE_CHANGE_TRACKING", "false").lower()
             == "true"
+        )
+
+        # Session Manager Settings
+        self.SESSION_MANAGER_MAX_SESSIONS = int(
+            getenv("SESSION_MANAGER_MAX_SESSIONS", "1000")
         )
 
         # Auth Settings

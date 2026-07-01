@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 import pandas as pd
@@ -6,10 +7,22 @@ from pneuma_seeker.services.core.action_set.interfaces import Action, Executable
 from pneuma_seeker.shared.schemas.core.action import ActionNames
 from pneuma_seeker.shared.schemas.core.agent import AgentType
 
+# Matches a leading "CREATE [OR REPLACE] TABLE <ident> AS" that the LLM may
+# mistakenly include even though execute() already adds that wrapper itself.
+_CREATE_TABLE_AS_RE = re.compile(
+    r"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?TABLE\s+\S+\s+AS\s+",
+    re.IGNORECASE | re.DOTALL,
+)
+
 
 def _quote_ident(identifier: str) -> str:
     """Safely quotes a DuckDB identifier using double-quotes."""
     return '"' + identifier.replace('"', '""') + '"'
+
+
+def _strip_create_wrapper(sql: str) -> str:
+    """Remove an accidental CREATE TABLE … AS prefix, returning just the query body."""
+    return _CREATE_TABLE_AS_RE.sub("", sql).strip().rstrip(";").strip()
 
 
 def _assert_single_statement(sql: str) -> None:
@@ -66,6 +79,8 @@ class QueryExecutor(Action, Executable):
         if not isinstance(result_table_id, str):
             raise ValueError("Input 'result_table_id' must be a string.")
 
+        # Strip any accidental CREATE TABLE … AS wrapper before we add our own.
+        query = _strip_create_wrapper(query)
         _assert_single_statement(query)
         if result_table_id.strip() == "":
             raise ValueError("Input 'result_table_id' must be a non-empty string.")

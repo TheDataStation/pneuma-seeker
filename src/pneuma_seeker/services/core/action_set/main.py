@@ -179,6 +179,9 @@ class ActionSet:
             {"query": query, "result_table_id": result_table_id}
         )
 
+    def user_facing_communication(self, args: dict) -> str:
+        return self.registry.get(ActionNames.USER_FACING_COMMUNICATION).execute(args)  # type: ignore[union-attr]
+
     def join_semantic(
         self,
         left_table_id: str,
@@ -269,6 +272,21 @@ class ActionSet:
     ):
         return generate_semantic_join_generator_code(
             doc_1, doc_2, relevant_left_cols, relevant_right_cols, top_k
+        )
+
+    def run_context_extraction(
+        self,
+        uncertainties: list[dict],
+        available_tables: list[AbstractDocument],
+        result_table_name: str,
+    ) -> tuple[str, list[str]]:
+        return self.registry.get(ActionNames.CONTEXT_EXTRACTION).apply(  # type: ignore[union-attr]
+            {
+                "uncertainties": uncertainties,
+                "available_tables": available_tables,
+                "result_table_name": result_table_name,
+                "execute_code_fn": self.execute_code,
+            }
         )
 
     def resolve_entities(

@@ -16,9 +16,18 @@ from pneuma_seeker.shared.schemas.language_model.option import (
 
 
 class AbstractModel(ABC):
+    total_llm_time: float = 0.0
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+
     @abstractmethod
     def __init__(self, config: Config, logger: Logger, **kwargs):
         pass
+
+    def reset_metrics(self) -> None:
+        self.total_llm_time = 0.0
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
 
     @abstractmethod
     def load_model(self):

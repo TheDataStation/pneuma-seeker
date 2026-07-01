@@ -334,6 +334,233 @@ class MaterializerTests(unittest.TestCase):
             "\n\n".join(prov_graph_code_lines_1),
         )
 
+    # ------------------------------------------------------------------ update-mode tests
+
+    def _run_fresh_t1_materialization(self) -> None:
+        """Helper: run a fresh materialize_T that produces t1 with columns [a, b]."""
+        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}'
+        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
+        self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}]}}']  # type: ignore
+
+        table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+        os.makedirs(Path(self.tmpdir) / "test_ds", exist_ok=True)
+        table_df.to_csv(Path(self.tmpdir) / "test_ds" / "table_1.csv", index=False)
+        self.db_api.ingest_dataset("test_ds", str(Path(self.tmpdir) / "test_ds"))
+        table_doc = Table(
+            doc_id="table_1",
+            retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+            content=table_df,
+            metadata={},
+        )
+        self.action_set.retrieve_multi_topic_documents = MagicMock(return_value=[table_doc])
+
+        T = {"t1": pd.DataFrame(columns=["a", "b"])}
+        result = self.materializer.materialize_T(T=T, column_descriptions={}, S="")
+        self.assertIn("t1", result[-1])
+
+    def test_saved_intermediates_populated_after_fresh_run(self):
+        """_saved_intermediate_tables is populated with t1 after a fresh run."""
+        self._run_fresh_t1_materialization()
+        saved_ids = {doc.doc_id for doc in self.materializer._saved_intermediate_tables}
+        self.assertIn("t1", saved_ids)
+
+    def test_update_mode_preloads_saved_intermediates_into_state(self):
+        """In update mode, _saved_intermediate_tables is pre-loaded into state.intermediate_tables
+        before the LLM loop, so the LLM sees them as already-existing intermediates."""
+        self._run_fresh_t1_materialization()
+
+        # Verify t1 is in saved intermediates
+        self.assertIn("t1", {d.doc_id for d in self.materializer._saved_intermediate_tables})
+
+        # Second run in update mode: LLM just sees t1 already there and accepts it
+        plan_update = f'{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"t1 already present, no extra work needed"}}}}'
+        self.lm_api.llm._responses = [f'{{"plan": [{plan_update}]}}']  # type: ignore
+
+        T_updated = {"t1": pd.DataFrame(columns=["a", "b"])}
+        self.materializer.materialize_T(T=T_updated, column_descriptions={}, S="", update_mode=True)
+
+        # state.intermediate_tables must have included t1 at some point — check via saved
+        saved_ids_after = {d.doc_id for d in self.materializer._saved_intermediate_tables}
+        self.assertIn("t1", saved_ids_after)
+
+    def test_update_mode_preserves_intermediate_tables_in_db(self):
+        """In update mode, prior intermediate tables are not dropped from the database."""
+        self._run_fresh_t1_materialization()
+
+        tables_before = set(
+            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")["name"].tolist()
+        )
+        self.assertIn("t1", tables_before)
+
+        # Update run: LLM does nothing extra (t1 already satisfies T schema)
+        plan_noop = f'{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"nothing to do"}}}}'
+        self.lm_api.llm._responses = [f'{{"plan": [{plan_noop}]}}']  # type: ignore
+
+        T_same = {"t1": pd.DataFrame(columns=["a", "b"])}
+        self.materializer.materialize_T(T=T_same, column_descriptions={}, S="", update_mode=True)
+
+        tables_after = set(
+            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")["name"].tolist()
+        )
+        # t1 must still be present
+        self.assertIn("t1", tables_after)
+
+    def test_fresh_mode_drops_previous_intermediate_tables(self):
+        """A fresh materialize_T call drops all intermediate tables from the prior run."""
+        self._run_fresh_t1_materialization()
+
+        tables_after_first = set(
+            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")["name"].tolist()
+        )
+        self.assertIn("t1", tables_after_first)
+
+        # Second fresh run targeting t2 — t1 must be dropped
+        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find t2 tables"]}}}}'
+        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t2":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
+        self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}]}}']  # type: ignore
+        # retrieval mock already set from first run; reset to same table with new side_effect
+        table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+        table_doc = Table(doc_id="table_1", retriever_type=RetrieverType.PNEUMA_RETRIEVER, content=table_df, metadata={})
+        self.action_set.retrieve_multi_topic_documents = MagicMock(return_value=[table_doc])
+
+        T2 = {"t2": pd.DataFrame(columns=["a", "b"])}
+        self.materializer.materialize_T(T=T2, column_descriptions={}, S="", update_mode=False)
+
+        tables_after_second = set(
+            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")["name"].tolist()
+        )
+        self.assertIn("t2", tables_after_second)
+        self.assertNotIn("t1", tables_after_second)
+
+    def test_reset_mode_is_identical_to_fresh(self):
+        """update_mode=False (reset) drops previous intermediates, same as fresh."""
+        self._run_fresh_t1_materialization()
+
+        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find t2"]}}}}'
+        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t2":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
+        self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}]}}']  # type: ignore
+        table_df = pd.DataFrame({"a": [5, 6], "b": [7, 8]})
+        table_doc = Table(doc_id="table_1", retriever_type=RetrieverType.PNEUMA_RETRIEVER, content=table_df, metadata={})
+        self.action_set.retrieve_multi_topic_documents = MagicMock(return_value=[table_doc])
+
+        T2 = {"t2": pd.DataFrame(columns=["a", "b"])}
+        # update_mode=False is reset behavior
+        self.materializer.materialize_T(T=T2, column_descriptions={}, S="", update_mode=False)
+
+        tables_after = set(
+            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")["name"].tolist()
+        )
+        self.assertIn("t2", tables_after)
+        self.assertNotIn("t1", tables_after)
+
+    def test_saved_intermediates_updated_after_each_run(self):
+        """_saved_intermediate_tables reflects the most recently completed run."""
+        self._run_fresh_t1_materialization()
+        self.assertIn("t1", {d.doc_id for d in self.materializer._saved_intermediate_tables})
+        self.assertNotIn("t2", {d.doc_id for d in self.materializer._saved_intermediate_tables})
+
+        # Second fresh run targeting t2
+        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find t2"]}}}}'
+        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t2":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
+        self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}]}}']  # type: ignore
+        table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+        table_doc = Table(doc_id="table_1", retriever_type=RetrieverType.PNEUMA_RETRIEVER, content=table_df, metadata={})
+        self.action_set.retrieve_multi_topic_documents = MagicMock(return_value=[table_doc])
+        T2 = {"t2": pd.DataFrame(columns=["a", "b"])}
+        self.materializer.materialize_T(T=T2, column_descriptions={}, S="", update_mode=False)
+
+        # Now _saved_intermediate_tables should reflect t2, not t1
+        saved_ids = {d.doc_id for d in self.materializer._saved_intermediate_tables}
+        self.assertIn("t2", saved_ids)
+        self.assertNotIn("t1", saved_ids)
+
+    def test_update_mode_with_empty_saved_intermediates_completes_normally(self):
+        """update_mode=True with no prior run pre-loads nothing and still completes."""
+        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}'
+        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
+        self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}]}}']  # type: ignore
+
+        table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+        os.makedirs(Path(self.tmpdir) / "test_ds", exist_ok=True)
+        table_df.to_csv(Path(self.tmpdir) / "test_ds" / "table_1.csv", index=False)
+        self.db_api.ingest_dataset("test_ds", str(Path(self.tmpdir) / "test_ds"))
+        table_doc = Table(doc_id="table_1", retriever_type=RetrieverType.PNEUMA_RETRIEVER, content=table_df, metadata={})
+        self.action_set.retrieve_multi_topic_documents = MagicMock(return_value=[table_doc])
+
+        # No prior run — _saved_intermediate_tables is empty
+        self.assertEqual(len(self.materializer._saved_intermediate_tables), 0)
+
+        T = {"t1": pd.DataFrame(columns=["a", "b"])}
+        result = self.materializer.materialize_T(T=T, column_descriptions={}, S="", update_mode=True)
+        self.assertIn("t1", result[-1])
+
+    def test_provenance_not_reset_in_update_mode(self):
+        """In update mode, reset_materialization_nodes() is NOT called; prior prov nodes are kept."""
+        self._run_fresh_t1_materialization()
+        node_ids_after_first = set(self.prov_graph.nodes.keys())
+        # There should be materializer nodes from the first run
+        mat_nodes_first = [n for n in self.prov_graph.nodes.values() if n.source_retriever == RetrieverType.MATERIALIZER]
+        self.assertTrue(len(mat_nodes_first) > 0)
+
+        # Update run: LLM does a situational analysis only (t1 already satisfies T)
+        plan_noop = f'{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"t1 already present"}}}}'
+        self.lm_api.llm._responses = [f'{{"plan": [{plan_noop}]}}']  # type: ignore
+
+        T_same = {"t1": pd.DataFrame(columns=["a", "b"])}
+        self.materializer.materialize_T(T=T_same, column_descriptions={}, S="", update_mode=True)
+
+        # All prior nodes must still be in the graph
+        for node_id in node_ids_after_first:
+            self.assertIn(node_id, self.prov_graph.nodes)
+
+    def test_provenance_reset_in_fresh_mode(self):
+        """In fresh mode, reset_materialization_nodes() IS called; prior MATERIALIZER prov nodes gone."""
+        self._run_fresh_t1_materialization()
+        mat_nodes_first = [n for n in self.prov_graph.nodes.values() if n.source_retriever == RetrieverType.MATERIALIZER]
+        first_mat_node_ids = {n.id for n in mat_nodes_first}
+        self.assertTrue(len(first_mat_node_ids) > 0)
+
+        # Second fresh run targeting t2
+        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find t2"]}}}}'
+        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t2":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
+        self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}]}}']  # type: ignore
+        table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+        table_doc = Table(doc_id="table_1", retriever_type=RetrieverType.PNEUMA_RETRIEVER, content=table_df, metadata={})
+        self.action_set.retrieve_multi_topic_documents = MagicMock(return_value=[table_doc])
+        T2 = {"t2": pd.DataFrame(columns=["a", "b"])}
+        self.materializer.materialize_T(T=T2, column_descriptions={}, S="", update_mode=False)
+
+        # The MATERIALIZER nodes from the first run must be gone
+        for node_id in first_mat_node_ids:
+            self.assertNotIn(node_id, self.prov_graph.nodes)
+
+    def test_update_mode_applies_delta_to_existing_table(self):
+        """Full update workflow: fresh run produces t1[a,b]; update run adds column c via SQL."""
+        self._run_fresh_t1_materialization()
+
+        # t1 with [a, b] is now in DB and in _saved_intermediate_tables
+        t1_before = self.db_api.execute_query(self.user_id, self.chat_id, 'SELECT * FROM "t1";')
+        self.assertListEqual(sorted(t1_before.columns.tolist()), ["a", "b"])
+
+        # Update run: LLM uses query_executor to add column c.
+        # QueryExecutor wraps the query as CREATE OR REPLACE TABLE "t1" AS <query>,
+        # so pass only the SELECT part.
+        add_col_query = "SELECT a, b, 99 AS c FROM t1"
+        plan_update = (
+            f'{{"action":"{ActionNames.QUERY_EXECUTOR.value}",'
+            f'"args":{{"query":"{add_col_query}","assign_to":"t1"}}}}'
+        )
+        self.lm_api.llm._responses = [f'{{"plan": [{plan_update}]}}']  # type: ignore
+
+        T_updated = {"t1": pd.DataFrame(columns=["a", "b", "c"])}
+        result = self.materializer.materialize_T(T=T_updated, column_descriptions={}, S="", update_mode=True)
+
+        self.assertIn("t1", result[-1])
+        result_df = result[-1]["t1"]
+        self.assertIn("c", result_df.columns)
+        self.assertIn("a", result_df.columns)
+        self.assertIn("b", result_df.columns)
+
     def test_rematerialize_cleans_previous_intermediate_tables(self):
         plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}'
         plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
@@ -396,6 +623,62 @@ class MaterializerTests(unittest.TestCase):
         self.assertIn("t2", tables_after_second)
         self.assertNotIn("t1", tables_after_second)
         self.assertEqual(tables_after_second - baseline_tables, {"t2"})
+
+
+    def test_check_completion_extra_columns_allowed(self):
+        """Extra columns in a materialized table do not prevent completion."""
+        T = {"t1": pd.DataFrame(columns=["a", "b"])}
+        self.materializer.state.T = T
+        self.materializer.state.add_intermediate_table(
+            Table(
+                doc_id="t1",
+                retriever_type=RetrieverType.MATERIALIZER,
+                content=pd.DataFrame({"a": [1], "b": [2], "extra": [3]}),
+                metadata={},
+            )
+        )
+        self.assertTrue(self.materializer._check_completion(T))
+
+    def test_check_completion_missing_required_columns_not_complete(self):
+        """A materialized table missing required columns does not satisfy completion."""
+        T = {"t1": pd.DataFrame(columns=["a", "b", "required_col"])}
+        self.materializer.state.T = T
+        self.materializer.state.add_intermediate_table(
+            Table(
+                doc_id="t1",
+                retriever_type=RetrieverType.MATERIALIZER,
+                content=pd.DataFrame({"a": [1], "b": [2]}),  # missing required_col
+                metadata={},
+            )
+        )
+        self.assertFalse(self.materializer._check_completion(T))
+
+    def test_plan_parse_error_retries_without_counting_step(self):
+        """A malformed LLM plan retries without consuming a step, so a tight limit still allows completion."""
+        self.materializer.config.MAX_MATERIALIZER_STEPS = 1  # only 1 real step allowed
+
+        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find"]}}}}'
+        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
+        self.lm_api.llm._responses = [  # type: ignore
+            '{"plan": "not a list"}',           # bad — triggers retry without incrementing step
+            f'{{"plan": [{plan1}, {plan2}]}}',  # good — completes within the 1 allowed step
+        ]
+
+        table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+        os.makedirs(Path(self.tmpdir) / "test_ds", exist_ok=True)
+        table_df.to_csv(Path(self.tmpdir) / "test_ds" / "table_1.csv", index=False)
+        self.db_api.ingest_dataset("test_ds", str(Path(self.tmpdir) / "test_ds"))
+        table_doc = Table(
+            doc_id="table_1",
+            retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+            content=table_df,
+            metadata={},
+        )
+        self.action_set.retrieve_multi_topic_documents = MagicMock(return_value=[table_doc])
+
+        T = {"t1": pd.DataFrame(columns=["a", "b"])}
+        result = self.materializer.materialize_T(T=T, column_descriptions={}, S="")
+        self.assertIn("t1", result[-1])
 
 
 if __name__ == "__main__":

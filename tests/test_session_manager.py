@@ -44,6 +44,43 @@ class SessionManagerTests(unittest.TestCase):
 
         self.assertEqual(cs_mock.call_count, 1) # type: ignore
 
+    def test_lru_eviction_removes_least_recently_used_when_at_capacity(self):
+        self.cfg.SESSION_MANAGER_MAX_SESSIONS = 2
+        sm = SessionManager(self.cfg, self.logger, self.pneuma_db)
+
+        a = sm.get_chat_session("u1", "c1")
+        sm.get_chat_session("u2", "c2")
+        # At capacity; next get evicts u1/c1 (LRU)
+        sm.get_chat_session("u3", "c3")
+
+        a_new = sm.get_chat_session("u1", "c1")
+        self.assertIsNot(a, a_new)
+
+    def test_lru_access_updates_order_prevents_eviction(self):
+        self.cfg.SESSION_MANAGER_MAX_SESSIONS = 2
+        sm = SessionManager(self.cfg, self.logger, self.pneuma_db)
+
+        a = sm.get_chat_session("u1", "c1")
+        b = sm.get_chat_session("u2", "c2")
+        # Re-access A → B becomes LRU
+        sm.get_chat_session("u1", "c1")
+        # Adding C evicts B (not A)
+        sm.get_chat_session("u3", "c3")
+
+        # A is still cached (same instance)
+        self.assertIs(a, sm.get_chat_session("u1", "c1"))
+        # B was evicted (new instance)
+        self.assertIsNot(b, sm.get_chat_session("u2", "c2"))
+
+    def test_evict_chat_session_removes_key_from_cache(self):
+        s1 = self.sm.get_chat_session("u1", "c1")
+        self.sm.evict_chat_session("u1", "c1")
+        s2 = self.sm.get_chat_session("u1", "c1")
+        self.assertIsNot(s1, s2)
+
+    def test_evict_nonexistent_key_is_noop(self):
+        self.sm.evict_chat_session("nobody", "nothing")  # must not raise
+
     def tearDown(self) -> None:
         import pneuma_seeker.session_manager as sm_mod
 

@@ -1,12 +1,18 @@
 # src/pneuma_seeker/chat_session.py
 from logging import Logger
+from typing import Callable
 
 from pneuma_seeker.provenance.graph import ProvenanceGraph
+from pneuma_seeker.services.core.conductor.models import (
+    ConductorResponse,
+    ConductorResponseType,
+)
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
 from pneuma_seeker.services.core.conductor.main import Conductor
+from pneuma_seeker.services.skill_based_core.agent import SkillsAgent
 from pneuma_seeker.shared.config import Config
-from pneuma_seeker.shared.schemas.core.conductor import UserConductorInteraction
+from pneuma_seeker.shared.logger import formatted_log
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.schemas.language_model.role import Role
 
@@ -23,14 +29,16 @@ class ChatSession:
         db_api: DBAPI,
         language_model_api: LanguageModelAPI,
     ):
-        """Initializes the ChatSession with user and chat IDs, configuration, logger, and APIs."""
+        """Initializes the ChatSession with user and chat IDs, config, logger, and APIs."""
         self.user_id = user_id
         self.chat_id = chat_id
         self.config = config
         self.logger = logger
         self.db_api = db_api
         self.language_model_api = language_model_api
-        self.conductor = Conductor(
+
+        _agent_cls = SkillsAgent if config.USE_SKILLS_AGENT else Conductor
+        self.conductor = _agent_cls(
             self.user_id,
             self.chat_id,
             self.config,
@@ -38,6 +46,7 @@ class ChatSession:
             ProvenanceGraph(self.logger),
             self.db_api,
             self.language_model_api,
+            frontend_callback=lambda _: None,
         )
 
         (
@@ -54,8 +63,10 @@ class ChatSession:
             self.user_id,
             self.chat_id,
         )
+
         self.messages = messages
         self.dataset_name = dataset_name
+
         self.conductor.state = conductor_state
         self.conductor.set_prov_graph(provenance_graph)
         self.conductor.retrieved_tables = retrieved_tables
@@ -66,81 +77,67 @@ class ChatSession:
 
     def chat(
         self,
-        latest_user_message: str,
-        external_data_paths: list[str] | None = None,
+        user_message: str,
+        external_table_paths: list[str] | None = None,
+        frontend_callback: Callable[[ConductorResponse], None] = lambda _: None,
     ):
-        """Processes chat messages and yields responses from the Conductor."""
-        external_data_paths = external_data_paths or []
-        interaction_history: list[UserConductorInteraction] = []
+        """Processes a user message and yields responses from Conductor."""
+        external_table_paths = external_table_paths or []
 
-        latest_user_message = latest_user_message.strip()
-        if not latest_user_message:
+        user_message = user_message.strip()
+        if not user_message:
             raise ValueError("No user message provided for chat session.")
 
         self.messages.append(
             LLMMessage(
                 role=Role.USER.value,
-                content=latest_user_message,
+                content=user_message,
             )
         )
 
-        for i in range(0, len(self.messages) - 1, 2):
-            if (
-                self.messages[i]["role"] == Role.USER.value
-                and self.messages[i + 1]["role"] == Role.ASSISTANT.value
-            ):
-                interaction_history.append(
-                    UserConductorInteraction(
-                        self.messages[i]["content"],
-                        self.messages[i + 1]["content"],
-                    )
-                )
-
-        full_response = ""
+        self.conductor.frontend_callback = frontend_callback
+        final_response = ""
         for conductor_response in self.conductor.chat(
-            latest_user_message,
-            interaction_history,
-            external_data_paths,
+            user_message,
+            self.messages[:-1],
+            external_table_paths,
         ):
-            full_response = conductor_response
+            if conductor_response.type == ConductorResponseType.FINAL_RESPONSE:
+                final_response = conductor_response.message
             yield conductor_response
 
-        if full_response:
+        if final_response:
             self.messages.append(
                 LLMMessage(
                     role=Role.ASSISTANT.value,
-                    content=full_response,
+                    content=final_response,
                 )
             )
-        yield "DONE"
+        yield ConductorResponse(ConductorResponseType.DONE, "")
 
     def persist_session(self, dataset_name: str):
-        """Callback to persist the current state of Provenance Graph."""
+        """Persists the current state of the chat session to the database."""
         try:
             self.__log(f"Persisting session...")
-            self.__log(
-                f"=> Number of provenance nodes: {len(self.conductor.prov_graph.nodes)}"
-            )
-
-            last_user_input = ""
-            last_system_response = ""
+            last_user_message = ""
+            last_conductor_response = ""
             if self.messages:
                 # If the last message is from the assistant, the one before it was the user prompt
                 if self.messages[-1]["role"] == Role.ASSISTANT.value:
-                    last_system_response = self.messages[-1]["content"]
+                    last_conductor_response = self.messages[-1]["content"]
                     if len(self.messages) > 1:
-                        last_user_input = self.messages[-2]["content"]
+                        last_user_message = self.messages[-2]["content"]
                 # If it cut off right after the user sent something, but before assistant finished
                 elif self.messages[-1]["role"] == Role.USER.value:
-                    last_user_input = self.messages[-1]["content"]
+                    last_user_message = self.messages[-1]["content"]
 
             self.dataset_name = dataset_name
             self.db_api.persist_session(
                 self.user_id,
                 self.chat_id,
                 dataset_name,
-                last_user_input,
-                last_system_response,
+                last_user_message,
+                last_conductor_response,
                 self.conductor.state,
                 self.conductor.prov_graph,
                 self.conductor.retrieved_tables,
@@ -149,9 +146,9 @@ class ChatSession:
                 self.conductor.web_crawl_result,
                 self.conductor.join_paths,
             )
-            self.__log("Session persisted successfully.")
+            self.__log("Session persisted successfully!")
         except Exception as e:
             self.__log(f"Failed to persist session: {e}")
 
     def __log(self, message: str):
-        self.logger.info(f"[ChatSession] {message}")
+        formatted_log(self.logger, "ChatSession", message)
