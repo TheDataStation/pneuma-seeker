@@ -2,7 +2,7 @@ import json
 import os
 import sys
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -59,7 +59,7 @@ class TestChatRouter(unittest.TestCase):
             ),
             ConductorResponse(ConductorResponseType.DONE, ""),
         ]
-        mock_session_manager.get_chat_session.return_value = mock_chat_session
+        mock_session_manager.get_chat_session_async = AsyncMock(return_value=mock_chat_session)
 
         payload = {
             "chat_id": "session_001",
@@ -113,7 +113,9 @@ class TestChatRouter(unittest.TestCase):
         fake_df = pd.DataFrame({"node_id": [1, 2], "val": ["A", "B"]})
         mock_conductor.action_set.execute_code.return_value = fake_df
 
-        mock_session_manager.get_chat_session.return_value.conductor = mock_conductor
+        mock_session = MagicMock()
+        mock_session.conductor = mock_conductor
+        mock_session_manager.get_chat_session_async = AsyncMock(return_value=mock_session)
 
         # Act
         response = self.client.get("/chat/execute_code/session_001")
@@ -148,7 +150,7 @@ class TestChatRouter(unittest.TestCase):
         mock_chat_session = MagicMock()
         mock_chat_session.conductor = mock_conductor
         mock_chat_session.dataset_name = "test_dataset"
-        mock_session_manager.get_chat_session.return_value = mock_chat_session
+        mock_session_manager.get_chat_session_async = AsyncMock(return_value=mock_chat_session)
 
         # Act
         response = self.client.get("/chat/state/session_001")
@@ -168,7 +170,7 @@ class TestChatRouter(unittest.TestCase):
         mock_chat_session = MagicMock()
         mock_chat_session.messages = [{"role": "user", "content": "hello"}]
         mock_chat_session.dataset_name = None
-        mock_session_manager.get_chat_session.return_value = mock_chat_session
+        mock_session_manager.get_chat_session_async = AsyncMock(return_value=mock_chat_session)
 
         # Act
         response = self.client.get("/chat/chat/session_001/history")
@@ -182,7 +184,7 @@ class TestChatRouter(unittest.TestCase):
     @patch("pneuma_seeker.routers.chat.session_manager")
     def test_get_target_views_not_found(self, mock_session_manager):
         """Verifies downloading target metrics throws 404 when structural dimensions have missing targets."""
-        # Arrange
+        # Arrange — sync endpoint, uses get_chat_session (not async)
         mock_conductor = MagicMock()
         mock_conductor.state.T = None  # No tables generated
         mock_session_manager.get_chat_session.return_value.conductor = mock_conductor
@@ -197,7 +199,7 @@ class TestChatRouter(unittest.TestCase):
     @patch("pneuma_seeker.routers.chat.session_manager")
     def test_get_e2e_script_success(self, mock_session_manager):
         """Checks script emission pipelines generation tasks."""
-        # Arrange
+        # Arrange — sync endpoint, uses get_chat_session (not async)
         mock_chat_session = MagicMock()
         mock_chat_session.conductor.materializer.prov_graph.get_graph_code.return_value = (
             "print('Pneuma Code')"
@@ -274,9 +276,10 @@ class TestChatRouter(unittest.TestCase):
 
         mock_prov_graph = MagicMock()
         mock_prov_graph.nodes = {"node_0": mock_node}
-        mock_session_manager.get_chat_session.return_value.conductor.materializer.prov_graph = (
-            mock_prov_graph
-        )
+
+        mock_session = MagicMock()
+        mock_session.conductor.materializer.prov_graph = mock_prov_graph
+        mock_session_manager.get_chat_session_async = AsyncMock(return_value=mock_session)
 
         # Act
         response = self.client.get("/chat/provenance_nodes/session_001")
@@ -360,6 +363,12 @@ class TestQueryTableEndpoint(unittest.TestCase):
         rows_df = pd.DataFrame(rows_data)
         return [cols_df, count_df, rows_df]
 
+    def _setup_conductor(self, mock_session_manager, mock_conductor):
+        """Wire an async-compatible session mock with the given conductor."""
+        mock_session = MagicMock()
+        mock_session.conductor = mock_conductor
+        mock_session_manager.get_chat_session_async = AsyncMock(return_value=mock_session)
+
     @patch("pneuma_seeker.routers.chat.session_manager")
     def test_query_table_basic_success(self, mock_session_manager):
         """Returns rows, total_count, and columns on a straightforward query."""
@@ -369,7 +378,7 @@ class TestQueryTableEndpoint(unittest.TestCase):
             total_count=100,
             rows_data={"id": [1, 2], "name": ["Alice", "Bob"], "city": ["NY", "LA"]},
         )
-        mock_session_manager.get_chat_session.return_value.conductor = mock_conductor
+        self._setup_conductor(mock_session_manager, mock_conductor)
 
         response = self.client.get("/chat/table_query/session_001?table_id=users")
 
@@ -392,8 +401,8 @@ class TestQueryTableEndpoint(unittest.TestCase):
     @patch("pneuma_seeker.routers.chat.session_manager")
     def test_query_table_session_not_found_returns_404(self, mock_session_manager):
         """Returns 404 when the chat session does not exist."""
-        mock_session_manager.get_chat_session.side_effect = Exception(
-            "session not found"
+        mock_session_manager.get_chat_session_async = AsyncMock(
+            side_effect=Exception("session not found")
         )
         response = self.client.get("/chat/table_query/ghost_session?table_id=users")
         self.assertEqual(response.status_code, 404)
@@ -406,7 +415,7 @@ class TestQueryTableEndpoint(unittest.TestCase):
         mock_conductor.db_api.execute_query.side_effect = Exception(
             "table does not exist"
         )
-        mock_session_manager.get_chat_session.return_value.conductor = mock_conductor
+        self._setup_conductor(mock_session_manager, mock_conductor)
 
         response = self.client.get("/chat/table_query/session_001?table_id=nonexistent")
 
@@ -422,7 +431,7 @@ class TestQueryTableEndpoint(unittest.TestCase):
             total_count=1,
             rows_data={"name": ["Illinois"]},
         )
-        mock_session_manager.get_chat_session.return_value.conductor = mock_conductor
+        self._setup_conductor(mock_session_manager, mock_conductor)
 
         self.client.get("/chat/table_query/session_001?table_id=states&search=illi")
 
@@ -446,7 +455,7 @@ class TestQueryTableEndpoint(unittest.TestCase):
             total_count=5,
             rows_data={"id": [1]},
         )
-        mock_session_manager.get_chat_session.return_value.conductor = mock_conductor
+        self._setup_conductor(mock_session_manager, mock_conductor)
 
         response = self.client.get(
             "/chat/table_query/session_001?table_id=reports&dataset_name=csn_2024"
@@ -466,7 +475,7 @@ class TestQueryTableEndpoint(unittest.TestCase):
         mock_conductor.db_api.execute_query.side_effect = self._mock_db_side_effects(
             columns=["id"], total_count=0, rows_data={"id": []}
         )
-        mock_session_manager.get_chat_session.return_value.conductor = mock_conductor
+        self._setup_conductor(mock_session_manager, mock_conductor)
 
         # dataset_name with an embedded quote: 'ds"injected' → sanitized to 'dsinjected'
         self.client.get(
@@ -488,7 +497,7 @@ class TestQueryTableEndpoint(unittest.TestCase):
             total_count=2,
             rows_data={"name": ["Bob", "Alice"]},
         )
-        mock_session_manager.get_chat_session.return_value.conductor = mock_conductor
+        self._setup_conductor(mock_session_manager, mock_conductor)
 
         self.client.get(
             "/chat/table_query/session_001?table_id=users&order_by=name&order_dir=desc"
@@ -506,7 +515,7 @@ class TestQueryTableEndpoint(unittest.TestCase):
         mock_conductor.db_api.execute_query.side_effect = self._mock_db_side_effects(
             columns=["id"], total_count=1, rows_data={"id": [1]}
         )
-        mock_session_manager.get_chat_session.return_value.conductor = mock_conductor
+        self._setup_conductor(mock_session_manager, mock_conductor)
 
         self.client.get(
             "/chat/table_query/session_001?table_id=t&order_by=id&order_dir=DROP+TABLE"
@@ -523,7 +532,7 @@ class TestQueryTableEndpoint(unittest.TestCase):
         mock_conductor.db_api.execute_query.side_effect = self._mock_db_side_effects(
             columns=["id"], total_count=0, rows_data={"id": []}
         )
-        mock_session_manager.get_chat_session.return_value.conductor = mock_conductor
+        self._setup_conductor(mock_session_manager, mock_conductor)
 
         self.client.get("/chat/table_query/session_001?table_id=t&limit=9999")
 
@@ -538,7 +547,7 @@ class TestQueryTableEndpoint(unittest.TestCase):
         mock_conductor.db_api.execute_query.side_effect = self._mock_db_side_effects(
             columns=["id"], total_count=200, rows_data={"id": [51]}
         )
-        mock_session_manager.get_chat_session.return_value.conductor = mock_conductor
+        self._setup_conductor(mock_session_manager, mock_conductor)
 
         self.client.get("/chat/table_query/session_001?table_id=t&offset=50")
 
@@ -580,20 +589,19 @@ class TestExplainScriptEndpoint(unittest.TestCase):
     @patch("pneuma_seeker.routers.chat.session_manager")
     def test_explain_script_returns_cached_description(self, mock_session_manager):
         """When s_description is already populated, the LLM is not called."""
-        mock_session_manager.get_chat_session.return_value = self._make_session(
-            description="Cached description."
-        )
+        session = self._make_session(description="Cached description.")
+        mock_session_manager.get_chat_session_async = AsyncMock(return_value=session)
         response = self.client.get("/chat/explain_script/session_001")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["description"], "Cached description.")
         # LLM must not have been called
-        mock_session_manager.get_chat_session.return_value.language_model_api.chat.assert_not_called()
+        session.language_model_api.chat.assert_not_called()
 
     @patch("pneuma_seeker.routers.chat.session_manager")
     def test_explain_script_calls_llm_when_empty(self, mock_session_manager):
         """When s_description is empty, the LLM is called and the result is returned."""
-        mock_session_manager.get_chat_session.return_value = self._make_session(
-            description=""
+        mock_session_manager.get_chat_session_async = AsyncMock(
+            return_value=self._make_session(description="")
         )
         response = self.client.get("/chat/explain_script/session_001")
         self.assertEqual(response.status_code, 200)
@@ -603,7 +611,7 @@ class TestExplainScriptEndpoint(unittest.TestCase):
     def test_explain_script_persists_description(self, mock_session_manager):
         """After generation, update_script_description is called on db_api."""
         session = self._make_session(description="")
-        mock_session_manager.get_chat_session.return_value = session
+        mock_session_manager.get_chat_session_async = AsyncMock(return_value=session)
         self.client.get("/chat/explain_script/session_001")
         session.conductor.db_api.update_script_description.assert_called_once_with(
             "user_999", "session_001", "A nice explanation."
@@ -613,15 +621,15 @@ class TestExplainScriptEndpoint(unittest.TestCase):
     def test_explain_script_updates_state_in_memory(self, mock_session_manager):
         """After generation, conductor.state.s_description is set in memory."""
         session = self._make_session(description="")
-        mock_session_manager.get_chat_session.return_value = session
+        mock_session_manager.get_chat_session_async = AsyncMock(return_value=session)
         self.client.get("/chat/explain_script/session_001")
         self.assertEqual(session.conductor.state.s_description, "A nice explanation.")
 
     @patch("pneuma_seeker.routers.chat.session_manager")
     def test_explain_script_no_script_returns_400(self, mock_session_manager):
         """Requesting explanation when script is empty returns 400."""
-        mock_session_manager.get_chat_session.return_value = self._make_session(
-            script="", description=""
+        mock_session_manager.get_chat_session_async = AsyncMock(
+            return_value=self._make_session(script="", description="")
         )
         response = self.client.get("/chat/explain_script/session_001")
         self.assertEqual(response.status_code, 400)
@@ -629,7 +637,9 @@ class TestExplainScriptEndpoint(unittest.TestCase):
     @patch("pneuma_seeker.routers.chat.session_manager")
     def test_explain_script_session_not_found_returns_404(self, mock_session_manager):
         """Missing chat session returns 404."""
-        mock_session_manager.get_chat_session.side_effect = Exception("no session")
+        mock_session_manager.get_chat_session_async = AsyncMock(
+            side_effect=Exception("no session")
+        )
         response = self.client.get("/chat/explain_script/missing")
         self.assertEqual(response.status_code, 404)
 
@@ -653,6 +663,12 @@ class TestDownloadTableEndpoint(unittest.TestCase):
     def tearDown(self):
         self.app.dependency_overrides.clear()
 
+    def _setup_conductor(self, mock_session_manager, mock_conductor):
+        """Wire an async-compatible session mock with the given conductor."""
+        mock_session = MagicMock()
+        mock_session.conductor = mock_conductor
+        mock_session_manager.get_chat_session_async = AsyncMock(return_value=mock_session)
+
     @patch("pneuma_seeker.routers.chat.session_manager")
     def test_download_table_returns_csv(self, mock_session_manager):
         """Successful request streams CSV with correct content-type and disposition."""
@@ -661,7 +677,7 @@ class TestDownloadTableEndpoint(unittest.TestCase):
             pd.DataFrame({"id": [1, 2], "name": ["Alice", "Bob"]}),
             pd.DataFrame(),
         ]
-        mock_session_manager.get_chat_session.return_value.conductor = mock_conductor
+        self._setup_conductor(mock_session_manager, mock_conductor)
 
         response = self.client.get("/chat/table_download/session_001?table_id=users")
 
@@ -681,7 +697,7 @@ class TestDownloadTableEndpoint(unittest.TestCase):
             pd.DataFrame({"col_a": [10], "col_b": ["x"]}),
             pd.DataFrame(),
         ]
-        mock_session_manager.get_chat_session.return_value.conductor = mock_conductor
+        self._setup_conductor(mock_session_manager, mock_conductor)
 
         response = self.client.get("/chat/table_download/session_001?table_id=t")
 
@@ -692,7 +708,9 @@ class TestDownloadTableEndpoint(unittest.TestCase):
     @patch("pneuma_seeker.routers.chat.session_manager")
     def test_download_table_invalid_table_id_returns_400(self, mock_session_manager):
         """table_id with disallowed characters returns 400 before any DB access."""
-        mock_session_manager.get_chat_session.return_value.conductor = MagicMock()
+        mock_session_manager.get_chat_session_async = AsyncMock(
+            return_value=MagicMock()
+        )
 
         response = self.client.get("/chat/table_download/session_001?table_id=bad-id!")
 
@@ -701,7 +719,9 @@ class TestDownloadTableEndpoint(unittest.TestCase):
     @patch("pneuma_seeker.routers.chat.session_manager")
     def test_download_table_session_not_found_returns_404(self, mock_session_manager):
         """Missing chat session returns 404."""
-        mock_session_manager.get_chat_session.side_effect = Exception("no session")
+        mock_session_manager.get_chat_session_async = AsyncMock(
+            side_effect=Exception("no session")
+        )
 
         response = self.client.get("/chat/table_download/missing?table_id=users")
 
@@ -717,7 +737,7 @@ class TestDownloadTableEndpoint(unittest.TestCase):
             pd.DataFrame({"id": [1]}),
             pd.DataFrame(),
         ]
-        mock_session_manager.get_chat_session.return_value.conductor = mock_conductor
+        self._setup_conductor(mock_session_manager, mock_conductor)
 
         self.client.get(
             "/chat/table_download/session_001?table_id=reports&dataset_name=csn_2024"
@@ -737,7 +757,7 @@ class TestDownloadTableEndpoint(unittest.TestCase):
             pd.DataFrame({"id": [1]}),
             pd.DataFrame(),
         ]
-        mock_session_manager.get_chat_session.return_value.conductor = mock_conductor
+        self._setup_conductor(mock_session_manager, mock_conductor)
 
         self.client.get(
             '/chat/table_download/session_001?table_id=t&dataset_name=ds"injected'
@@ -759,7 +779,7 @@ class TestDownloadTableEndpoint(unittest.TestCase):
             pd.DataFrame({"id": [chunk_size]}),  # partial chunk → stop
             pd.DataFrame(),  # safety: never reached
         ]
-        mock_session_manager.get_chat_session.return_value.conductor = mock_conductor
+        self._setup_conductor(mock_session_manager, mock_conductor)
 
         response = self.client.get(
             "/chat/table_download/session_001?table_id=big_table"

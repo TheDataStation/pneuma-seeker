@@ -1028,15 +1028,16 @@ class WorkspaceManager:
                 or retriever_type == RetrieverType.USER
             ):
 
+                row_limit = self.config.SESSION_RESTORE_MAX_ROWS
                 if (
                     retriever_type == RetrieverType.MATERIALIZER
                     or retriever_type == RetrieverType.CONDUCTOR
                 ):
-                    select_query = f"""SELECT * FROM \"{doc_row['doc_id']}\";"""
-                else:
                     select_query = (
-                        f"""SELECT * FROM \"{dataset_name}\".\"{doc_row['doc_id']}\";"""
+                        f"""SELECT * FROM \"{doc_row['doc_id']}\" LIMIT {row_limit};"""
                     )
+                else:
+                    select_query = f"""SELECT * FROM \"{dataset_name}\".\"{doc_row['doc_id']}\" LIMIT {row_limit};"""
                 try:
                     content = self.execute_query(
                         user_id,
@@ -1044,6 +1045,9 @@ class WorkspaceManager:
                         select_query,
                     )
                 except Exception as e:
+                    self.__log(
+                        f"__load_documents_by_role: failed to load doc '{doc_row['doc_id']}': {e}"
+                    )
                     continue
                 document = Table(
                     doc_id=doc_row["doc_id"],

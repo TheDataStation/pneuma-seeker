@@ -73,7 +73,7 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
     if latest_user_message is None or not isinstance(latest_user_message, str):
         raise HTTPException(status_code=400, detail="Missing user message")
 
-    chat_session = session_manager.get_chat_session(user_id, chat_id)
+    chat_session = await session_manager.get_chat_session_async(user_id, chat_id)
 
     async def event_stream():
         start = datetime.now().timestamp()
@@ -204,7 +204,9 @@ async def execute_code(
     Endpoint to trigger execution of Python code (S) on target tables (T) for a given user and chat.
     """
     user_id = current_user.user_id
-    conductor = session_manager.get_chat_session(user_id, chat_id).conductor
+    conductor = (
+        await session_manager.get_chat_session_async(user_id, chat_id)
+    ).conductor
     try:
         try:
             execution_result = conductor.db_api.execute_query(
@@ -234,7 +236,9 @@ async def execute_code(
     response_class=JSONResponse,
 )
 async def get_state(chat_id: str, current_user: UserRecord = Depends(get_current_user)):
-    chat_session = session_manager.get_chat_session(current_user.user_id, chat_id)
+    chat_session = await session_manager.get_chat_session_async(
+        current_user.user_id, chat_id
+    )
     conductor = chat_session.conductor
     state = conductor.state.get_current_state_instance(config.TABLE_MAX_ROWS_DISPLAY)
 
@@ -266,7 +270,7 @@ async def get_chat_history(
     chat_id: str, current_user: UserRecord = Depends(get_current_user)
 ):
     user_id = current_user.user_id
-    chat_session = session_manager.get_chat_session(user_id, chat_id)
+    chat_session = await session_manager.get_chat_session_async(user_id, chat_id)
     return ChatHistoryResponse(
         user_id=user_id,
         chat_id=chat_id,
@@ -357,7 +361,7 @@ async def get_provenance_nodes(
     user_id = current_user.user_id
 
     # Get the provenance graph instance
-    chat_session = session_manager.get_chat_session(user_id, chat_id)
+    chat_session = await session_manager.get_chat_session_async(user_id, chat_id)
     prov_graph = chat_session.conductor.materializer.prov_graph  # type: ignore
 
     # Convert all nodes to JSON-serializable format
@@ -407,7 +411,9 @@ async def query_table(
 
     user_id = current_user.user_id
     try:
-        conductor = session_manager.get_chat_session(user_id, chat_id).conductor
+        conductor = (
+            await session_manager.get_chat_session_async(user_id, chat_id)
+        ).conductor
     except Exception:
         raise HTTPException(
             status_code=404, detail=f"Chat session '{chat_id}' not found."
@@ -481,7 +487,7 @@ async def explain_script(
     """
     user_id = current_user.user_id
     try:
-        chat_session = session_manager.get_chat_session(user_id, chat_id)
+        chat_session = await session_manager.get_chat_session_async(user_id, chat_id)
     except Exception:
         raise HTTPException(
             status_code=404, detail=f"Chat session '{chat_id}' not found."
@@ -552,7 +558,9 @@ async def download_table(
 
     user_id = current_user.user_id
     try:
-        conductor = session_manager.get_chat_session(user_id, chat_id).conductor
+        conductor = (
+            await session_manager.get_chat_session_async(user_id, chat_id)
+        ).conductor
     except Exception:
         raise HTTPException(
             status_code=404, detail=f"Chat session '{chat_id}' not found."
