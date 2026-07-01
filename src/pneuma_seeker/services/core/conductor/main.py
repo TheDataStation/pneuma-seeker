@@ -557,6 +557,7 @@ class Conductor:
         if S is not None:
             self.state.S = S
             self.state.is_S_executed = False
+            self.state.s_description = ""
             is_S_modified = True
 
         if is_T_modified and is_S_modified:

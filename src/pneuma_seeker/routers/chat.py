@@ -511,9 +511,15 @@ async def explain_script(
             table_context = "\n\nTarget tables:\n" + "\n".join(lines)
 
     prompt = (
-        "Explain in 2-3 sentences what the following Python/SQL script does, "
-        "in plain language suitable for a non-technical user. "
-        "Focus on what data is retrieved or calculated, not the implementation."
+        "You are explaining a data analysis script to a non-technical user.\n\n"
+        "First, write 1-2 sentences describing what the script computes or retrieves "
+        "in plain language. Focus on the outcome, not the implementation.\n\n"
+        "Then, if applicable, add a short bullet list under the heading '**Assumptions & caveats:**' "
+        "covering important assumptions or nuances the user should know "
+        "(e.g. statistical model assumptions, data quality requirements, "
+        "interpretation caveats, known limitations). "
+        "Omit this section entirely if there is nothing meaningful to flag. "
+        "Keep the whole response concise."
         f"\n\nScript:\n{script[:2000]}"
         f"{table_context}"
     )

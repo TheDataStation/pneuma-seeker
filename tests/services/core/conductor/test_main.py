@@ -577,6 +577,63 @@ class ConductorTests(unittest.TestCase):
         self.assertEqual(responses[-1].message, "reconsidered")
         self.conductor.ds_skeptic.review.assert_called_once()
 
+    def test_state_manipulation_clears_s_description_when_S_updated(self):
+        """When STATE_MANIPULATION updates S, s_description must be cleared."""
+        self.conductor.state.s_description = "Old explanation."
+
+        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
+            {{"action":"state_manipulation","args":{{"S":"result = 42"}}}},
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"S updated"}}}}
+        ]}}"""]
+        list(self.conductor.chat(
+            user_message="update S",
+            interaction_history=[],
+            external_table_paths=[],
+        ))
+
+        self.assertEqual(self.conductor.state.S, "result = 42")
+        self.assertEqual(
+            self.conductor.state.s_description,
+            "",
+            "s_description must be cleared when S is updated",
+        )
+
+    def test_state_manipulation_clears_s_description_when_S_and_T_updated(self):
+        """When STATE_MANIPULATION updates both S and T, s_description must be cleared."""
+        self.conductor.state.s_description = "Old explanation."
+
+        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
+            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"S":"result = 1"}}}},
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"both updated"}}}}
+        ]}}"""]
+        list(self.conductor.chat(
+            user_message="update S and T",
+            interaction_history=[],
+            external_table_paths=[],
+        ))
+
+        self.assertEqual(self.conductor.state.s_description, "")
+
+    def test_state_manipulation_preserves_s_description_when_only_T_updated(self):
+        """When STATE_MANIPULATION updates only T (not S), s_description must be preserved."""
+        self.conductor.state.s_description = "Existing explanation."
+
+        self.conductor.language_model_api.llm._responses = [f"""{{"plan": [
+            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{"message":"T only"}}}}
+        ]}}"""]
+        list(self.conductor.chat(
+            user_message="update T only",
+            interaction_history=[],
+            external_table_paths=[],
+        ))
+
+        self.assertEqual(
+            self.conductor.state.s_description,
+            "Existing explanation.",
+            "s_description must not be cleared when only T is updated",
+        )
+
     def test_context_extraction_new_uncertainties_path(self):
         """Context extraction with the uncertainties format calls run_context_extraction."""
         self.conductor.retrieved_tables = [
