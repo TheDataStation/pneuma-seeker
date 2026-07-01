@@ -50,7 +50,7 @@ class QueryExecutor(Action, Executable):
     def get_description(self, agent: AgentType | None = None) -> str:
         return f"""**{ActionNames.QUERY_EXECUTOR.value}**
     - Executes a single SQL query and materializes the result into a workspace table.
-    - The system will run: `CREATE OR REPLACE TABLE "<assign_to>" AS <query>`, then returns a preview with `SELECT * FROM "<assign_to>" LIMIT 10`.
+    - The system will run: `CREATE OR REPLACE TABLE "<assign_to>" AS <query>`, then returns a preview with `SELECT * FROM "<assign_to>" LIMIT {self.config.MAX_RESULT_PREVIEW_ROWS}`.
     - Input guidelines:
         - `query` should generally start with `SELECT ...` or `WITH ... SELECT ...`.
         - Provide only one SQL statement (no embedded `;`).
@@ -67,7 +67,7 @@ class QueryExecutor(Action, Executable):
     def get_notes(self) -> str:
         return (
             "This action runs: CREATE OR REPLACE TABLE <result_table_id> AS <query>. "
-            "Then it returns SELECT * FROM <result_table_id> LIMIT 10."
+            f"Then it returns SELECT * FROM <result_table_id> LIMIT {self.config.MAX_RESULT_PREVIEW_ROWS}."
         )
 
     def execute(self, input: dict[str, Any]) -> pd.DataFrame:
@@ -94,5 +94,5 @@ class QueryExecutor(Action, Executable):
         return self.db_api.execute_query(
             self.user_id,
             self.chat_id,
-            f"SELECT * FROM {quoted_table} LIMIT 10;",
+            f"SELECT * FROM {quoted_table} LIMIT {self.config.MAX_RESULT_PREVIEW_ROWS};",
         )

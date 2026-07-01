@@ -32,6 +32,7 @@ from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import formatted_log
 from pneuma_seeker.shared.parser import parse_code, parse_json
 from pneuma_seeker.shared.str_processor import (
+    dataframe_to_preview_str,
     extract_table_ids_from_code,
     extract_tables_from_sql_regex,
 )
@@ -1112,7 +1113,9 @@ class Materializer:
                 exec_res = self.action_set.execute_code(
                     python_code, "materializer_assumption_check"
                 )
-                success_msg = f"Context extraction result: {exec_res}"
+                success_msg = (
+                    f"Context extraction result: {dataframe_to_preview_str(exec_res)}"
+                )
                 self._log(f"==> {success_msg}")
                 for cleanup_stmt in (
                     "DROP TABLE IF EXISTS materializer_assumption_check;",

@@ -1,5 +1,7 @@
 from typing import Any, Callable
 
+from pandas import DataFrame
+
 from pneuma_seeker.services.core.action_set.interfaces import Action, Applicable
 from pneuma_seeker.shared.logger import formatted_log
 from pneuma_seeker.shared.parser import parse_code
@@ -9,6 +11,7 @@ from pneuma_seeker.shared.schemas.core.ir_system import AbstractDocument
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.schemas.language_model.option import LLMOption
 from pneuma_seeker.shared.schemas.language_model.role import Role
+from pneuma_seeker.shared.str_processor import dataframe_to_preview_str
 
 _SHARED_PREAMBLE = f"""**{ActionNames.CONTEXT_EXTRACTION.value}**
   - Explores tables to answer specific uncertainty questions before committing to a schema or script.
@@ -125,8 +128,13 @@ class ContextExtraction(Action, Applicable):
 
             try:
                 result = execute_code_fn(code, result_table_name)
-                self.__log(f"Resolved on attempt {attempt + 1}: {result}")
-                return str(result), log_messages
+                result_str = (
+                    dataframe_to_preview_str(result)
+                    if isinstance(result, DataFrame)
+                    else str(result)
+                )
+                self.__log(f"Resolved on attempt {attempt + 1}: {result_str}")
+                return result_str, log_messages
             except Exception as exc:
                 self.__log(f"Attempt {attempt + 1} failed: {exc}")
                 log_messages.append(

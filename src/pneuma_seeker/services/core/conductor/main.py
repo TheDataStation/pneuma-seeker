@@ -21,6 +21,7 @@ from pneuma_seeker.services.core.materializer.main import Materializer
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import formatted_log
 from pneuma_seeker.shared.parser import parse_json
+from pneuma_seeker.shared.str_processor import dataframe_to_preview_str
 from pneuma_seeker.shared.schemas.core.action import ActionExecutionStatus, ActionNames
 from pneuma_seeker.shared.schemas.core.ir_system import (
     AbstractDocument,
@@ -712,10 +713,11 @@ class Conductor:
             execution_result = self.action_set.execute_code(
                 self.state.S, "conductor_s_execution"
             )
-            self._log(f"Script (S) execution result: {execution_result}")
+            execution_result_str = dataframe_to_preview_str(execution_result)
+            self._log(f"Script (S) execution result: {execution_result_str}")
             self.state.is_S_executed = True
             return (
-                f"Executed S, which resulted in this output: {execution_result}",
+                f"Executed S, which resulted in this output: {execution_result_str}",
                 ActionExecutionStatus.SUCCESS,
             )
         except Exception as e:
@@ -739,7 +741,8 @@ class Conductor:
                 execution_result = self.action_set.execute_code(
                     action_args["code"], "conductor_assumption_check"
                 )
-                self._log(f"Legacy Context Extraction result: {execution_result}")
+                execution_result_str = dataframe_to_preview_str(execution_result)
+                self._log(f"Legacy Context Extraction result: {execution_result_str}")
                 for cleanup_stmt in (
                     "DROP TABLE IF EXISTS conductor_assumption_check;",
                     "DROP VIEW IF EXISTS conductor_assumption_check;",
@@ -751,7 +754,7 @@ class Conductor:
                     except Exception as cleanup_exc:
                         self._log(f"Cleanup warning ({cleanup_stmt}): {cleanup_exc}")
                 return (
-                    f"Executed Context Extraction, which resulted in this output: {execution_result}",
+                    f"Executed Context Extraction, which resulted in this output: {execution_result_str}",
                     ActionExecutionStatus.SUCCESS,
                 )
             except Exception as e:
