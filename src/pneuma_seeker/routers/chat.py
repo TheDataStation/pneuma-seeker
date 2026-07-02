@@ -104,6 +104,16 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                 ):
                     send_to_frontend(response)
             finally:
+                # Persist here, not in event_stream()'s finally: this thread
+                # keeps running to completion even after a client disconnect
+                # (abandon_on_cancel=True below), so this is the only point
+                # guaranteed to run *after* chat_session.chat() has actually
+                # finished and appended the assistant's reply. Persisting from
+                # event_stream()'s finally instead would fire immediately on
+                # disconnect — mid-Conductor-run, before the reply exists —
+                # silently discarding the fully-computed answer once this
+                # thread finishes with nothing left to save it.
+                chat_session.persist_session(dataset_name)
                 response_queue.put(None)
 
         def run_chat_with_profiling():
@@ -147,6 +157,8 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                     f"[MEM] trace malloc peak Python alloc: {peak / 1024 / 1024:.2f} MB"
                 )
                 logger.info(f"[TIME] took {time() - t0:.2f}s")
+                # See run_chat()'s finally for why this must happen here.
+                chat_session.persist_session(dataset_name)
                 response_queue.put(None)
 
         producer = create_task(
@@ -170,7 +182,10 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                     logger.info(f"Exception raised: {e}")
                     break
         finally:
-            chat_session.persist_session(dataset_name)
+            # Persistence now happens in run_chat()/run_chat_with_profiling()'s
+            # own finally (in the background thread), not here — this block
+            # can run before the Conductor has actually finished (e.g. on
+            # client disconnect), which would persist a half-finished turn.
             producer.cancel()
 
     return StreamingResponse(

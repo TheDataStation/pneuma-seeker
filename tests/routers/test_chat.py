@@ -793,5 +793,72 @@ class TestDownloadTableEndpoint(unittest.TestCase):
         self.assertIn(f"OFFSET {chunk_size}", second_sql)
 
 
+class TestPersistOnDisconnectMechanism(unittest.TestCase):
+    """Verifies the core assumption routers/chat.py's run_chat() fix relies on.
+
+    Background: if a client disconnects mid-stream, the request's async
+    event_stream() generator gets cancelled. The chat work itself runs via
+    `anyio.to_thread.run_sync(run_chat, abandon_on_cancel=True)` — persisting
+    from inside run_chat()'s own `finally` (rather than from event_stream()'s,
+    which can fire immediately on cancellation, before the Conductor run has
+    actually produced a reply) is only correct if `abandon_on_cancel=True`
+    truly lets the background thread keep running to completion after the
+    awaiting task is cancelled, rather than killing it.
+
+    This can't be verified end-to-end through TestClient: it drives requests
+    to completion in-process rather than simulating a real, concurrently
+    racing network disconnect, so a full-stack test would pass whether or
+    not the fix is applied (false confidence). This test instead verifies
+    the underlying anyio mechanism directly and deterministically.
+    """
+
+    def test_abandoned_thread_keeps_running_after_task_cancellation(self):
+        import time
+        import threading
+        import anyio
+        from anyio import to_thread, create_task_group, CancelScope
+
+        started = threading.Event()
+        finished = threading.Event()
+
+        def slow_blocking_work():
+            started.set()
+            time.sleep(0.3)
+            finished.set()
+
+        async def run():
+            with CancelScope() as scope:
+                async def worker():
+                    await to_thread.run_sync(
+                        slow_blocking_work, abandon_on_cancel=True
+                    )
+
+                async with create_task_group() as tg:
+                    tg.start_soon(worker)
+                    await anyio.sleep(0.05)  # let the thread actually start
+                    scope.cancel()  # simulate the request being cancelled
+
+        anyio.run(run)
+
+        # The scope was cancelled almost immediately — well before the
+        # thread's 0.3s of "work" could have finished on its own — so if
+        # cancellation actually killed the thread, `finished` would still
+        # be unset with no way for it to ever become set.
+        self.assertTrue(started.is_set())
+        self.assertFalse(
+            finished.is_set(),
+            "thread should not have finished yet at cancellation time",
+        )
+
+        finished.wait(timeout=2)
+        self.assertTrue(
+            finished.is_set(),
+            "abandoned thread must keep running to completion in the "
+            "background after the awaiting task is cancelled — this is "
+            "what makes it safe (and necessary) to persist from inside "
+            "run_chat()'s own finally rather than event_stream()'s",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
