@@ -47,17 +47,47 @@ class TestMainApplication(unittest.TestCase):
 
         # Check explicitly for router prefix mappings
         self.assertTrue(
-            any(path.startswith("/auth") for path in registered_paths),
+            any(path.startswith("/api/auth") for path in registered_paths),
             "Auth router missing.",
         )
         self.assertTrue(
-            any(path.startswith("/chat") for path in registered_paths),
+            any(path.startswith("/api/chat") for path in registered_paths),
             "Chat router missing.",
         )
         self.assertTrue(
-            any(path.startswith("/index") for path in registered_paths),
+            any(path.startswith("/api/index") for path in registered_paths),
             "Indexing router missing.",
         )
+
+    def test_all_router_routes_live_under_api_prefix(self):
+        """Every route contributed by the auth/chat/indexing routers must be
+        under /api — the routes contributed by those three routers are
+        exactly the ones known to potentially collide with a same-named
+        frontend page route (e.g. the chat router's DELETE /{chat_id}
+        colliding with the frontend's own GET /chat/{chatId} page route).
+        Framework-level routes (docs/openapi/health check) are intentionally
+        excluded — they aren't part of any application router."""
+        framework_paths = {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc", "/"}
+        registered_paths = {route.path for route in self.app.routes}
+        app_router_paths = registered_paths - framework_paths
+
+        self.assertTrue(app_router_paths, "Expected at least one application route.")
+        for path in app_router_paths:
+            self.assertTrue(
+                path.startswith("/api/"),
+                f"Route {path!r} is not namespaced under /api — it risks "
+                "colliding with a frontend page route of the same name.",
+            )
+
+    def test_chat_router_does_not_register_a_bare_chat_id_route(self):
+        """Regression: a production hard refresh on a chat page (GET
+        /chat/{chatId}, served by the frontend) got misrouted to the backend
+        and matched the chat router's DELETE /{chat_id} route (mounted at
+        bare /chat/{chat_id} before the /api prefix was added), returning
+        405 Method Not Allowed instead of the chat page."""
+        registered_paths = {route.path for route in self.app.routes}
+        self.assertNotIn("/chat/{chat_id}", registered_paths)
+        self.assertIn("/api/chat/{chat_id}", registered_paths)
 
 
 if __name__ == "__main__":
