@@ -35,6 +35,7 @@ class Config:
         # Frontend-Backend Interaction Settings
         self.ALLOWED_ORIGINS = getenv("ALLOWED_ORIGINS", "*").split(",")
         self.TABLE_MAX_ROWS_DISPLAY = int(getenv("TABLE_MAX_ROWS_DISPLAY", "10"))
+        self.SESSION_RESTORE_MAX_ROWS = int(getenv("SESSION_RESTORE_MAX_ROWS", "5000"))
 
         # Core Configuration Settings
         self.MAX_CONDUCTOR_STEPS = int(getenv("MAX_CONDUCTOR_STEPS", "10"))

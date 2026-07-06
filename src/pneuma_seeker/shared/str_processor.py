@@ -2,6 +2,29 @@
 import ast
 import re
 
+from pandas import DataFrame, option_context
+
+
+def dataframe_to_preview_str(df: DataFrame) -> str:
+    """Renders a DataFrame in full, with no column or row truncation.
+
+    Callers are expected to have already bounded the row count (e.g. via a SQL
+    LIMIT), so pandas' own display truncation is disabled here — otherwise
+    pandas' default repr would additionally collapse wide frames into a
+    "col_1 ... col_10" ellipsis and re-truncate rows on top of that cap.
+    """
+    with option_context(
+        "display.max_columns",
+        None,
+        "display.max_rows",
+        None,
+        "display.width",
+        10_000,
+        "display.max_colwidth",
+        None,
+    ):
+        return df.to_string(index=False)
+
 
 def clean_column_table_name(name):
     """Cleans and normalizes column/table names."""

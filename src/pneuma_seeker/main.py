@@ -59,9 +59,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Pneuma-Seeker", lifespan=lifespan)
 
-app.include_router(auth.router)
-app.include_router(chat.router)
-app.include_router(indexing.router)
+# All backend routes live under /api so a reverse proxy can route by a single
+# unambiguous prefix ("/api/* -> backend, everything else -> frontend").
+# Without this, backend routes could collide with frontend page routes of the
+# same name (e.g. chat.router's DELETE /chat/{chat_id} vs. the frontend's own
+# GET /chat/{chatId} page route) — a real production incident where a hard
+# refresh on a chat page got misrouted to the backend and hit that DELETE
+# route's path pattern, returning 405 Method Not Allowed for the GET.
+app.include_router(auth.router, prefix="/api")
+app.include_router(chat.router, prefix="/api")
+app.include_router(indexing.router, prefix="/api")
 
 logger = setup_logger()
 config = Config("../../.env")

@@ -21,6 +21,7 @@ from pneuma_seeker.services.core.materializer.main import Materializer
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import formatted_log
 from pneuma_seeker.shared.parser import parse_json
+from pneuma_seeker.shared.str_processor import dataframe_to_preview_str
 from pneuma_seeker.shared.schemas.core.action import ActionExecutionStatus, ActionNames
 from pneuma_seeker.shared.schemas.core.ir_system import (
     AbstractDocument,
@@ -90,10 +91,12 @@ class Conductor:
         self.user_facing_response = ""
         self.actions: list[str] = []
         self.llm_messages: list[LLMMessage] = []
+        self.interaction_history: list[LLMMessage] = []
 
         self._skeptic_rounds = 0
         self._pending_skeptic_feedback: str | None = None
         self._skeptic_pushed_back: bool = False
+        self._pending_plan_feedback: str | None = None
 
         self._action_handlers: dict[str, Any] = {
             ActionNames.SITUATIONAL_ANALYSIS.value: self._handle_situational_analysis,
@@ -119,6 +122,7 @@ class Conductor:
 
         chat_start_time = time()
         self._reset_conductor()
+        self.interaction_history = interaction_history
 
         self.llm_messages = [
             LLMMessage(
@@ -197,6 +201,13 @@ class Conductor:
                     parse_json(llm_response).get("plan", [])
                 )
                 self.actions.append(str(plan))
+                if self._pending_plan_feedback is not None:
+                    self.llm_messages.append(
+                        LLMMessage(
+                            role=Role.USER.value, content=self._pending_plan_feedback
+                        )
+                    )
+                    self._pending_plan_feedback = None
             except Exception as exc:
                 message = f"Parsing error: {exc}. Please fix the issue and try again."
                 self._log(message)
@@ -258,16 +269,12 @@ class Conductor:
 
         if self.user_facing_response == "":
             self._log("Force produce user-facing response")
-            self.llm_messages.append(
-                LLMMessage(
-                    role=Role.SYSTEM.value,
-                    content=self.prompt_factory.get_direct_response_anyway_prompt(),
+            self._handle_user_facing_communication(user_message, {}, forced=True)
+            if self.user_facing_response == "":
+                self.user_facing_response = (
+                    "I wasn't able to fully resolve this within the available steps. "
+                    "Could you clarify or narrow your request?"
                 )
-            )
-            self.user_facing_response = "".join(
-                self.language_model_api.chat(self.llm_messages, LLMOption(stream=True))
-            )
-            self.user_facing_response = self.user_facing_response.strip()
 
         yield ConductorResponse(
             ConductorResponseType.FINAL_RESPONSE, self.user_facing_response
@@ -327,14 +334,20 @@ class Conductor:
                 assumption_check_in_plan = True
 
         # Strip user-facing communication when it co-occurs with execution actions
-        if (
-            executor_in_plan
-            or materializer_in_plan
-            or table_retrieve_in_plan
-            or assumption_check_in_plan
-        ) and user_facing_in_plan:
+        triggering_actions = [
+            name
+            for present, name in (
+                (executor_in_plan, ActionNames.PYTHON_EXECUTOR.value),
+                (materializer_in_plan, ActionNames.MATERIALIZER.value),
+                (table_retrieve_in_plan, ActionNames.TABLE_RETRIEVE.value),
+                (assumption_check_in_plan, ActionNames.CONTEXT_EXTRACTION.value),
+            )
+            if present
+        ]
+        if triggering_actions and user_facing_in_plan:
             self._log(
-                "==> Removing user-facing communication from plan due to presence of code execution or materialization or table retrieval or assumption check."
+                f"==> Removing {ActionNames.USER_FACING_COMMUNICATION.value} from plan "
+                f"due to co-occurrence with: {triggering_actions}."
             )
             plan = [
                 action_plan
@@ -342,6 +355,16 @@ class Conductor:
                 if action_plan.get("action")
                 != ActionNames.USER_FACING_COMMUNICATION.value
             ]
+            self._pending_plan_feedback = (
+                f"Note: {ActionNames.USER_FACING_COMMUNICATION.value} was removed from "
+                f"your last plan because it was batched together with "
+                f"{', '.join(triggering_actions)} in the same step. "
+                f"{ActionNames.USER_FACING_COMMUNICATION.value} must be issued in its own "
+                "subsequent step, after the results of those actions are reflected in the "
+                f"environment, so your response is grounded in what actually happened. Do "
+                f"not combine {ActionNames.USER_FACING_COMMUNICATION.value} with execution "
+                "actions in the same step."
+            )
 
         return plan
 
@@ -392,11 +415,19 @@ class Conductor:
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_user_facing_communication(
-        self, user_message: str, action_args: dict[str, Any]
+        self,
+        user_message: str,
+        action_args: dict[str, Any],
+        forced: bool = False,
     ) -> tuple[str, ActionExecutionStatus]:
         try:
-            message = self.action_set.user_facing_communication(action_args)
-        except ValueError as e:
+            message = self.action_set.user_facing_communication(
+                planning_messages=self.llm_messages,
+                user_message=user_message,
+                interaction_history=self.interaction_history,
+                forced=forced,
+            )
+        except Exception as e:
             self._log(f"=> {e}")
             return str(e), ActionExecutionStatus.ERROR
         self.user_facing_response = message
@@ -582,6 +613,7 @@ class Conductor:
         if S is not None:
             self.state.S = S
             self.state.is_S_executed = False
+            self.state.s_description = ""
             is_S_modified = True
 
         if is_T_modified and is_S_modified:
@@ -736,10 +768,11 @@ class Conductor:
             execution_result = self.action_set.execute_code(
                 self.state.S, "conductor_s_execution"
             )
-            self._log(f"Script (S) execution result: {execution_result}")
+            execution_result_str = dataframe_to_preview_str(execution_result)
+            self._log(f"Script (S) execution result: {execution_result_str}")
             self.state.is_S_executed = True
             return (
-                f"Executed S, which resulted in this output: {execution_result}",
+                f"Executed S, which resulted in this output: {execution_result_str}",
                 ActionExecutionStatus.SUCCESS,
             )
         except Exception as e:
@@ -763,7 +796,8 @@ class Conductor:
                 execution_result = self.action_set.execute_code(
                     action_args["code"], "conductor_assumption_check"
                 )
-                self._log(f"Legacy Context Extraction result: {execution_result}")
+                execution_result_str = dataframe_to_preview_str(execution_result)
+                self._log(f"Legacy Context Extraction result: {execution_result_str}")
                 for cleanup_stmt in (
                     "DROP TABLE IF EXISTS conductor_assumption_check;",
                     "DROP VIEW IF EXISTS conductor_assumption_check;",
@@ -775,7 +809,7 @@ class Conductor:
                     except Exception as cleanup_exc:
                         self._log(f"Cleanup warning ({cleanup_stmt}): {cleanup_exc}")
                 return (
-                    f"Executed Context Extraction, which resulted in this output: {execution_result}",
+                    f"Executed Context Extraction, which resulted in this output: {execution_result_str}",
                     ActionExecutionStatus.SUCCESS,
                 )
             except Exception as e:
@@ -818,6 +852,7 @@ class Conductor:
         self._skeptic_rounds = 0
         self._pending_skeptic_feedback = None
         self._skeptic_pushed_back = False
+        self._pending_plan_feedback = None
 
         self.language_model_api.llm.reset_metrics()
 

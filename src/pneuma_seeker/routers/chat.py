@@ -73,7 +73,7 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
     if latest_user_message is None or not isinstance(latest_user_message, str):
         raise HTTPException(status_code=400, detail="Missing user message")
 
-    chat_session = session_manager.get_chat_session(user_id, chat_id)
+    chat_session = await session_manager.get_chat_session_async(user_id, chat_id)
 
     async def event_stream():
         start = datetime.now().timestamp()
@@ -104,6 +104,16 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                 ):
                     send_to_frontend(response)
             finally:
+                # Persist here, not in event_stream()'s finally: this thread
+                # keeps running to completion even after a client disconnect
+                # (abandon_on_cancel=True below), so this is the only point
+                # guaranteed to run *after* chat_session.chat() has actually
+                # finished and appended the assistant's reply. Persisting from
+                # event_stream()'s finally instead would fire immediately on
+                # disconnect — mid-Conductor-run, before the reply exists —
+                # silently discarding the fully-computed answer once this
+                # thread finishes with nothing left to save it.
+                chat_session.persist_session(dataset_name)
                 response_queue.put(None)
 
         def run_chat_with_profiling():
@@ -147,6 +157,8 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                     f"[MEM] trace malloc peak Python alloc: {peak / 1024 / 1024:.2f} MB"
                 )
                 logger.info(f"[TIME] took {time() - t0:.2f}s")
+                # See run_chat()'s finally for why this must happen here.
+                chat_session.persist_session(dataset_name)
                 response_queue.put(None)
 
         producer = create_task(
@@ -170,7 +182,10 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                     logger.info(f"Exception raised: {e}")
                     break
         finally:
-            chat_session.persist_session(dataset_name)
+            # Persistence now happens in run_chat()/run_chat_with_profiling()'s
+            # own finally (in the background thread), not here — this block
+            # can run before the Conductor has actually finished (e.g. on
+            # client disconnect), which would persist a half-finished turn.
             producer.cancel()
 
     return StreamingResponse(
@@ -204,7 +219,9 @@ async def execute_code(
     Endpoint to trigger execution of Python code (S) on target tables (T) for a given user and chat.
     """
     user_id = current_user.user_id
-    conductor = session_manager.get_chat_session(user_id, chat_id).conductor
+    conductor = (
+        await session_manager.get_chat_session_async(user_id, chat_id)
+    ).conductor
     try:
         try:
             execution_result = conductor.db_api.execute_query(
@@ -234,7 +251,9 @@ async def execute_code(
     response_class=JSONResponse,
 )
 async def get_state(chat_id: str, current_user: UserRecord = Depends(get_current_user)):
-    chat_session = session_manager.get_chat_session(current_user.user_id, chat_id)
+    chat_session = await session_manager.get_chat_session_async(
+        current_user.user_id, chat_id
+    )
     conductor = chat_session.conductor
     state = conductor.state.get_current_state_instance(config.TABLE_MAX_ROWS_DISPLAY)
 
@@ -266,7 +285,7 @@ async def get_chat_history(
     chat_id: str, current_user: UserRecord = Depends(get_current_user)
 ):
     user_id = current_user.user_id
-    chat_session = session_manager.get_chat_session(user_id, chat_id)
+    chat_session = await session_manager.get_chat_session_async(user_id, chat_id)
     return ChatHistoryResponse(
         user_id=user_id,
         chat_id=chat_id,
@@ -357,7 +376,7 @@ async def get_provenance_nodes(
     user_id = current_user.user_id
 
     # Get the provenance graph instance
-    chat_session = session_manager.get_chat_session(user_id, chat_id)
+    chat_session = await session_manager.get_chat_session_async(user_id, chat_id)
     prov_graph = chat_session.conductor.materializer.prov_graph  # type: ignore
 
     # Convert all nodes to JSON-serializable format
@@ -407,7 +426,9 @@ async def query_table(
 
     user_id = current_user.user_id
     try:
-        conductor = session_manager.get_chat_session(user_id, chat_id).conductor
+        conductor = (
+            await session_manager.get_chat_session_async(user_id, chat_id)
+        ).conductor
     except Exception:
         raise HTTPException(
             status_code=404, detail=f"Chat session '{chat_id}' not found."
@@ -481,7 +502,7 @@ async def explain_script(
     """
     user_id = current_user.user_id
     try:
-        chat_session = session_manager.get_chat_session(user_id, chat_id)
+        chat_session = await session_manager.get_chat_session_async(user_id, chat_id)
     except Exception:
         raise HTTPException(
             status_code=404, detail=f"Chat session '{chat_id}' not found."
@@ -511,9 +532,15 @@ async def explain_script(
             table_context = "\n\nTarget tables:\n" + "\n".join(lines)
 
     prompt = (
-        "Explain in 2-3 sentences what the following Python/SQL script does, "
-        "in plain language suitable for a non-technical user. "
-        "Focus on what data is retrieved or calculated, not the implementation."
+        "You are explaining a data analysis script to a non-technical user.\n\n"
+        "First, write 1-2 sentences describing what the script computes or retrieves "
+        "in plain language. Focus on the outcome, not the implementation.\n\n"
+        "Then, if applicable, add a short bullet list under the heading '**Assumptions & caveats:**' "
+        "covering important assumptions or nuances the user should know "
+        "(e.g. statistical model assumptions, data quality requirements, "
+        "interpretation caveats, known limitations). "
+        "Omit this section entirely if there is nothing meaningful to flag. "
+        "Keep the whole response concise."
         f"\n\nScript:\n{script[:2000]}"
         f"{table_context}"
     )
@@ -546,7 +573,9 @@ async def download_table(
 
     user_id = current_user.user_id
     try:
-        conductor = session_manager.get_chat_session(user_id, chat_id).conductor
+        conductor = (
+            await session_manager.get_chat_session_async(user_id, chat_id)
+        ).conductor
     except Exception:
         raise HTTPException(
             status_code=404, detail=f"Chat session '{chat_id}' not found."
