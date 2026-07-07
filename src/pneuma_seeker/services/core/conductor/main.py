@@ -860,10 +860,10 @@ class Conductor:
         self, input_tokens: int, output_tokens: int, total_time: float, llm_time: float
     ) -> None:
         self._log(
-            f"[PROFILING] Time taken: {total_time:.2f}s (CPU: {total_time - llm_time:.2f}s, LLM: {llm_time:.2f}s)"
+            f"[STEP PROFILING] Time taken: {total_time:.2f}s (CPU: {total_time - llm_time:.2f}s, LLM: {llm_time:.2f}s)"
         )
         self._log(
-            f"[PROFILING] Input tokens: {input_tokens}, Output tokens: {output_tokens}"
+            f"[STEP PROFILING] Input tokens: {input_tokens}, Output tokens: {output_tokens}"
         )
 
     def _log_overall_profiling(self, start_time: float, end_time: float) -> None:
@@ -871,10 +871,10 @@ class Conductor:
         total_time = end_time - start_time
         llm_time = llm.total_llm_time
         self._log(
-            f"[PROFILING] Time taken: {total_time:.2f}s (CPU: {total_time - llm_time:.2f}s, LLM: {llm_time:.2f}s)"
+            f"[OVERALL PROFILING] Total Time taken: {total_time:.2f}s (CPU: {total_time - llm_time:.2f}s, LLM: {llm_time:.2f}s)"
         )
         self._log(
-            f"[PROFILING] Input tokens: {llm.total_input_tokens}, Output tokens: {llm.total_output_tokens}"
+            f"[OVERALL PROFILING] Total Input tokens: {llm.total_input_tokens}, Total Output tokens: {llm.total_output_tokens}"
         )
 
     def _log_table_repr_tokens(self, tables: list[AbstractDocument]) -> None:
@@ -901,9 +901,9 @@ class Conductor:
     ) -> None:
         tag = "OK" if status == ActionExecutionStatus.SUCCESS else "ERR"
         self._log(
-            f"[PROFILING][{action_name}][{tag}] Time taken: {total_time:.2f}s (CPU: {total_time - llm_time:.2f}s, LLM: {llm_time:.2f}s)"
+            f"[ACTION PROFILING][{action_name}][{tag}] Time taken: {total_time:.2f}s (CPU: {total_time - llm_time:.2f}s, LLM: {llm_time:.2f}s)"
         )
-        self._log(f"[PROFILING][{action_name}][{tag}] Plan JSON: ~{plan_tokens} tokens")
+        self._log(f"[ACTION PROFILING][{action_name}][{tag}] Plan JSON: ~{plan_tokens} tokens")
 
     def _log(self, text):
         formatted_log(self.logger, "Conductor", text)
