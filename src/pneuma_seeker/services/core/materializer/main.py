@@ -1,5 +1,4 @@
 # src/pneuma_seeker/core/materializer/main.py
-from json import dumps
 from logging import Logger
 from time import time
 from typing import Any, Callable
@@ -166,7 +165,7 @@ class Materializer:
             step_start_time = time()
 
             current_step += 1
-            message = f"[Step {current_step} / up to {self.config.MAX_MATERIALIZER_STEPS}]: Planning actions..."
+            message = f"[Step {current_step} / up to {self.config.MAX_MATERIALIZER_STEPS}]: Planning materialization actions..."
             self._log(message)
             self.log_callback(message)
 
@@ -225,14 +224,25 @@ class Materializer:
                     LLMMessage(role=Role.USER.value, content=message)
                 )
                 self.log_callback("Fixing error in produced plan...")
-                current_step -= 1
                 continue
 
             for action_plan in plan:
                 self._log(f"Executing action: {action_plan}")
                 action_name: str = action_plan.get("action", "")
                 action_args: dict[str, Any] = action_plan.get("args", {})
-                self.__execute_action(action_name, action_args)
+                status = self.__execute_action(action_name, action_args)
+                if status == ActionExecutionStatus.ERROR:
+                    self.llm_messages.append(
+                        LLMMessage(
+                            role=Role.USER.value,
+                            content=(
+                                f"Remaining actions in this step were skipped because "
+                                f"'{action_name}' failed. Address the issue above before "
+                                "continuing."
+                            ),
+                        )
+                    )
+                    break
 
             step_end_time = time()
             llm = self.language_model_api.llm
@@ -302,18 +312,8 @@ class Materializer:
         self,
         action_name: str,
         action_args: dict[str, Any],
-    ):
+    ) -> ActionExecutionStatus:
         self._log(f"==> Executing action {action_name}...")
-        action_start_time = time()
-        llm = self.language_model_api.llm
-        llm_time_before = llm.total_llm_time
-
-        action_json = dumps({"action": action_name, "args": action_args})
-        try:
-            enc = encoding_for_model("o4-mini")
-            plan_tokens = len(enc.encode(action_json))
-        except Exception:
-            plan_tokens = len(action_json.split())
 
         handler = self._action_handlers.get(action_name)
         if handler is None:
@@ -324,14 +324,8 @@ class Materializer:
         else:
             outcome, status = handler(action_args)
 
-        self._log_action_profiling(
-            action_name,
-            status,
-            plan_tokens,
-            time() - action_start_time,
-            llm.total_llm_time - llm_time_before,
-        )
         self.llm_messages.append(LLMMessage(role=Role.USER.value, content=outcome))
+        return status
 
     def _handle_situational_analysis(
         self, action_args: dict[str, Any]
@@ -1441,22 +1435,6 @@ class Materializer:
             self._log(
                 f"[PROFILING] Retrieved tables repr: ~{n} tokens (whitespace approx)"
             )
-
-    def _log_action_profiling(
-        self,
-        action_name: str,
-        status: ActionExecutionStatus,
-        plan_tokens: int,
-        total_time: float,
-        llm_time: float,
-    ) -> None:
-        tag = "OK" if status == ActionExecutionStatus.SUCCESS else "ERR"
-        self._log(
-            f"[ACTION PROFILING][{action_name}][{tag}] Time taken: {total_time:.2f}s (CPU: {total_time - llm_time:.2f}s, LLM: {llm_time:.2f}s)"
-        )
-        self._log(
-            f"[ACTION PROFILING][{action_name}][{tag}] Plan JSON: ~{plan_tokens} tokens"
-        )
 
     def _log(self, text: str):
         formatted_log(self.logger, "Materializer", text)

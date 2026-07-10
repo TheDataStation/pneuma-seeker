@@ -1,4 +1,3 @@
-from json import dumps
 from logging import Logger
 from time import time
 from typing import Any, Callable
@@ -18,6 +17,7 @@ from pneuma_seeker.services.core.conductor.models import (
 from pneuma_seeker.services.core.conductor.prompt_factory import ConductorPromptFactory
 from pneuma_seeker.services.core.conductor.state import ConductorState
 from pneuma_seeker.services.core.materializer.main import Materializer
+from pneuma_seeker.services.core.materializer.models import MaterializerMode
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import formatted_log
 from pneuma_seeker.shared.parser import parse_json
@@ -200,7 +200,7 @@ class Conductor:
                 plan: list[dict[str, Any]] = self._validate_plan(
                     parse_json(llm_response).get("plan", [])
                 )
-                self.actions.append(str(plan))
+                self._accelerate_plan(plan)
                 if self._pending_plan_feedback is not None:
                     self.llm_messages.append(
                         LLMMessage(
@@ -224,7 +224,13 @@ class Conductor:
                 )
                 continue
 
+            # Only the actions actually reached this step are recorded, so "recent
+            # actions" (shown to Conductor next turn) always matches what happened —
+            # including accelerated ones — rather than needing to be inferred from
+            # environment state that the action log doesn't explain.
+            executed_plan: list[dict[str, Any]] = []
             for action_plan in plan:
+                executed_plan.append(action_plan)
                 self._log(f"Executing action: {action_plan}")
                 action_name: str = action_plan.get("action", "")
                 action_args: dict = action_plan.get("args", {})
@@ -234,7 +240,7 @@ class Conductor:
                         ConductorResponseType.LOG, f"Executing action: {action_name}..."
                     )
                 )
-                self._execute_action(user_message, action_name, action_args)
+                status = self._execute_action(user_message, action_name, action_args)
 
                 if self._pending_skeptic_feedback is not None:
                     self.llm_messages.append(
@@ -248,6 +254,21 @@ class Conductor:
                     self._skeptic_pushed_back = False
                     if pushed_back:
                         break  # abort remaining plan actions
+
+                if status == ActionExecutionStatus.ERROR:
+                    self.llm_messages.append(
+                        LLMMessage(
+                            role=Role.USER.value,
+                            content=(
+                                f"Remaining actions in this step were skipped because "
+                                f"'{action_name}' failed. Address the issue above before "
+                                "proceeding."
+                            ),
+                        )
+                    )
+                    break
+
+            self.actions.append(str(executed_plan))
 
             step_end_time = time()
             llm = self.language_model_api.llm
@@ -370,18 +391,7 @@ class Conductor:
 
     def _execute_action(
         self, user_message: str, action_name: str, action_args: dict[str, Any]
-    ) -> None:
-        action_start_time = time()
-        llm = self.language_model_api.llm
-        llm_time_before = llm.total_llm_time
-
-        action_json = dumps({"action": action_name, "args": action_args})
-        try:
-            enc = encoding_for_model("o4-mini")
-            plan_tokens = len(enc.encode(action_json))
-        except Exception:
-            plan_tokens = len(action_json.split())
-
+    ) -> ActionExecutionStatus:
         handler = self._action_handlers.get(action_name)
         if handler is None:
             outcome = f"Tool calling failed; {action_name} is unknown"
@@ -389,14 +399,90 @@ class Conductor:
         else:
             outcome, status = handler(user_message, action_args)
 
-        self._log_action_profiling(
-            action_name,
-            status,
-            plan_tokens,
-            time() - action_start_time,
-            llm.total_llm_time - llm_time_before,
-        )
         self.llm_messages.append(LLMMessage(role=Role.USER.value, content=outcome))
+
+        return status
+
+    def _accelerate_plan(self, plan: list[dict[str, Any]]) -> None:
+        """
+        Expands `plan` in place with deterministic prerequisite/follow-up actions,
+        all in one pass before any action in it executes.
+        """
+        will_T_materialized = self.state.is_T_materialized
+        effective_S = self.state.S
+        will_S_executed = self.state.is_S_executed
+
+        i = 0
+        while i < len(plan):
+            action = plan[i].get("action")
+
+            if action == ActionNames.STATE_MANIPULATION.value:
+                args = plan[i].get("args", {})
+                args = args if isinstance(args, dict) else {}
+                if args.get("T") is not None and len(args["T"]) > 0:
+                    will_T_materialized = False
+                    will_S_executed = False
+                if args.get("S") is not None:
+                    effective_S = args["S"]
+                    will_S_executed = False
+
+            elif action == ActionNames.PYTHON_EXECUTOR.value:
+                if not will_T_materialized and len(self.state.T.keys()) > 0:
+                    self._log(
+                        f"=> Accelerate: inserting {ActionNames.MATERIALIZER.value} "
+                        f"before {ActionNames.PYTHON_EXECUTOR.value} (T not yet "
+                        "materialized)."
+                    )
+                    auto_mode = (
+                        MaterializerMode.UPDATE.value
+                        if self.materializer._saved_intermediate_tables
+                        else MaterializerMode.FRESH.value
+                    )
+                    plan.insert(
+                        i,
+                        {
+                            "action": ActionNames.MATERIALIZER.value,
+                            "args": {"mode": auto_mode},
+                        },
+                    )
+                    will_T_materialized = True
+                    continue  # re-visit this index; it now holds the inserted action
+                will_S_executed = True
+                if not any(
+                    p.get("action") == ActionNames.USER_FACING_COMMUNICATION.value
+                    for p in plan
+                ):
+                    self._log(
+                        f"=> Accelerate: queuing "
+                        f"{ActionNames.USER_FACING_COMMUNICATION.value} after "
+                        f"{ActionNames.PYTHON_EXECUTOR.value}."
+                    )
+                    plan.append(
+                        {
+                            "action": ActionNames.USER_FACING_COMMUNICATION.value,
+                            "args": {},
+                        }
+                    )
+
+            elif action == ActionNames.MATERIALIZER.value:
+                will_T_materialized = True
+                if (
+                    len(effective_S) > 0
+                    and not will_S_executed
+                    and not any(
+                        p.get("action") == ActionNames.PYTHON_EXECUTOR.value
+                        for p in plan
+                    )
+                ):
+                    self._log(
+                        f"=> Accelerate: queuing {ActionNames.PYTHON_EXECUTOR.value} "
+                        f"after {ActionNames.MATERIALIZER.value}."
+                    )
+                    plan.append(
+                        {"action": ActionNames.PYTHON_EXECUTOR.value, "args": {}}
+                    )
+
+            i += 1
 
     def _handle_situational_analysis(
         self, user_message: str, action_args: dict[str, Any]
@@ -603,6 +689,7 @@ class Conductor:
                 self.state.T = T_docs
                 self.state.column_descriptions = column_descriptions
                 self.state.is_T_materialized = False
+                self.state.is_S_executed = False  # S must be re-run if T changes.
                 is_T_modified = True
             else:
                 error_msg = "If you want to change T, make sure to also define column_descriptions."
@@ -695,11 +782,11 @@ class Conductor:
         if isinstance(action_args, dict) and "note" in action_args:
             note = action_args["note"]
         mode = (
-            action_args.get("mode", "fresh")
+            action_args.get("mode", MaterializerMode.FRESH.value)
             if isinstance(action_args, dict)
-            else "fresh"
+            else MaterializerMode.FRESH.value
         )
-        update_mode = mode == "update"
+        update_mode = mode == MaterializerMode.UPDATE.value
         self._log(f"Materializer called (note: {note}, mode={mode})")
 
         (
@@ -741,25 +828,11 @@ class Conductor:
         self, user_message: str, action_args: dict[str, Any]
     ) -> tuple[str, ActionExecutionStatus]:
         self._log(f"{ActionNames.PYTHON_EXECUTOR.value} called")
-        if not self.state.is_T_materialized:
-            if len(self.state.T.keys()) > 0:
-                self._log(
-                    f"=> Self-triggered materialization from calling {ActionNames.PYTHON_EXECUTOR.value}..."
-                )
-                # Use update mode when prior intermediates exist (T schema was extended,
-                # not redesigned). Fresh mode only for first-ever materialization.
-                auto_mode = (
-                    "update"
-                    if self.materializer._saved_intermediate_tables
-                    else "fresh"
-                )
-                self._execute_action(
-                    user_message, ActionNames.MATERIALIZER.value, {"mode": auto_mode}
-                )
-            else:
-                error_msg = f"T has not been defined. Please define it first before calling {ActionNames.PYTHON_EXECUTOR.value}."
-                self._log(f"=> {error_msg}")
-                return error_msg, ActionExecutionStatus.ERROR
+        if len(self.state.T.keys()) == 0:
+            error_msg = f"T has not been defined. Please define it first before calling {ActionNames.PYTHON_EXECUTOR.value}."
+            self._log(f"=> {error_msg}")
+            return error_msg, ActionExecutionStatus.ERROR
+
         if len(self.state.S) == 0:
             error_msg = f"S is still empty, which means there is nothing to execute. Please define S first, then ensure T has been materialized using Materializer, and finally, you can call {ActionNames.PYTHON_EXECUTOR.value} again."
             self._log(f"=> {error_msg}")
@@ -890,20 +963,6 @@ class Conductor:
             self._log(
                 f"[PROFILING] Retrieved tables repr: ~{n} tokens (whitespace approx)"
             )
-
-    def _log_action_profiling(
-        self,
-        action_name: str,
-        status: ActionExecutionStatus,
-        plan_tokens: int,
-        total_time: float,
-        llm_time: float,
-    ) -> None:
-        tag = "OK" if status == ActionExecutionStatus.SUCCESS else "ERR"
-        self._log(
-            f"[ACTION PROFILING][{action_name}][{tag}] Time taken: {total_time:.2f}s (CPU: {total_time - llm_time:.2f}s, LLM: {llm_time:.2f}s)"
-        )
-        self._log(f"[ACTION PROFILING][{action_name}][{tag}] Plan JSON: ~{plan_tokens} tokens")
 
     def _log(self, text):
         formatted_log(self.logger, "Conductor", text)
