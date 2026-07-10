@@ -653,15 +653,17 @@ class MaterializerTests(unittest.TestCase):
         )
         self.assertFalse(self.materializer._check_completion(T))
 
-    def test_plan_parse_error_retries_without_counting_step(self):
-        """A malformed LLM plan retries without consuming a step, so a tight limit still allows completion."""
-        self.materializer.config.MAX_MATERIALIZER_STEPS = 1  # only 1 real step allowed
+    def test_plan_parse_error_consumes_a_step_and_still_recovers(self):
+        """A malformed LLM plan now consumes a step (so a run of invalid JSON can't stall
+        the loop indefinitely), but the materialization still recovers and completes as
+        long as enough steps remain in the budget."""
+        self.materializer.config.MAX_MATERIALIZER_STEPS = 2  # 1 wasted + 1 real step
 
         plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find"]}}}}'
         plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
         self.lm_api.llm._responses = [  # type: ignore
-            '{"plan": "not a list"}',           # bad — triggers retry without incrementing step
-            f'{{"plan": [{plan1}, {plan2}]}}',  # good — completes within the 1 allowed step
+            '{"plan": "not a list"}',           # bad — consumes step 1
+            f'{{"plan": [{plan1}, {plan2}]}}',  # good — completes within step 2
         ]
 
         table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
@@ -679,6 +681,56 @@ class MaterializerTests(unittest.TestCase):
         T = {"t1": pd.DataFrame(columns=["a", "b"])}
         result = self.materializer.materialize_T(T=T, column_descriptions={}, S="")
         self.assertIn("t1", result[-1])
+
+    def test_plan_parse_error_terminates_within_step_budget(self):
+        """Repeated invalid JSON must not stall the loop: each parse failure now consumes
+        a step, guaranteeing termination within MAX_MATERIALIZER_STEPS."""
+        os.makedirs(Path(self.tmpdir) / "test_ds", exist_ok=True)
+        pd.DataFrame({"a": [1]}).to_csv(
+            Path(self.tmpdir) / "test_ds" / "table_1.csv", index=False
+        )
+        self.db_api.ingest_dataset("test_ds", str(Path(self.tmpdir) / "test_ds"))
+
+        self.materializer.config.MAX_MATERIALIZER_STEPS = 1
+        self.lm_api.llm._responses = ['{"plan": "not a list"}'] * 5  # type: ignore
+
+        T = {"t1": pd.DataFrame(columns=["a", "b"])}
+        self.materializer.materialize_T(T=T, column_descriptions={}, S="")
+
+        self.assertEqual(
+            len(self.lm_api.llm._responses),
+            4,
+            "Only one planning call should have been made before the step budget was exhausted",
+        )
+
+    def test_action_error_aborts_remaining_plan(self):
+        """An action error aborts remaining actions in the same step, so a follow-up
+        action is never executed against a failed prerequisite."""
+        os.makedirs(Path(self.tmpdir) / "test_ds", exist_ok=True)
+        pd.DataFrame({"a": [1]}).to_csv(
+            Path(self.tmpdir) / "test_ds" / "table_1.csv", index=False
+        )
+        self.db_api.ingest_dataset("test_ds", str(Path(self.tmpdir) / "test_ds"))
+
+        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{}}}}'  # missing 'prompts' -> ERROR
+        plan2 = f'{{"action":"{ActionNames.WEB_SEARCH.value}","args":{{"prompt":"x"}}}}'
+        self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}]}}']  # type: ignore
+        self.materializer.config.MAX_MATERIALIZER_STEPS = 1
+
+        self.action_set.retrieve_documents = MagicMock(return_value=[])
+
+        T = {"t1": pd.DataFrame(columns=["a", "b"])}
+        self.materializer.materialize_T(T=T, column_descriptions={}, S="")
+
+        self.action_set.retrieve_documents.assert_not_called()
+        abort_messages = [
+            m["content"]
+            for m in self.materializer.llm_messages
+            if isinstance(m["content"], str) and "were skipped because" in m["content"]
+        ]
+        self.assertTrue(
+            abort_messages, "Expected an abort note in llm_messages after the error"
+        )
 
 
 if __name__ == "__main__":

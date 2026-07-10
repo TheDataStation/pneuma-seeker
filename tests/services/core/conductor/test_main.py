@@ -247,6 +247,33 @@ class ConductorTests(unittest.TestCase):
         self.assertFalse(state.is_T_materialized)
         self.assertFalse(state.is_S_executed)
 
+    def test_state_manipulation_T_only_resets_is_S_executed(self):
+        """Redefining only T must force S to be re-run, even if S was already executed
+        against the previous T."""
+        self.conductor.state.S = "result = 1"
+        self.conductor.state.is_S_executed = True
+        self.conductor.state.is_T_materialized = True
+
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
+            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
+        ]}}""",
+            "T-only refinement done",
+        ]
+        list(
+            self.conductor.chat(
+                user_message="update T only",
+                interaction_history=[],
+                external_table_paths=[],
+            )
+        )
+
+        self.assertFalse(
+            self.conductor.state.is_S_executed,
+            "is_S_executed must be reset to False when T changes, even if S itself is unchanged",
+        )
+
     def test_state_manipulation_sets_S_and_T(self):
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
@@ -465,14 +492,17 @@ class ConductorTests(unittest.TestCase):
         )
 
     def test_materializer_and_executor(self):
+        """_accelerate_plan queues PYTHON_EXECUTOR after MATERIALIZER and
+        USER_FACING_COMMUNICATION after PYTHON_EXECUTOR, without an extra planning
+        round-trip. Explicitly bundling PYTHON_EXECUTOR after MATERIALIZER (as this plan
+        still does) must not cause a duplicate queue entry or run S/the final
+        communication twice — _accelerate_plan's dedup against the rest of the plan is
+        what prevents it here, not a handler-level guard."""
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
                 {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"S":"result = pd.DataFrame({{'sum': [tables['t1']['a'].sum()]}})"}}}},
                 {{"action":"{ActionNames.MATERIALIZER.value}","args":{{"note":""}}}},
                 {{"action":"{ActionNames.PYTHON_EXECUTOR.value}","args":{{}}}}
-            ]}}""",
-            f"""{{"plan": [
-                {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
             ]}}""",
             "materialization and execution done",
         ]
@@ -489,8 +519,9 @@ class ConductorTests(unittest.TestCase):
             interaction_history=[],
             external_table_paths=[],
         )
-        list(gen)
+        responses = list(gen)
 
+        self.assertEqual(responses[-1].message, "materialization and execution done")
         self.assertTrue(
             self.conductor.state.is_T_materialized,
             "T should be marked as materialized",
@@ -502,6 +533,51 @@ class ConductorTests(unittest.TestCase):
         self.assertEqual(self.conductor.state.T["t1"].content.shape, (2, 2))
         self.assertEqual(list(self.conductor.state.T["t1"].content["a"]), [1, 2])
         self.assertEqual(list(self.conductor.state.T["t1"].content["b"]), [3, 4])
+        self.conductor.action_set.execute_code.assert_called_once()
+        self.conductor.materializer.materialize_T.assert_called_once()
+
+    def test_python_executor_self_trigger_chain_executes_s_once(self):
+        """python_executor with T undefined-but-materializable is intercepted by
+        _accelerate_plan, which substitutes materializer for this step and requeues
+        python_executor onto the plan. Once materializer succeeds, python_executor runs
+        for real from the queue and its own acceleration queues user_facing_communication.
+        S must execute exactly once and the final response must be produced exactly once."""
+        self.conductor.state.T = {
+            "t1": Table(
+                doc_id="t1",
+                retriever_type=RetrieverType.CONDUCTOR,
+                content=pd.DataFrame(columns=["a"]),
+                metadata={},
+            )
+        }
+        self.conductor.state.column_descriptions = {"t1": {"a": "col a"}}
+        self.conductor.state.S = "result = 1"
+
+        self.conductor.materializer.materialize_T = MagicMock(
+            return_value=([], None, None, None, {"t1": pd.DataFrame({"a": [1]})})
+        )
+        self.conductor.action_set.execute_code = MagicMock(
+            return_value=pd.DataFrame({"a": [1]})
+        )
+
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [{{"action":"{ActionNames.PYTHON_EXECUTOR.value}","args":{{}}}}]}}""",
+            "chained done",
+        ]
+
+        responses = list(
+            self.conductor.chat("run S", interaction_history=[], external_table_paths=[])
+        )
+
+        self.assertEqual(responses[-1].message, "chained done")
+        self.assertEqual(
+            self.conductor.action_set.execute_code.call_count,
+            1,
+            "S must execute exactly once despite the nested materializer auto-chain",
+        )
+        self.conductor.materializer.materialize_T.assert_called_once()
+        self.assertTrue(self.conductor.state.is_T_materialized)
+        self.assertTrue(self.conductor.state.is_S_executed)
 
     def test_assumption_check_produces_expected_string(self):
         df = pd.DataFrame({"A": [1, 2, 3], "B": ["x", "x", "y"]})
@@ -616,6 +692,82 @@ class ConductorTests(unittest.TestCase):
 
         self.assertEqual(responses[-1].message, "reconsidered")
         self.conductor.ds_skeptic.review.assert_called_once()
+
+    def test_action_error_aborts_remaining_plan(self):
+        """An ordinary action error aborts remaining actions in the same step, mirroring
+        the existing DS-Skeptic pushback behavior."""
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
+                {{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{}}}},
+                {{"action":"{ActionNames.WEB_SEARCH.value}","args":{{"prompt":"x"}}}}
+            ]}}""",
+            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{}}}}]}}""",
+            "recovered after error",
+        ]
+        self.conductor.action_set.retrieve_documents = MagicMock(return_value=[])
+
+        responses = list(
+            self.conductor.chat("test", interaction_history=[], external_table_paths=[])
+        )
+
+        self.conductor.action_set.retrieve_documents.assert_not_called()
+        self.assertEqual(responses[-1].message, "recovered after error")
+        abort_messages = [
+            m["content"]
+            for m in self.conductor.llm_messages
+            if isinstance(m["content"], str) and "were skipped because" in m["content"]
+        ]
+        self.assertTrue(
+            abort_messages, "Expected an abort note in llm_messages after the error"
+        )
+        self.assertNotIn(
+            ActionNames.WEB_SEARCH.value,
+            self.conductor.actions[0],
+            "The recorded action log for the failed step must not include the "
+            "action that was never reached.",
+        )
+
+    def test_accelerated_actions_recorded_in_actions_log(self):
+        """_accelerate_plan expands the plan before it's recorded, so 'recent actions'
+        shown to Conductor next turn already reflects PYTHON_EXECUTOR and
+        USER_FACING_COMMUNICATION even though the LLM only planned up to MATERIALIZER —
+        Conductor doesn't have to infer what happened from environment state alone."""
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
+                {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"S":"result = pd.DataFrame({{'sum': [tables['t1']['a'].sum()]}})"}}}},
+                {{"action":"{ActionNames.MATERIALIZER.value}","args":{{"note":""}}}}
+            ]}}""",
+            "materialization and execution done",
+        ]
+        self.conductor.materializer.materialize_T = MagicMock(
+            return_value=([], None, None, None, {"t1": pd.DataFrame({"a": [1, 2], "b": [3, 4]})})
+        )
+        self.conductor.action_set.execute_code = MagicMock(
+            return_value=pd.DataFrame({"sum": [3]})
+        )
+
+        list(
+            self.conductor.chat(
+                user_message="materialize T",
+                interaction_history=[],
+                external_table_paths=[],
+            )
+        )
+
+        recorded = self.conductor.actions[0]
+        self.assertIn(ActionNames.MATERIALIZER.value, recorded)
+        self.assertIn(
+            ActionNames.PYTHON_EXECUTOR.value,
+            recorded,
+            "Accelerated PYTHON_EXECUTOR must appear in the recorded action log even "
+            "though the LLM never planned it explicitly.",
+        )
+        self.assertIn(
+            ActionNames.USER_FACING_COMMUNICATION.value,
+            recorded,
+            "Accelerated USER_FACING_COMMUNICATION must appear in the recorded action "
+            "log even though the LLM never planned it explicitly.",
+        )
 
     def test_state_manipulation_clears_s_description_when_S_updated(self):
         """When STATE_MANIPULATION updates S, s_description must be cleared."""
