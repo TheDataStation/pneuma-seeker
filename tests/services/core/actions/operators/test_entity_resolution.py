@@ -25,7 +25,7 @@ class EntityResolutionTests(unittest.TestCase):
         self.temp_dir = tempfile.mkdtemp()
         self.config = Config()
         self.config.DATA_SOURCES = ["test_ds"]
-        self.config.ENTITY_RESOLUTION_THRESHOLD = 0.75
+        self.config.ENTITY_RESOLUTION_JW_THRESHOLD = 0.75
         self.config.ENTITY_RESOLUTION_EMBEDDING_THRESHOLD = 0.60
         self.config.ENTITY_RESOLUTION_MODE = "jarowinkler"
         self.logger = MagicMock()
@@ -52,7 +52,9 @@ class EntityResolutionTests(unittest.TestCase):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def _create_workspace_table(self, table_name: str, values: list[str]) -> None:
-        escaped = ", ".join(f"('{v.replace(chr(39), chr(39)+chr(39))}')" for v in values)
+        escaped = ", ".join(
+            f"('{v.replace(chr(39), chr(39)+chr(39))}')" for v in values
+        )
         self.db_api.execute_query(
             self.user_id,
             self.chat_id,
@@ -65,21 +67,25 @@ class EntityResolutionTests(unittest.TestCase):
 
     def test_unsupervised_maps_identical_strings_to_themselves(self):
         self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             "CREATE OR REPLACE TABLE src AS SELECT unnest(['Apple', 'Google', 'Meta']) AS name;",
         )
 
-        result = self.action.apply({
-            "source_table_id": "src",
-            "target_column": "name",
-            "output_mapping_table_id": "name_map",
-        })
+        result = self.action.apply(
+            {
+                "source_table_id": "src",
+                "target_column": "name",
+                "output_mapping_table_id": "name_map",
+            }
+        )
 
         self.assertIn("original_value", result.columns)
         self.assertIn("canonical_value", result.columns)
 
         mapping = self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             'SELECT original_value, canonical_value FROM "name_map" ORDER BY original_value;',
         )
         self.assertEqual(len(mapping), 3)
@@ -92,26 +98,32 @@ class EntityResolutionTests(unittest.TestCase):
     def test_unsupervised_clusters_typo_variants(self):
         # "Amazn" and "Amzon" are very close to "Amazon" — all should cluster together
         self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             "CREATE OR REPLACE TABLE src AS SELECT unnest(['Amazon', 'Amazn', 'Amzon', 'Google']) AS name;",
         )
 
-        self.action.apply({
-            "source_table_id": "src",
-            "target_column": "name",
-            "output_mapping_table_id": "name_map",
-            "threshold": 0.80,
-        })
+        self.action.apply(
+            {
+                "source_table_id": "src",
+                "target_column": "name",
+                "output_mapping_table_id": "name_map",
+                "threshold": 0.80,
+            }
+        )
 
         mapping = self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             'SELECT original_value, canonical_value FROM "name_map";',
         )
         orig_to_canon = dict(zip(mapping["original_value"], mapping["canonical_value"]))
 
         # All Amazon variants must share the same canonical form
         amazon_canonicals = {orig_to_canon[k] for k in ["Amazon", "Amazn", "Amzon"]}
-        self.assertEqual(len(amazon_canonicals), 1, "Amazon variants should share one canonical form")
+        self.assertEqual(
+            len(amazon_canonicals), 1, "Amazon variants should share one canonical form"
+        )
 
         # Google must be separate
         self.assertNotIn(orig_to_canon["Google"], amazon_canonicals)
@@ -119,19 +131,23 @@ class EntityResolutionTests(unittest.TestCase):
     def test_unsupervised_shortest_string_becomes_canonical(self):
         # Sort-by-length means "IBM" (3 chars) is processed before "IBM Corp" (8) and "IBM Corp." (9)
         self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             "CREATE OR REPLACE TABLE src AS SELECT unnest(['IBM Corp', 'IBM Corp.', 'IBM']) AS name;",
         )
 
-        self.action.apply({
-            "source_table_id": "src",
-            "target_column": "name",
-            "output_mapping_table_id": "name_map",
-            "threshold": 0.80,
-        })
+        self.action.apply(
+            {
+                "source_table_id": "src",
+                "target_column": "name",
+                "output_mapping_table_id": "name_map",
+                "threshold": 0.80,
+            }
+        )
 
         mapping = self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             'SELECT original_value, canonical_value FROM "name_map";',
         )
         orig_to_canon = dict(zip(mapping["original_value"], mapping["canonical_value"]))
@@ -143,15 +159,18 @@ class EntityResolutionTests(unittest.TestCase):
 
     def test_unsupervised_output_table_persisted_in_db(self):
         self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             "CREATE OR REPLACE TABLE src AS SELECT unnest(['Foo', 'Bar']) AS val;",
         )
 
-        self.action.apply({
-            "source_table_id": "src",
-            "target_column": "val",
-            "output_mapping_table_id": "val_map",
-        })
+        self.action.apply(
+            {
+                "source_table_id": "src",
+                "target_column": "val",
+                "output_mapping_table_id": "val_map",
+            }
+        )
 
         tables = self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")
         self.assertIn("val_map", tables["name"].tolist())
@@ -160,50 +179,61 @@ class EntityResolutionTests(unittest.TestCase):
         # Every unique non-null value in the source column must appear in the mapping
         values = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"]
         self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             f"CREATE OR REPLACE TABLE src AS SELECT unnest({values!r}) AS name;",
         )
 
-        self.action.apply({
-            "source_table_id": "src",
-            "target_column": "name",
-            "output_mapping_table_id": "name_map",
-        })
+        self.action.apply(
+            {
+                "source_table_id": "src",
+                "target_column": "name",
+                "output_mapping_table_id": "name_map",
+            }
+        )
 
         mapping = self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             'SELECT original_value FROM "name_map";',
         )
         self.assertEqual(set(mapping["original_value"].tolist()), set(values))
 
     def test_unsupervised_empty_table_produces_empty_mapping(self):
         self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             "CREATE OR REPLACE TABLE src (name VARCHAR);",
         )
 
-        result = self.action.apply({
-            "source_table_id": "src",
-            "target_column": "name",
-            "output_mapping_table_id": "name_map",
-        })
+        result = self.action.apply(
+            {
+                "source_table_id": "src",
+                "target_column": "name",
+                "output_mapping_table_id": "name_map",
+            }
+        )
 
         self.assertEqual(len(result), 0)
 
     def test_unsupervised_nulls_excluded_from_mapping(self):
         self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             "CREATE OR REPLACE TABLE src AS SELECT unnest(['Apple', NULL, 'Google']) AS name;",
         )
 
-        self.action.apply({
-            "source_table_id": "src",
-            "target_column": "name",
-            "output_mapping_table_id": "name_map",
-        })
+        self.action.apply(
+            {
+                "source_table_id": "src",
+                "target_column": "name",
+                "output_mapping_table_id": "name_map",
+            }
+        )
 
         mapping = self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             'SELECT original_value FROM "name_map";',
         )
         # NULL is excluded; only 'Apple' and 'Google' appear
@@ -211,22 +241,27 @@ class EntityResolutionTests(unittest.TestCase):
 
     def test_unsupervised_idempotent_overwrite(self):
         self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             "CREATE OR REPLACE TABLE src AS SELECT unnest(['X', 'Y']) AS name;",
         )
         self.db_api.execute_query(
-            self.user_id, self.chat_id,
-            'CREATE OR REPLACE TABLE "existing_map" AS SELECT \'old\' AS original_value, \'old\' AS canonical_value;',
+            self.user_id,
+            self.chat_id,
+            "CREATE OR REPLACE TABLE \"existing_map\" AS SELECT 'old' AS original_value, 'old' AS canonical_value;",
         )
 
-        self.action.apply({
-            "source_table_id": "src",
-            "target_column": "name",
-            "output_mapping_table_id": "existing_map",
-        })
+        self.action.apply(
+            {
+                "source_table_id": "src",
+                "target_column": "name",
+                "output_mapping_table_id": "existing_map",
+            }
+        )
 
         mapping = self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             'SELECT original_value FROM "existing_map" ORDER BY original_value;',
         )
         self.assertEqual(set(mapping["original_value"].tolist()), {"X", "Y"})
@@ -237,20 +272,24 @@ class EntityResolutionTests(unittest.TestCase):
 
     def test_supervised_maps_close_strings_to_canonical_entity(self):
         self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             "CREATE OR REPLACE TABLE src AS SELECT unnest(['Amazn', 'Amaznn', 'Google', 'Gooogle']) AS name;",
         )
 
-        self.action.apply({
-            "source_table_id": "src",
-            "target_column": "name",
-            "output_mapping_table_id": "name_map",
-            "canonical_entities": ["Amazon", "Google"],
-            "threshold": 0.80,
-        })
+        self.action.apply(
+            {
+                "source_table_id": "src",
+                "target_column": "name",
+                "output_mapping_table_id": "name_map",
+                "canonical_entities": ["Amazon", "Google"],
+                "threshold": 0.80,
+            }
+        )
 
         mapping = self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             'SELECT original_value, canonical_value FROM "name_map";',
         )
         orig_to_canon = dict(zip(mapping["original_value"], mapping["canonical_value"]))
@@ -262,20 +301,24 @@ class EntityResolutionTests(unittest.TestCase):
 
     def test_supervised_unmatched_values_get_sentinel(self):
         self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             "CREATE OR REPLACE TABLE src AS SELECT unnest(['Amazon', 'Zyxwvuts']) AS name;",
         )
 
-        self.action.apply({
-            "source_table_id": "src",
-            "target_column": "name",
-            "output_mapping_table_id": "name_map",
-            "canonical_entities": ["Google", "Meta"],
-            "threshold": 0.85,
-        })
+        self.action.apply(
+            {
+                "source_table_id": "src",
+                "target_column": "name",
+                "output_mapping_table_id": "name_map",
+                "canonical_entities": ["Google", "Meta"],
+                "threshold": 0.85,
+            }
+        )
 
         mapping = self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             'SELECT original_value, canonical_value FROM "name_map";',
         )
         orig_to_canon = dict(zip(mapping["original_value"], mapping["canonical_value"]))
@@ -287,41 +330,49 @@ class EntityResolutionTests(unittest.TestCase):
     def test_supervised_all_unique_values_covered(self):
         values = ["Apple Inc", "Appel", "Micro Soft", "Zara"]
         self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             f"CREATE OR REPLACE TABLE src AS SELECT unnest({values!r}) AS name;",
         )
 
-        self.action.apply({
-            "source_table_id": "src",
-            "target_column": "name",
-            "output_mapping_table_id": "name_map",
-            "canonical_entities": ["Apple", "Microsoft"],
-            "threshold": 0.80,
-        })
+        self.action.apply(
+            {
+                "source_table_id": "src",
+                "target_column": "name",
+                "output_mapping_table_id": "name_map",
+                "canonical_entities": ["Apple", "Microsoft"],
+                "threshold": 0.80,
+            }
+        )
 
         mapping = self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             'SELECT original_value FROM "name_map";',
         )
         self.assertEqual(set(mapping["original_value"].tolist()), set(values))
 
     def test_supervised_uses_config_threshold_when_not_provided(self):
         # With a very high default threshold (1.0), nothing matches
-        self.config.ENTITY_RESOLUTION_THRESHOLD = 1.0
+        self.config.ENTITY_RESOLUTION_JW_THRESHOLD = 1.0
         self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             "CREATE OR REPLACE TABLE src AS SELECT 'Amazon' AS name;",
         )
 
-        self.action.apply({
-            "source_table_id": "src",
-            "target_column": "name",
-            "output_mapping_table_id": "name_map",
-            "canonical_entities": ["Amazn"],  # close but not identical
-        })
+        self.action.apply(
+            {
+                "source_table_id": "src",
+                "target_column": "name",
+                "output_mapping_table_id": "name_map",
+                "canonical_entities": ["Amazn"],  # close but not identical
+            }
+        )
 
         mapping = self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             'SELECT canonical_value FROM "name_map";',
         )
         self.assertEqual(mapping.iloc[0]["canonical_value"], _UNRESOLVED_SENTINEL)
@@ -330,20 +381,24 @@ class EntityResolutionTests(unittest.TestCase):
         """mode defaults to ENTITY_RESOLUTION_MODE from config."""
         self.config.ENTITY_RESOLUTION_MODE = "jarowinkler"
         self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             "CREATE OR REPLACE TABLE src AS SELECT 'Gooogle' AS name;",
         )
 
-        self.action.apply({
-            "source_table_id": "src",
-            "target_column": "name",
-            "output_mapping_table_id": "name_map",
-            "canonical_entities": ["Google"],
-            "threshold": 0.80,
-        })
+        self.action.apply(
+            {
+                "source_table_id": "src",
+                "target_column": "name",
+                "output_mapping_table_id": "name_map",
+                "canonical_entities": ["Google"],
+                "threshold": 0.80,
+            }
+        )
 
         mapping = self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             'SELECT canonical_value FROM "name_map";',
         )
         self.assertEqual(mapping.iloc[0]["canonical_value"], "Google")
@@ -355,7 +410,8 @@ class EntityResolutionTests(unittest.TestCase):
     def test_supervised_embedding_mode_uses_cosine_similarity(self):
         """embedding mode should map by highest cosine similarity above threshold."""
         self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             "CREATE OR REPLACE TABLE src AS SELECT unnest(['close_to_A', 'close_to_B']) AS name;",
         )
         canonical_entities = ["EntityA", "EntityB"]
@@ -371,17 +427,20 @@ class EntityResolutionTests(unittest.TestCase):
             [vec_map[t] for t in texts], dtype=np.float32
         )
 
-        self.action.apply({
-            "source_table_id": "src",
-            "target_column": "name",
-            "output_mapping_table_id": "name_map",
-            "canonical_entities": canonical_entities,
-            "mode": "embedding",
-            "threshold": 0.5,
-        })
+        self.action.apply(
+            {
+                "source_table_id": "src",
+                "target_column": "name",
+                "output_mapping_table_id": "name_map",
+                "canonical_entities": canonical_entities,
+                "mode": "embedding",
+                "threshold": 0.5,
+            }
+        )
 
         mapping = self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             'SELECT original_value, canonical_value FROM "name_map";',
         )
         orig_to_canon = dict(zip(mapping["original_value"], mapping["canonical_value"]))
@@ -391,7 +450,8 @@ class EntityResolutionTests(unittest.TestCase):
     def test_supervised_embedding_mode_below_threshold_gets_sentinel(self):
         """embedding mode: values below cosine threshold → sentinel."""
         self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             "CREATE OR REPLACE TABLE src AS SELECT 'far_away' AS name;",
         )
         vec_map = {
@@ -402,17 +462,20 @@ class EntityResolutionTests(unittest.TestCase):
             [vec_map[t] for t in texts], dtype=np.float32
         )
 
-        self.action.apply({
-            "source_table_id": "src",
-            "target_column": "name",
-            "output_mapping_table_id": "name_map",
-            "canonical_entities": ["EntityA"],
-            "mode": "embedding",
-            "threshold": 0.5,
-        })
+        self.action.apply(
+            {
+                "source_table_id": "src",
+                "target_column": "name",
+                "output_mapping_table_id": "name_map",
+                "canonical_entities": ["EntityA"],
+                "mode": "embedding",
+                "threshold": 0.5,
+            }
+        )
 
         mapping = self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             'SELECT canonical_value FROM "name_map";',
         )
         self.assertEqual(mapping.iloc[0]["canonical_value"], _UNRESOLVED_SENTINEL)
@@ -424,7 +487,8 @@ class EntityResolutionTests(unittest.TestCase):
     def test_supervised_hybrid_mode_requires_both_thresholds(self):
         """hybrid: must pass both JW and embedding; fails JW → sentinel even if embedding is high."""
         self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             # "Amzn" is syntactically close to "Amazon"; "Xyz123" is not
             "CREATE OR REPLACE TABLE src AS SELECT unnest(['Amzn', 'Xyz123']) AS name;",
         )
@@ -432,24 +496,29 @@ class EntityResolutionTests(unittest.TestCase):
 
         vec_map = {
             "Amazon": np.array([1.0, 0.0], dtype=np.float32),
-            "Amzn": np.array([0.95, 0.05], dtype=np.float32),   # high embedding sim
-            "Xyz123": np.array([0.90, 0.10], dtype=np.float32),  # high embedding sim but bad JW
+            "Amzn": np.array([0.95, 0.05], dtype=np.float32),  # high embedding sim
+            "Xyz123": np.array(
+                [0.90, 0.10], dtype=np.float32
+            ),  # high embedding sim but bad JW
         }
         self.lm_api.encode.side_effect = lambda texts: np.array(
             [vec_map[t] for t in texts], dtype=np.float32
         )
 
-        self.action.apply({
-            "source_table_id": "src",
-            "target_column": "name",
-            "output_mapping_table_id": "name_map",
-            "canonical_entities": canonical_entities,
-            "mode": "hybrid",
-            "threshold": {"jarowinkler": 0.75, "embedding": 0.5},
-        })
+        self.action.apply(
+            {
+                "source_table_id": "src",
+                "target_column": "name",
+                "output_mapping_table_id": "name_map",
+                "canonical_entities": canonical_entities,
+                "mode": "hybrid",
+                "threshold": {"jarowinkler": 0.75, "embedding": 0.5},
+            }
+        )
 
         mapping = self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             'SELECT original_value, canonical_value FROM "name_map";',
         )
         orig_to_canon = dict(zip(mapping["original_value"], mapping["canonical_value"]))
@@ -460,10 +529,11 @@ class EntityResolutionTests(unittest.TestCase):
 
     def test_supervised_hybrid_mode_per_mode_config_defaults(self):
         """hybrid with no threshold arg uses ENTITY_RESOLUTION_THRESHOLD and ENTITY_RESOLUTION_EMBEDDING_THRESHOLD."""
-        self.config.ENTITY_RESOLUTION_THRESHOLD = 1.0       # impossible JW match
+        self.config.ENTITY_RESOLUTION_JW_THRESHOLD = 1.0  # impossible JW match
         self.config.ENTITY_RESOLUTION_EMBEDDING_THRESHOLD = 0.5
         self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             "CREATE OR REPLACE TABLE src AS SELECT 'Amazn' AS name;",
         )
         vec_map = {
@@ -474,17 +544,20 @@ class EntityResolutionTests(unittest.TestCase):
             [vec_map[t] for t in texts], dtype=np.float32
         )
 
-        self.action.apply({
-            "source_table_id": "src",
-            "target_column": "name",
-            "output_mapping_table_id": "name_map",
-            "canonical_entities": ["Amazon"],
-            "mode": "hybrid",
-            # no threshold → uses config defaults; JW threshold=1.0 means nothing passes
-        })
+        self.action.apply(
+            {
+                "source_table_id": "src",
+                "target_column": "name",
+                "output_mapping_table_id": "name_map",
+                "canonical_entities": ["Amazon"],
+                "mode": "hybrid",
+                # no threshold → uses config defaults; JW threshold=1.0 means nothing passes
+            }
+        )
 
         mapping = self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             'SELECT canonical_value FROM "name_map";',
         )
         self.assertEqual(mapping.iloc[0]["canonical_value"], _UNRESOLVED_SENTINEL)
@@ -495,15 +568,18 @@ class EntityResolutionTests(unittest.TestCase):
 
     def test_apply_returns_dataframe_with_correct_columns(self):
         self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             "CREATE OR REPLACE TABLE src AS SELECT unnest(['A', 'B', 'C']) AS name;",
         )
 
-        result = self.action.apply({
-            "source_table_id": "src",
-            "target_column": "name",
-            "output_mapping_table_id": "name_map",
-        })
+        result = self.action.apply(
+            {
+                "source_table_id": "src",
+                "target_column": "name",
+                "output_mapping_table_id": "name_map",
+            }
+        )
 
         self.assertIn("original_value", result.columns)
         self.assertIn("canonical_value", result.columns)
@@ -512,15 +588,18 @@ class EntityResolutionTests(unittest.TestCase):
         # Source has 10 distinct values; return value is capped at 5 (LIMIT 5)
         values = [f"Entity{i}" for i in range(10)]
         self.db_api.execute_query(
-            self.user_id, self.chat_id,
+            self.user_id,
+            self.chat_id,
             f"CREATE OR REPLACE TABLE src AS SELECT unnest({values!r}) AS name;",
         )
 
-        result = self.action.apply({
-            "source_table_id": "src",
-            "target_column": "name",
-            "output_mapping_table_id": "name_map",
-        })
+        result = self.action.apply(
+            {
+                "source_table_id": "src",
+                "target_column": "name",
+                "output_mapping_table_id": "name_map",
+            }
+        )
 
         self.assertLessEqual(len(result), 5)
 
@@ -530,6 +609,7 @@ class EntityResolutionTests(unittest.TestCase):
 
     def test_get_description_mentions_action_name(self):
         from pneuma_seeker.shared.schemas.core.action import ActionNames
+
         desc = self.action.get_description()
         self.assertIn(ActionNames.ENTITY_RESOLUTION.value, desc)
 
