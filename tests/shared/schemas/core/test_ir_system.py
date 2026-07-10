@@ -233,7 +233,7 @@ class IRSystemSchemaTests(unittest.TestCase):
         self.assertEqual(len(doc_set), 1)  # Should deduplicate
 
     def test_table_str_with_many_rows(self):
-        """Test Table __str__ samples only 5 rows."""
+        """Test Table __str__ (default 'one_row' strategy) shows exactly 1 sample row."""
         table = Table(
             doc_id="big_table",
             retriever_type=RetrieverType.PNEUMA_RETRIEVER,
@@ -241,5 +241,70 @@ class IRSystemSchemaTests(unittest.TestCase):
             metadata={"table_name": "big", "dataset_name": "test"},
         )
         result = str(table)
-        # Should have exactly 5 sample rows
+        self.assertEqual(result.count("sample row"), 1)
+
+    def _mixed_format_table(self) -> Table:
+        """Table with a categorical column mixing majority '#'-shaped ranks and
+        one rare compound-shaped value, plus a numeric and a date column."""
+        return Table(
+            doc_id="mixed_table",
+            retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+            content=pd.DataFrame(
+                {
+                    "rank": ["1", "1", "2", "3", "4 or 5"],
+                    "price": [9.99, 19.99, 29.99, 39.99, 249.00],
+                    "signup_date": [
+                        "2019-01-04",
+                        "2020-05-01",
+                        "2021-07-15",
+                        "2022-03-09",
+                        "2024-11-30",
+                    ],
+                }
+            ),
+            metadata={"table_name": "mixed", "dataset_name": "test"},
+        )
+
+    def test_table_to_str_column_profile_strategy(self):
+        """column_profile shows no sample row, and surfaces the rare rank format."""
+        table = self._mixed_format_table()
+        result = table.to_str(strategy="column_profile")
+        self.assertNotIn("sample row", result)
+        self.assertIn("etc.", result)
+        self.assertIn("distinct", result)
+        self.assertIn("4 or 5", result)
+        self.assertIn("range", result)
+
+    def test_table_to_str_one_row_strategy(self):
+        """one_row does simple random sampling (random_state=42) of exactly 1 row."""
+        table = self._mixed_format_table()
+        result = table.to_str(strategy="one_row")
+        self.assertEqual(result.count("sample row"), 1)
+
+    def test_table_to_str_five_rows_strategy(self):
+        """five_rows does simple random sampling (random_state=42) of up to 5 rows."""
+        table = self._mixed_format_table()
+        result = table.to_str(strategy="five_rows")
         self.assertEqual(result.count("sample row"), 5)
+
+    def test_table_to_str_zero_rows_strategy(self):
+        """zero_rows shows no rows, and inlines an example value in the header
+        for non-numeric columns only."""
+        table = self._mixed_format_table()
+        result = table.to_str(strategy="zero_rows")
+        self.assertNotIn("sample row", result)
+        self.assertIn("rank (object; e.g., 1)", result)
+        self.assertIn("signup_date (object; e.g., 2019-01-04)", result)
+        self.assertIn("price (float64)", result)
+        self.assertNotIn("price (float64; e.g.,", result)
+
+    def test_table_to_str_five_rows_strategy_capped_by_table_size(self):
+        """five_rows never samples more rows than the table has."""
+        table = Table(
+            doc_id="small_table",
+            retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+            content=pd.DataFrame({"a": [1, 2]}),
+            metadata={"table_name": "small", "dataset_name": "test"},
+        )
+        result = table.to_str(strategy="five_rows")
+        self.assertEqual(result.count("sample row"), 2)

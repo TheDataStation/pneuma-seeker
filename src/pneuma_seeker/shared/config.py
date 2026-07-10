@@ -83,7 +83,7 @@ class Config:
         )
 
         ## Entity Resolution Settings
-        self.ENTITY_RESOLUTION_THRESHOLD = float(
+        self.ENTITY_RESOLUTION_JW_THRESHOLD = float(
             getenv("ENTITY_RESOLUTION_THRESHOLD", "0.75")
         )
         self.ENTITY_RESOLUTION_EMBEDDING_THRESHOLD = float(
@@ -102,6 +102,18 @@ class Config:
         self.ENABLE_DS_SKEPTIC = getenv("ENABLE_DS_SKEPTIC", "false").lower() == "true"
         self.MAX_DS_SKEPTIC_ROUNDS = int(getenv("MAX_DS_SKEPTIC_ROUNDS", "2"))
         self.MAX_DS_SKEPTIC_CE_CALLS = int(getenv("MAX_DS_SKEPTIC_CE_CALLS", "5"))
+
+        ## Column Compaction Settings
+        self.COLUMN_COMPACTION_ENABLED = (
+            getenv("COLUMN_COMPACTION_ENABLED", "false").lower() == "true"
+        )
+        self.COLUMN_COMPACTION_SIM_THRESHOLD = float(
+            getenv("COLUMN_COMPACTION_SIM_THRESHOLD", "0.6")
+        )
+        self.COLUMN_COMPACTION_ALPHA = float(getenv("COLUMN_COMPACTION_ALPHA", "0.85"))
+        self.COLUMN_COMPACTION_USE_LLM_THRESHOLD = (
+            getenv("COLUMN_COMPACTION_USE_LLM_THRESHOLD", "false").lower() == "true"
+        )
 
         # Database Settings
         self.ENABLE_FINE_GRAINED_STATE_CHANGE_TRACKING = (

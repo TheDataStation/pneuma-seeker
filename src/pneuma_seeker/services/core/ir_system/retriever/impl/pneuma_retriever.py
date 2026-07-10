@@ -24,6 +24,9 @@ from tqdm import tqdm
 
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
+from pneuma_seeker.services.core.ir_system.retriever.impl.attribute_retriever import (
+    index_attribute,
+)
 from pneuma_seeker.services.core.ir_system.retriever.interface import AbstractRetriever
 from pneuma_seeker.services.language_model.abstract_model import AbstractModel
 from pneuma_seeker.shared.config import Config
@@ -591,6 +594,11 @@ Your task is to analyze a natural-language query and extract **explicitly mentio
             end = time.time()
             print(f"[FULL-TEXT INDEX] Indexing time: {end-start} seconds")
 
+            start = time.time()
+            index_attribute(dataset, self.language_model_api)
+            end = time.time()
+            print(f"[ATTRIBUTE INDEX] Indexing time: {end-start} seconds")
+
     def index_with_existing_schema_summaries(
         self,
         documents: list[AbstractDocument],
@@ -645,8 +653,14 @@ Your task is to analyze a natural-language query and extract **explicitly mentio
                 table_context,
                 dataset,
             )
+
             end = time.time()
             print(f"[FULL-TEXT INDEX] Indexing time: {end-start} seconds")
+
+            start = time.time()
+            index_attribute(dataset, self.language_model_api)
+            end = time.time()
+            print(f"[ATTRIBUTE INDEX] Indexing time: {end-start} seconds")
 
     def __indexing_vector(
         self,

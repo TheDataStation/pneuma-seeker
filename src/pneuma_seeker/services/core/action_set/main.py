@@ -309,7 +309,6 @@ class ActionSet:
         target_column: str,
         output_mapping_table_id: str,
         canonical_entities: list[str] | None = None,
-        threshold: float | None = None,
     ) -> DataFrame:
         args: dict[str, Any] = {
             "source_table_id": source_table_id,
@@ -318,8 +317,6 @@ class ActionSet:
         }
         if canonical_entities is not None:
             args["canonical_entities"] = canonical_entities
-        if threshold is not None:
-            args["threshold"] = threshold
         return self.registry.get(ActionNames.ENTITY_RESOLUTION).apply(args)  # type: ignore[union-attr]
 
     def append_comment_to_existing_code(self, code: str, comment: str):

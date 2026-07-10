@@ -52,5 +52,4 @@ class EmbeddingModel(AbstractModel):
             texts,
             batch_size=embed_model_option.batch_size,
             show_progress_bar=False,
-            device="cuda",
         )
