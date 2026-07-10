@@ -5,6 +5,7 @@ import pandas as pd
 from pandas import DataFrame
 from rapidfuzz.distance import JaroWinkler
 from rapidfuzz.process import extractOne
+from rapidfuzz.utils import default_process
 from tqdm import tqdm
 
 from pneuma_seeker.services.core.action_set.interfaces import Action, Applicable
@@ -29,19 +30,17 @@ class EntityResolution(Action, Applicable):
     - Harmonizes noisy, non-standardized text values in a single column by producing a two-column mapping table: `original_value` → `canonical_value`.
     - The mapping table has a strict schema: `original_value VARCHAR PRIMARY KEY, canonical_value VARCHAR`.
     - Every unique non-null value in `source_table_id.[target_column]` appears exactly once in `original_value`, so a downstream `JOIN ON original_value` is always lossless.
-    - Two resolution modes:
+    - Two resolution modes, chosen and thresholded by server configuration (not caller-controllable):
       - **Unsupervised** (no `canonical_entities`): clusters similar strings automatically using JaroWinkler similarity. The shortest string in each cluster becomes the canonical representative.
-      - **Supervised** (`canonical_entities` provided): maps each value to the best-matching entity from the provided seed list if similarity ≥ threshold; otherwise maps to `"{_UNRESOLVED_SENTINEL}"`. Matching strategy controlled by `mode`:
-        - `jarowinkler` (default): syntactic similarity only.
+      - **Supervised** (`canonical_entities` provided): maps each value to the best-matching entity from the provided seed list if similarity ≥ the configured threshold; otherwise maps to `"{_UNRESOLVED_SENTINEL}"`. Matching strategy:
+        - `jarowinkler`: syntactic similarity only.
         - `embedding`: semantic similarity via text embeddings (cosine similarity).
         - `hybrid`: candidate must pass **both** JaroWinkler AND embedding thresholds; winner chosen by embedding similarity. Best for noisy real-world names where pure string matching fails.
     - Args: {{
         "source_table_id": "<table to harmonize — bare ID for intermediate/external tables; dataset-qualified form (e.g. 'dataset.\"table_id\"') for retrieved tables>",
         "target_column": "<column name containing noisy text>",
         "output_mapping_table_id": "<ID to register the resulting mapping table under>",
-        "canonical_entities": ["<optional seed list of known canonical names>"],
-        "mode": "<optional: 'jarowinkler' (default) | 'embedding' | 'hybrid'>",
-        "threshold": <optional float or {{"jarowinkler": float, "embedding": float}} for per-mode thresholds>
+        "canonical_entities": ["<optional seed list of known canonical names>"]
     }}
     - Example usage: after calling this action with `output_mapping_table_id = "merchant_map"`, enrich your source table via:
       `SELECT src.*, m.canonical_value AS canonical_merchant FROM source_table src JOIN merchant_map m ON src.merchant_name = m.original_value`"""
@@ -58,19 +57,21 @@ class EntityResolution(Action, Applicable):
         if threshold_raw is None:
             if mode == "hybrid":
                 threshold_input: Any = {
-                    "jarowinkler": self.config.ENTITY_RESOLUTION_THRESHOLD,
+                    "jarowinkler": self.config.ENTITY_RESOLUTION_JW_THRESHOLD,
                     "embedding": self.config.ENTITY_RESOLUTION_EMBEDDING_THRESHOLD,
                 }
             elif mode == "embedding":
                 threshold_input = self.config.ENTITY_RESOLUTION_EMBEDDING_THRESHOLD
             else:
-                threshold_input = self.config.ENTITY_RESOLUTION_THRESHOLD
+                threshold_input = self.config.ENTITY_RESOLUTION_JW_THRESHOLD
         else:
             threshold_input = threshold_raw
 
         # Schema-qualified refs like proc_spend."tbl" must not be re-quoted;
         # bare workspace table names like "merchant_map" need quoting.
-        source_ref = source_table_id if "." in source_table_id else f'"{source_table_id}"'
+        source_ref = (
+            source_table_id if "." in source_table_id else f'"{source_table_id}"'
+        )
 
         count_df = self.db_api.execute_query(
             self.user_id,
@@ -104,13 +105,17 @@ class EntityResolution(Action, Applicable):
 
                 if canonical_entities:
                     batch_mapping = self._resolve_supervised(
-                        batch, canonical_entities, threshold_input, mode, canonical_embeddings
+                        batch,
+                        canonical_entities,
+                        threshold_input,
+                        mode,
+                        canonical_embeddings,
                     )
                 else:
                     jw_threshold = (
                         float(threshold_input)
                         if isinstance(threshold_input, (int, float))
-                        else self.config.ENTITY_RESOLUTION_THRESHOLD
+                        else self.config.ENTITY_RESOLUTION_JW_THRESHOLD
                     )
                     batch_mapping, representatives = self._resolve_unsupervised_batch(
                         batch, jw_threshold, representatives
@@ -181,6 +186,7 @@ class EntityResolution(Action, Applicable):
                 name,
                 representatives,
                 scorer=JaroWinkler.similarity,
+                processor=default_process,
                 score_cutoff=threshold,
             )
             if match:
@@ -201,8 +207,16 @@ class EntityResolution(Action, Applicable):
         mapping: dict[str, str | None] = {}
 
         if isinstance(threshold_input, dict):
-            t_jw = float(threshold_input.get("jarowinkler", self.config.ENTITY_RESOLUTION_THRESHOLD))
-            t_emb = float(threshold_input.get("embedding", self.config.ENTITY_RESOLUTION_EMBEDDING_THRESHOLD))
+            t_jw = float(
+                threshold_input.get(
+                    "jarowinkler", self.config.ENTITY_RESOLUTION_JW_THRESHOLD
+                )
+            )
+            t_emb = float(
+                threshold_input.get(
+                    "embedding", self.config.ENTITY_RESOLUTION_EMBEDDING_THRESHOLD
+                )
+            )
         else:
             t_jw = float(threshold_input)
             t_emb = float(threshold_input)
@@ -213,6 +227,7 @@ class EntityResolution(Action, Applicable):
                     name,
                     canonical_entities,
                     scorer=JaroWinkler.similarity,
+                    processor=default_process,
                     score_cutoff=t_jw,
                 )
                 mapping[name] = match[0] if match else _UNRESOLVED_SENTINEL
@@ -231,13 +246,18 @@ class EntityResolution(Action, Applicable):
                     else _UNRESOLVED_SENTINEL
                 )
             elif mode == "hybrid":
-                jw_scores = np.array([
-                    JaroWinkler.similarity(name, entity) for entity in canonical_entities
-                ])
+                jw_scores = np.array(
+                    [
+                        JaroWinkler.similarity(name, entity, processor=default_process)
+                        for entity in canonical_entities
+                    ]
+                )
                 valid_mask = (jw_scores >= t_jw) & (cosine_sims[idx] >= t_emb)
                 if np.any(valid_mask):
                     passing_indices = np.where(valid_mask)[0]
-                    best_idx = int(passing_indices[np.argmax(cosine_sims[idx][passing_indices])])
+                    best_idx = int(
+                        passing_indices[np.argmax(cosine_sims[idx][passing_indices])]
+                    )
                     mapping[name] = canonical_entities[best_idx]
                 else:
                     mapping[name] = _UNRESOLVED_SENTINEL

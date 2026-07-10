@@ -1175,7 +1175,6 @@ class Materializer:
         target_column = action_args.get("target_column")
         output_mapping_table_id = action_args.get("output_mapping_table_id")
         canonical_entities = action_args.get("canonical_entities")
-        threshold = action_args.get("threshold")
 
         if not isinstance(source_table_id, str) or not source_table_id.strip():
             error_msg = (
@@ -1203,10 +1202,6 @@ class Materializer:
             )
             self._log(f"==> {error_msg}")
             return error_msg, ActionExecutionStatus.ERROR
-        if threshold is not None and not isinstance(threshold, (int, float)):
-            error_msg = "entity_resolution 'threshold' must be a number."
-            self._log(f"==> {error_msg}")
-            return error_msg, ActionExecutionStatus.ERROR
 
         all_available = (
             self.state.retrieved_tables
@@ -1232,7 +1227,6 @@ class Materializer:
                 target_column=target_column,
                 output_mapping_table_id=output_mapping_table_id,
                 canonical_entities=canonical_entities,
-                threshold=float(threshold) if threshold is not None else None,
             )
             new_node = ProvenanceNode(
                 source_retriever=RetrieverType.MATERIALIZER,
@@ -1460,7 +1454,9 @@ class Materializer:
         self._log(
             f"[ACTION PROFILING][{action_name}][{tag}] Time taken: {total_time:.2f}s (CPU: {total_time - llm_time:.2f}s, LLM: {llm_time:.2f}s)"
         )
-        self._log(f"[ACTION PROFILING][{action_name}][{tag}] Plan JSON: ~{plan_tokens} tokens")
+        self._log(
+            f"[ACTION PROFILING][{action_name}][{tag}] Plan JSON: ~{plan_tokens} tokens"
+        )
 
     def _log(self, text: str):
         formatted_log(self.logger, "Materializer", text)

@@ -83,7 +83,7 @@ class Config:
         )
 
         ## Entity Resolution Settings
-        self.ENTITY_RESOLUTION_THRESHOLD = float(
+        self.ENTITY_RESOLUTION_JW_THRESHOLD = float(
             getenv("ENTITY_RESOLUTION_THRESHOLD", "0.75")
         )
         self.ENTITY_RESOLUTION_EMBEDDING_THRESHOLD = float(
