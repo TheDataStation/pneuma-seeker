@@ -1,10 +1,10 @@
-from enum import Enum
 from typing import Any
 
 import numpy as np
 from pandas import DataFrame
-from pyxdameraulevenshtein import damerau_levenshtein_distance
-from sklearn.feature_extraction.text import CountVectorizer
+from rapidfuzz.distance import JaroWinkler
+from rapidfuzz.process import cdist
+from rapidfuzz.utils import default_process
 from tqdm import tqdm
 
 from pneuma_seeker.services.core.action_set.interfaces import Action, Applicable
@@ -13,12 +13,6 @@ from pneuma_seeker.shared.schemas.core.agent import AgentType
 from pneuma_seeker.shared.parser import augmented_literal_eval
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.schemas.language_model.role import Role
-
-
-class SyntacticSimMetric(Enum):
-    NONE = None
-    EDIT_DIST = "Edit Distance"
-    JACCARD_QGRAM = "Jaccard QGram"
 
 
 class SemanticJoin(Action, Applicable):
@@ -30,8 +24,11 @@ class SemanticJoin(Action, Applicable):
 
     def get_description(self, agent: AgentType | None = None) -> str:
         return f"""**{ActionNames.SEMANTIC_JOIN.value}**
-    - Joins two tables (internal, external, or intermediate) by computing semantic similarity between specified columns.
-    - Similarity uses a weighted combination of embedding cosine similarity and normalized Damerau-Levenshtein edit similarity.
+    - Joins two tables (internal, external, or intermediate) by computing similarity between specified columns.
+    - Three matching modes, chosen and thresholded by server configuration (not caller-controllable):
+      - **jarowinkler** (default): syntactic similarity only via JaroWinkler. No embedding calls — scalable to large tables.
+      - **embedding**: semantic similarity via text embeddings (cosine similarity).
+      - **hybrid**: weighted combination of embedding cosine similarity and JaroWinkler similarity, weighted by `alpha`.
     - Produces a new joined table containing matched rows and a similarity_score column.
     - Use case: when the user explicitly asks for it, when two tables contain related entities that do not match exactly by key or text (e.g., "Intl Business Machines" vs. "IBM"), or when there are no potential join paths.
         Even if both tables share a key column (e.g., "product_id"), the user may prefer semantic matching — for instance, comparing product descriptions between catalogs from different years to detect essentially identical products that were renumbered but now sold at different prices.
@@ -57,19 +54,19 @@ class SemanticJoin(Action, Applicable):
             "relevant_left_cols": "List of column names from the left table for semantic comparison.",
             "relevant_right_cols": "List of column names from the right table for semantic comparison.",
             "joined_table_id": "String table ID to store the joined results.",
-            "alpha": "Float (0 to 1) weighting cosine vs syntactic similarity (default=0.5).",
+            "alpha": "Float (0 to 1) weighting cosine vs JaroWinkler similarity, used only in hybrid mode (default=0.5).",
             "top_k": "Integer number of best matches to keep per left row (default=3).",
             "delimiter": "String delimiter used when concatenating text (default=' [SEP] ').",
             "embed_batch_size": "Integer batch size for embedding calls (default=30).",
-            "syntactic_sim_metric": "Syntactic similarity metric to use: NONE, EDIT_DIST, or JACCARD_QGRAM (default=EDIT_DIST).",
+            "mode": "Matching mode: 'jarowinkler' (default, scalable syntactic-only via rapidfuzz), 'embedding' (semantic cosine similarity only), or 'hybrid' (alpha-weighted combination of both).",
             "use_llm": "Boolean indicating whether to use LLM filtering for matches (default=False).",
         }
 
     def get_notes(self) -> str:
         return """
         This action performs a semantic join between two DB-backed tables based on specified columns.
-        It computes semantic similarity using embeddings and optionally syntactic similarity metrics,
-        and materializes results into a target table, returning sample rows.
+        It matches rows using JaroWinkler similarity (default, scalable), embedding cosine similarity,
+        or a hybrid of both, and materializes results into a target table, returning sample rows.
         """
 
     def apply(self, input: dict[str, Any]) -> DataFrame:
@@ -84,9 +81,7 @@ class SemanticJoin(Action, Applicable):
         embed_batch_size: int = input.get(
             "embed_batch_size", self.config.SEMANTIC_JOIN_BATCH_SIZE
         )
-        syntactic_sim_metric: SyntacticSimMetric = input.get(
-            "syntactic_sim_metric", SyntacticSimMetric.EDIT_DIST
-        )
+        mode: str = input.get("mode", self.config.SEMANTIC_JOIN_MODE).lower()
         use_llm: bool = input.get("use_llm", False)
 
         if not isinstance(left_table_id, str):
@@ -117,7 +112,7 @@ class SemanticJoin(Action, Applicable):
             top_k,
             delimiter,
             embed_batch_size,
-            syntactic_sim_metric,
+            mode,
             use_llm,
         )
 
@@ -132,23 +127,31 @@ class SemanticJoin(Action, Applicable):
         top_k: int = 3,
         delimiter: str = " [SEP] ",
         embed_batch_size: int = 30,
-        syntactic_sim_metric: SyntacticSimMetric = SyntacticSimMetric.EDIT_DIST,
+        mode: str = "jarowinkler",
         use_llm: bool = False,
     ) -> DataFrame:
         """
-        Join rows from left_table_id and right_table_id using semantic similarity.
+        Join rows from left_table_id and right_table_id using similarity matching.
 
         Parameters:
-            relevant_left_cols / relevant_right_cols: columns to use for semantic comparison
-            alpha: weight for cosine vs edit similarity (0 to 1)
+            relevant_left_cols / relevant_right_cols: columns to use for comparison
+            alpha: weight for cosine vs JaroWinkler similarity (0 to 1), used only in hybrid mode
             top_k: number of best matches to keep for each row in left_df
             delimiter: used when concatenating text
             embed_batch_size: outer batching size for embeddings (progress via tqdm).
                           Set to None or <=0 to disable outer batching.
+            mode: 'jarowinkler' (default, no embedding calls), 'embedding', or 'hybrid'
 
         Returns:
             DataFrame of joined rows with similarity_score column.
         """
+        mode = mode.lower()
+        if mode not in ("jarowinkler", "embedding", "hybrid"):
+            raise ValueError(
+                f"Unknown semantic join mode: {mode!r}. "
+                "Expected 'jarowinkler', 'embedding', or 'hybrid'."
+            )
+        needs_embedding = mode in ("embedding", "hybrid")
 
         left_table_ref = self.__resolve_table_ref(left_table_id)
         right_table_ref = self.__resolve_table_ref(right_table_id)
@@ -203,10 +206,14 @@ class SemanticJoin(Action, Applicable):
             left_values = self.__concat_relevant_values(
                 left_df[relevant_left_cols], relevant_left_cols, delimiter
             )
-            left_emb = self.__embed_texts(
-                left_values,
-                "Embedding left (concat)",
-                embed_batch_size,
+            left_emb = (
+                self.__embed_texts(
+                    left_values,
+                    "Embedding left (concat)",
+                    embed_batch_size,
+                )
+                if needs_embedding
+                else None
             )
 
             top_scores = np.full((len(left_df), top_k), -np.inf, dtype=np.float32)
@@ -232,26 +239,25 @@ class SemanticJoin(Action, Applicable):
                 right_values = self.__concat_relevant_values(
                     right_df[relevant_right_cols], relevant_right_cols, delimiter
                 )
-                right_emb = self.__embed_texts(
-                    right_values,
-                    "Embedding right (concat)",
-                    embed_batch_size,
-                )
 
-                cos_mat = self.__pairwise_cosine_sim_matrix(left_emb, right_emb)
-
-                if syntactic_sim_metric == SyntacticSimMetric.NONE:
-                    score_mat = cos_mat
-                elif syntactic_sim_metric == SyntacticSimMetric.EDIT_DIST:
-                    edit_mat = self.__pairwise_edit_sim_matrix(
-                        left_values, right_values, desc="Edit similarity (concat)"
-                    )
-                    score_mat = alpha * cos_mat + (1.0 - alpha) * edit_mat
-                else:
-                    jaccard_qgram_mat = self.__pairwise_jaccard_qgram_matrix(
+                if mode == "jarowinkler":
+                    score_mat = self.__pairwise_jarowinkler_sim_matrix(
                         left_values, right_values
                     )
-                    score_mat = alpha * cos_mat + (1.0 - alpha) * jaccard_qgram_mat
+                else:
+                    right_emb = self.__embed_texts(
+                        right_values,
+                        "Embedding right (concat)",
+                        embed_batch_size,
+                    )
+                    cos_mat = self.__pairwise_cosine_sim_matrix(left_emb, right_emb)  # type: ignore
+                    if mode == "embedding":
+                        score_mat = cos_mat
+                    else:  # hybrid
+                        jw_mat = self.__pairwise_jarowinkler_sim_matrix(
+                            left_values, right_values
+                        )
+                        score_mat = alpha * cos_mat + (1.0 - alpha) * jw_mat
 
                 right_rowids = right_df["rowid"].to_numpy(dtype=np.int64)
                 for li in range(len(left_df)):
@@ -323,11 +329,9 @@ class SemanticJoin(Action, Applicable):
                     f"""
                     INSERT INTO "{temp_table}"
                     SELECT {left_select}, {right_select}, v.score AS similarity_score
-                    FROM {left_table_ref} AS l
-                    JOIN {right_table_ref} AS r
-                    JOIN (VALUES {values_sql}) AS v(left_rowid, right_rowid, score)
-                    ON l.rowid = v.left_rowid AND r.rowid = v.right_rowid
-                    ORDER BY l.rowid;
+                    FROM (VALUES {values_sql}) AS v(left_rowid, right_rowid, score)
+                    JOIN {left_table_ref} AS l ON l.rowid = v.left_rowid
+                    JOIN {right_table_ref} AS r ON r.rowid = v.right_rowid;
                     """,
                 )
 
@@ -452,96 +456,21 @@ class SemanticJoin(Action, Applicable):
         np.clip(S, 0.0, 1.0, out=S)
         return S
 
-    def __pairwise_edit_sim_matrix(
+    def __pairwise_jarowinkler_sim_matrix(
         self,
         left_texts: list[str],
         right_texts: list[str],
-        desc: str = "Edit similarity",
     ) -> np.ndarray:
         """
-        Computes pairwise normalized Damerau-Levenshtein similarity matrix (L x R).
+        Computes pairwise JaroWinkler similarity matrix (L x R) via rapidfuzz's
+        vectorized cdist — no embeddings required, so this scales to large tables.
         """
-        L = len(left_texts)
-        R = len(right_texts)
-        M = np.zeros((L, R), dtype=np.float32)
-        for i in tqdm(range(L), desc=desc, total=L):
-            a = left_texts[i]
-            row_vals = []
-            for b in right_texts:
-                row_vals.append(self.__normalized_damerau_levenshtein(a, b))
-            M[i, :] = row_vals
-        return M
-
-    def __normalized_damerau_levenshtein(self, a: str, b: str) -> float:
-        """Normalize edit distance to a similarity score in [0,1]."""
-        if not a and not b:
-            return 1.0
-        max_len = max(len(a), len(b))
-        d = float(damerau_levenshtein_distance(a, b))
-        return max(0.0, min(1.0, 1.0 - (d / max_len)))
-
-    def __pairwise_jaccard_qgram_matrix(
-        self,
-        left_texts: list[str],
-        right_texts: list[str],
-        q: int = 3,
-        pad: bool = False,
-        dtype=np.float32,
-    ):
-        """
-        Compute the pairwise Jaccard similarity matrix between two lists of strings
-        using character q-grams.
-
-        Args:
-            left_texts: List of strings (rows of the similarity matrix).
-            right_texts: List of strings (columns of the similarity matrix).
-            q: Length of character n-grams (default=3).
-            pad: Whether to pad strings with start/end markers before extracting q-grams.
-            dtype: Data type of the returned similarity matrix.
-
-        Returns:
-            A (len(left_texts), len(right_texts)) NumPy array of Jaccard similarities.
-        """
-
-        # Helper: optionally pad text so prefixes and suffixes contribute q-grams
-        def maybe_pad(text: str) -> str:
-            if pad:
-                return ("^" * (q - 1)) + text + ("$" * (q - 1))
-            return text
-
-        # Preprocess texts
-        left_texts = [maybe_pad(s) for s in left_texts]
-        right_texts = [maybe_pad(s) for s in right_texts]
-
-        # Build q-gram vocabulary across both sets
-        vectorizer = CountVectorizer(
-            analyzer="char",  # extract character-level features
-            ngram_range=(q, q),  # fixed q-gram size
-            binary=True,  # treat q-grams as sets (presence/absence) instead of count
-        )
-        all_texts = left_texts + right_texts
-        all_vectors = vectorizer.fit_transform(all_texts)
-
-        # Split back into left and right subsets
-        left_matrix = all_vectors[: len(left_texts), :]  # type: ignore # shape (L, vocab_size)
-        right_matrix = all_vectors[len(left_texts) :, :]  # type: ignore # shape (R, vocab_size)
-
-        # Intersection counts: |A ∩ B| for each pair (via sparse dot product)
-        intersections = (left_matrix @ right_matrix.T).toarray().astype(np.float32)  # type: ignore # shape (L, R)
-
-        # Set sizes: |A| and |B| for each string
-        left_sizes = np.array(left_matrix.sum(axis=1)).ravel()  # shape (L,)
-        right_sizes = np.array(right_matrix.sum(axis=1)).ravel()  # shape (R,)
-
-        # Broadcast to compute unions: |A ∪ B| = |A| + |B| - |A ∩ B|
-        unions = left_sizes[:, None] + right_sizes[None, :] - intersections
-
-        # Jaccard index: |A ∩ B| / |A ∪ B| (avoid division by zero)
-        similarities = np.divide(
-            intersections, unions, out=np.zeros_like(intersections), where=unions > 0
-        )
-
-        return similarities.astype(dtype)
+        return cdist(
+            left_texts,
+            right_texts,
+            scorer=JaroWinkler.similarity,
+            processor=default_process,
+        ).astype(np.float32)
 
     def __llm_filter_pairs(self, left_row, right_rows) -> list[int]:
         """

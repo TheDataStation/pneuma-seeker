@@ -1,7 +1,10 @@
 import os
 import re
+import shutil
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock
 
 sys.path.insert(
@@ -11,10 +14,8 @@ sys.path.insert(
 import numpy as np
 import pandas as pd
 
-from pneuma_seeker.services.core.action_set.impl.semantic_join import (
-    SemanticJoin,
-    SyntacticSimMetric,
-)
+from pneuma_seeker.services.core.action_set.impl.semantic_join import SemanticJoin
+from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.shared.config import Config
 
 
@@ -252,7 +253,7 @@ class SemanticJoinTests(unittest.TestCase):
             relevant_right_cols=["name"],
             joined_table_id=joined_table_id,
             top_k=1,
-            syntactic_sim_metric=SyntacticSimMetric.NONE,
+            mode="embedding",
             use_llm=False,
         )
 
@@ -304,10 +305,198 @@ class SemanticJoinTests(unittest.TestCase):
             relevant_right_cols=["name"],
             joined_table_id=joined_table_id,
             top_k=2,
-            syntactic_sim_metric=SyntacticSimMetric.NONE,
+            mode="embedding",
             use_llm=True,
         )
 
         self.assertEqual(len(result), 1)
         self.assertEqual(result.iloc[0]["left_name"], "apple")
         self.assertEqual(result.iloc[0]["right_name"], "apple")
+
+
+class SemanticJoinRealDBTests(unittest.TestCase):
+    """
+    Integration tests against a real DuckDB-backed DBAPI (mirrors the
+    EntityResolutionTests setup) so mode behavior is observable end-to-end
+    instead of through a mocked SQL executor.
+    """
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.mkdtemp()
+        self.config = Config()
+        self.config.DATA_SOURCES = ["test_ds"]
+        self.config.SEMANTIC_JOIN_MODE = "jarowinkler"
+        self.config.SEMANTIC_JOIN_BATCH_SIZE = 30
+        self.logger = MagicMock()
+        self.lm_api = MagicMock()
+        self.db_api = DBAPI(
+            self.config,
+            self.logger,
+            dataset_db_path=str(Path(self.temp_dir) / "datasets"),
+            workspace_db_path=str(Path(self.temp_dir) / "workspaces"),
+        )
+        self.user_id = "user_id"
+        self.chat_id = "chat_id"
+        self.action = SemanticJoin(
+            self.user_id,
+            self.chat_id,
+            self.config,
+            self.logger,
+            self.db_api,
+            self.lm_api,
+        )
+
+    def tearDown(self) -> None:
+        self.db_api.pneuma_db.close_all_connections()
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _create_table(self, table_name: str, col_name: str, values: list) -> None:
+        self.db_api.execute_query(
+            self.user_id,
+            self.chat_id,
+            f'CREATE OR REPLACE TABLE "{table_name}" AS '
+            f'SELECT unnest({values!r}) AS "{col_name}";',
+        )
+
+    def _joined_pairs(self, joined_table_id: str) -> dict[str, str]:
+        result = self.db_api.execute_query(
+            self.user_id,
+            self.chat_id,
+            f'SELECT left_name, right_name FROM "{joined_table_id}";',
+        )
+        return dict(zip(result["left_name"], result["right_name"]))
+
+    # ------------------------------------------------------------------
+    # jarowinkler mode (default) — no embeddings, scalable
+    # ------------------------------------------------------------------
+
+    def test_jarowinkler_is_the_config_default_mode(self):
+        self.assertEqual(Config().SEMANTIC_JOIN_MODE, "jarowinkler")
+
+    def test_jarowinkler_mode_matches_typo_variants_without_calling_embeddings(self):
+        self._create_table("left_tbl", "name", ["Amazn", "Gooogle"])
+        self._create_table("right_tbl", "name", ["Amazon", "Google", "Meta"])
+
+        self.action.apply(
+            {
+                "left_table_id": "left_tbl",
+                "right_table_id": "right_tbl",
+                "relevant_left_cols": ["name"],
+                "relevant_right_cols": ["name"],
+                "joined_table_id": "joined_tbl",
+                "top_k": 1,
+            }
+        )
+
+        pairs = self._joined_pairs("joined_tbl")
+        self.assertEqual(pairs["Amazn"], "Amazon")
+        self.assertEqual(pairs["Gooogle"], "Google")
+        # The whole point of the default mode: it never touches the LM API.
+        self.lm_api.encode.assert_not_called()
+
+    # ------------------------------------------------------------------
+    # embedding mode
+    # ------------------------------------------------------------------
+
+    def test_embedding_mode_uses_cosine_similarity(self):
+        self._create_table("left_tbl", "name", ["close_to_A", "close_to_B"])
+        self._create_table("right_tbl", "name", ["EntityA", "EntityB"])
+
+        vec_map = {
+            "name: EntityA": np.array([1.0, 0.0], dtype=np.float32),
+            "name: EntityB": np.array([0.0, 1.0], dtype=np.float32),
+            "name: close_to_A": np.array([0.95, 0.05], dtype=np.float32),
+            "name: close_to_B": np.array([0.05, 0.95], dtype=np.float32),
+        }
+        self.lm_api.encode.side_effect = lambda texts: np.array(
+            [vec_map[t] for t in texts], dtype=np.float32
+        )
+
+        self.action.apply(
+            {
+                "left_table_id": "left_tbl",
+                "right_table_id": "right_tbl",
+                "relevant_left_cols": ["name"],
+                "relevant_right_cols": ["name"],
+                "joined_table_id": "joined_tbl",
+                "mode": "embedding",
+                "top_k": 1,
+            }
+        )
+
+        pairs = self._joined_pairs("joined_tbl")
+        self.assertEqual(pairs["close_to_A"], "EntityA")
+        self.assertEqual(pairs["close_to_B"], "EntityB")
+        self.assertTrue(self.lm_api.encode.called)
+
+    # ------------------------------------------------------------------
+    # hybrid mode
+    # ------------------------------------------------------------------
+
+    def test_hybrid_mode_falls_back_to_jarowinkler_when_embeddings_tie(self):
+        # Both right candidates get an identical embedding, so cosine similarity
+        # cannot distinguish them. If hybrid is truly blending in the JaroWinkler
+        # component, the syntactically closer candidate ("Amazon") must win.
+        self._create_table("left_tbl", "name", ["Amzn"])
+        self._create_table("right_tbl", "name", ["Amazon", "Zonbay"])
+
+        tied_vec = np.array([1.0, 0.0], dtype=np.float32)
+        self.lm_api.encode.side_effect = lambda texts: np.array(
+            [tied_vec for _ in texts], dtype=np.float32
+        )
+
+        self.action.apply(
+            {
+                "left_table_id": "left_tbl",
+                "right_table_id": "right_tbl",
+                "relevant_left_cols": ["name"],
+                "relevant_right_cols": ["name"],
+                "joined_table_id": "joined_tbl",
+                "mode": "hybrid",
+                "alpha": 0.5,
+                "top_k": 1,
+            }
+        )
+
+        pairs = self._joined_pairs("joined_tbl")
+        self.assertEqual(pairs["Amzn"], "Amazon")
+        self.assertTrue(self.lm_api.encode.called)
+
+    # ------------------------------------------------------------------
+    # Batching: tables too large to load in one shot
+    # ------------------------------------------------------------------
+
+    def test_batching_over_100_row_tables_with_small_batch_size(self):
+        # Simulates tables that cannot be loaded instantaneously by forcing a
+        # small SEMANTIC_JOIN_BATCH_SIZE, so both the left and right sides are
+        # paginated across many round trips (10 left batches x 10 right
+        # batches), exercising the cross-batch top-k merge logic.
+        n = 100
+        left_values = [f"Item_{i:03d}" for i in range(n)]
+        right_values = [f"Item_{i:03d}_dup" for i in range(n)]
+        self._create_table("left_tbl", "name", left_values)
+        self._create_table("right_tbl", "name", right_values)
+
+        self.config.SEMANTIC_JOIN_BATCH_SIZE = 10
+
+        self.action.apply(
+            {
+                "left_table_id": "left_tbl",
+                "right_table_id": "right_tbl",
+                "relevant_left_cols": ["name"],
+                "relevant_right_cols": ["name"],
+                "joined_table_id": "joined_tbl",
+                "top_k": 1,
+            }
+        )
+
+        pairs = self._joined_pairs("joined_tbl")
+        self.assertEqual(len(pairs), n)
+        for i in range(n):
+            left_val = f"Item_{i:03d}"
+            self.assertEqual(pairs[left_val], f"{left_val}_dup")
+        self.lm_api.encode.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

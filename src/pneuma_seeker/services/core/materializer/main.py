@@ -8,9 +8,6 @@ from tiktoken import encoding_for_model
 
 from pneuma_seeker.services.core.action_set.main import ActionSet
 from pneuma_seeker.shared.schemas.core.action import ActionExecutionStatus, ActionNames
-from pneuma_seeker.services.core.action_set.impl.semantic_join import (
-    SyntacticSimMetric,
-)
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
 from pneuma_seeker.shared.schemas.core.ir_system import (
@@ -895,7 +892,6 @@ class Materializer:
             relevant_left_cols,
             relevant_right_cols,
             joined_table_id,
-            syntactic_sim_metric=SyntacticSimMetric.JACCARD_QGRAM,
             top_k=self.config.SEMANTIC_JOIN_TOP_K,
         )
         join_code = self.action_set.generate_semantic_join_generator_code(

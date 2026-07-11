@@ -1,10 +1,10 @@
 import os
+import shutil
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
-
 
 sys.path.insert(
     0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../../src"))
@@ -19,6 +19,7 @@ from pneuma_seeker.services.core.action_set.impl.table_projection import (
     TableProjection,
 )
 from pneuma_seeker.services.core.api.db import DBAPI
+from pneuma_seeker.services.language_model.impl.mock_llm import MockLLM
 from pneuma_seeker.shared.config import Config
 
 
@@ -281,7 +282,10 @@ class SemanticColumnGenerationTests(unittest.TestCase):
             {
                 "src_table_id": "test_ds.table",
                 "target_table_id": "table",
-                "column_mapping": {"first_name": "first_name", "last_name": "last_name"},
+                "column_mapping": {
+                    "first_name": "first_name",
+                    "last_name": "last_name",
+                },
             }
         )
 
@@ -310,7 +314,11 @@ class SemanticColumnGenerationTests(unittest.TestCase):
             {
                 "src_table_id": "test_ds.table",
                 "target_table_id": "table",
-                "column_mapping": {"product": "product", "quantity": "quantity", "price": "price"},
+                "column_mapping": {
+                    "product": "product",
+                    "quantity": "quantity",
+                    "price": "price",
+                },
             }
         )
 
@@ -418,3 +426,177 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         self.assertIsNotNone(notes)
         self.assertIsInstance(notes, str)
         self.assertGreater(len(notes), 0)
+
+
+class SemanticColumnGenerationMockLLMTests(unittest.TestCase):
+    """
+    Exercises SemanticColumnGeneration against a real DuckDB-backed DBAPI and
+    the project's own MockLLM (rather than a hand-rolled MagicMock), so the
+    generator-based `chat()` contract and queued-response ordering used in
+    production are actually what's under test.
+    """
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.mkdtemp()
+        self.dataset_db_path = Path(self.temp_dir) / "datasets"
+        self.workspace_db_path = Path(self.temp_dir) / "workspaces"
+        self.config = Config()
+        self.config.DATA_SOURCES = ["test_ds"]
+        self.config.ENABLE_SEMANTIC_COL_GEN = True
+        self.logger = MagicMock()
+        self.db_api = DBAPI(
+            self.config,
+            self.logger,
+            str(self.dataset_db_path),
+            str(self.workspace_db_path),
+        )
+        # A MagicMock stand-in for LanguageModelAPI; .chat is swapped per-test
+        # to a real MockLLM's bound method so `chat()` behaves like a real
+        # queued-response generator instead of a MagicMock return_value list.
+        self.lm_api = MagicMock()
+        self.semantic_col_gen = SemanticColumnGeneration(
+            "user_id", "chat_id", self.config, self.logger, self.db_api, self.lm_api
+        )
+        self.table_projection = TableProjection(
+            "user_id", "chat_id", self.config, self.logger, self.db_api, self.lm_api
+        )
+
+    def tearDown(self) -> None:
+        self.db_api.pneuma_db.close_all_connections()
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _use_mock_llm(self, responses: list[str]) -> None:
+        mock_llm = MockLLM(self.config, self.logger, responses=responses)
+        self.lm_api.chat = mock_llm.chat
+
+    def _ingest_and_project(
+        self, table: pd.DataFrame, table_name: str = "table"
+    ) -> None:
+        ds_dir = Path(self.temp_dir) / "test_ds"
+        os.makedirs(ds_dir, exist_ok=True)
+        table.to_csv(ds_dir / f"{table_name}.csv", index=False)
+        self.db_api.ingest_dataset(self.config.DATA_SOURCES[0], str(ds_dir))
+        self.table_projection.apply(
+            {
+                "src_table_id": f"test_ds.{table_name}",
+                "target_table_id": table_name,
+                "column_mapping": {c: c for c in table.columns},
+            }
+        )
+
+    def _read_full_table(self, table_name: str) -> pd.DataFrame:
+        return self.db_api.execute_query(
+            "user_id", "chat_id", f'SELECT * FROM "{table_name}" ORDER BY name;'
+        )
+
+    def test_apply_against_real_mock_llm_generator_interface(self):
+        """Sanity check: SemanticColumnGeneration works against MockLLM's actual
+        generator-based chat(), not just a MagicMock configured to look like one."""
+        table = pd.DataFrame({"name": ["Alice", "Bob"]})
+        self._ingest_and_project(table)
+        self._use_mock_llm(["['A', 'B']"])
+
+        result = self.semantic_col_gen.apply(
+            {
+                "src_table_id": "table",
+                "new_column_name": "tag",
+                "src_table_columns": ["name"],
+                "instruction": "tag",
+            }
+        )
+
+        self.assertEqual(list(result["tag"]), ["A", "B"])
+
+    def test_apply_handles_apostrophes_in_generated_values(self):
+        """Regression test: generated values containing apostrophes used to
+        crash the materialization INSERT. The old code built the VALUES()
+        clause with Python's repr(), which quotes strings containing a single
+        quote with double-quotes (e.g. "O'Brien") — DuckDB parses a
+        double-quoted token as an identifier, not a string literal, so the
+        insert raised a BinderException for any such value."""
+        table = pd.DataFrame({"name": ["Alice", "Bob"]})
+        self._ingest_and_project(table)
+        self._use_mock_llm(['["O\'Brien", "D\'Angelo"]'])
+
+        result = self.semantic_col_gen.apply(
+            {
+                "src_table_id": "table",
+                "new_column_name": "surname",
+                "src_table_columns": ["name"],
+                "instruction": "assign a surname",
+            }
+        )
+
+        self.assertEqual(list(result["surname"]), ["O'Brien", "D'Angelo"])
+
+    def test_apply_batches_100_row_table_with_small_batch_size(self):
+        """Simulates a table too large to load in one shot: 100 unique rows
+        with SEMANTIC_COL_GEN_VALUE_GENERATION_BATCH_SIZE set low, forcing
+        both the DB row-loading loop and the LLM value-batching loop to run
+        across many round trips. One MockLLM response is queued per row
+        batch, matching the code's one-chat-call-per-row-batch behavior when
+        every value in a batch is unique."""
+        n = 100
+        batch_size = 15
+        self.config.SEMANTIC_COL_GEN_VALUE_GENERATION_BATCH_SIZE = batch_size
+        names = [f"Person_{i:03d}" for i in range(n)]
+        table = pd.DataFrame({"name": names})
+        self._ingest_and_project(table)
+
+        responses = []
+        for start in range(0, n, batch_size):
+            chunk = names[start : start + batch_size]
+            responses.append(str([f"Tag-{name}" for name in chunk]))
+        self._use_mock_llm(responses)
+
+        self.semantic_col_gen.apply(
+            {
+                "src_table_id": "table",
+                "new_column_name": "tag",
+                "src_table_columns": ["name"],
+                "instruction": "tag each person",
+            }
+        )
+
+        full = self._read_full_table("table")
+        self.assertEqual(len(full), n)
+        for _, row in full.iterrows():
+            self.assertEqual(row["tag"], f"Tag-{row['name']}")
+
+    def test_apply_missing_llm_responses_yield_null_for_unmatched_batches(self):
+        """When more row batches are processed than responses were queued,
+        MockLLM falls back to a default noop message with no '[...]' payload,
+        so those rows' new-column value should gracefully become NULL rather
+        than crashing the action."""
+        n = 40
+        batch_size = 15
+        self.config.SEMANTIC_COL_GEN_VALUE_GENERATION_BATCH_SIZE = batch_size
+        names = [f"Row_{i:03d}" for i in range(n)]
+        table = pd.DataFrame({"name": names})
+        self._ingest_and_project(table)
+
+        # Only queue a response for the first of the three row batches.
+        first_chunk = names[:batch_size]
+        self._use_mock_llm([str([f"Tag-{name}" for name in first_chunk])])
+
+        self.semantic_col_gen.apply(
+            {
+                "src_table_id": "table",
+                "new_column_name": "tag",
+                "src_table_columns": ["name"],
+                "instruction": "tag each row",
+            }
+        )
+
+        full = self._read_full_table("table")
+        self.assertEqual(len(full), n)
+        tagged = full[full["name"].isin(first_chunk)]
+        untagged = full[~full["name"].isin(first_chunk)]
+        for _, row in tagged.iterrows():
+            self.assertEqual(row["tag"], f"Tag-{row['name']}")
+        for _, row in untagged.iterrows():
+            self.assertIsNone(row["tag"])
+
+
+if __name__ == "__main__":
+    unittest.main()

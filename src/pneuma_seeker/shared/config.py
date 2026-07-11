@@ -75,6 +75,7 @@ class Config:
         )
         self.SEMANTIC_JOIN_DELIMITER = getenv("SEMANTIC_JOIN_DELIMITER", " [SEP] ")
         self.SEMANTIC_JOIN_ALPHA = float(getenv("SEMANTIC_JOIN_ALPHA", "0.5"))
+        self.SEMANTIC_JOIN_MODE = getenv("SEMANTIC_JOIN_MODE", "jarowinkler")
         self.SEMANTIC_COL_GEN_ROW_PROCESSING_BATCH_SIZE = max(
             1, int(getenv("SEMANTIC_COL_GEN_ROW_PROCESSING_BATCH_SIZE", "60"))
         )
