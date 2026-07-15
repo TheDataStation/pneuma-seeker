@@ -3,7 +3,7 @@ from asyncio import sleep, create_task
 from datetime import datetime
 from io import BytesIO, StringIO
 from json import dumps
-from queue import Queue
+from queue import Empty, Queue
 from re import match
 from typing import Any
 from zipfile import ZipFile, ZIP_DEFLATED
@@ -180,16 +180,30 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
         try:
             while True:
                 try:
-                    response = await to_thread.run_sync(response_queue.get)
-
-                    if response is None:
-                        break
-
-                    yield response
+                    response = await to_thread.run_sync(
+                        response_queue.get,
+                        True,
+                        config.STREAM_HEARTBEAT_INTERVAL_SECONDS,
+                    )
+                except Empty:
+                    # Nothing to report within the interval — most commonly a
+                    # single slow LLM call with no intermediate progress to log.
+                    # Send an inert keepalive so a proxy/load balancer with an
+                    # idle-connection timeout doesn't kill the stream while the
+                    # backend is still working; the frontend ignores any sender
+                    # it doesn't recognize.
+                    yield stream_payload("heartbeat", "")
                     await sleep(0)
+                    continue
                 except Exception as e:
                     logger.info(f"Exception raised: {e}")
                     break
+
+                if response is None:
+                    break
+
+                yield response
+                await sleep(0)
         finally:
             # Persistence now happens in run_chat()/run_chat_with_profiling()'s
             # own finally (in the background thread), not here — this block
