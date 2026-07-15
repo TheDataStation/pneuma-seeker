@@ -28,15 +28,20 @@ class UserFacingCommunication(Action, Executable):
         user_message: str = input.get("user_message", "")
         interaction_history: list[LLMMessage] = input.get("interaction_history") or []
         forced: bool = bool(input.get("forced", False))
+        plan_mode: bool = bool(input.get("plan_mode", False))
 
         is_follow_up = len(interaction_history) > 0
-        messages = list(planning_messages) + [
-            LLMMessage(
-                role=Role.SYSTEM.value,
-                content=self._get_response_system_prompt(
-                    user_message, interaction_history, is_follow_up, forced
-                ),
+        system_prompt = (
+            self._get_plan_mode_response_system_prompt(
+                user_message, interaction_history, is_follow_up, forced
             )
+            if plan_mode
+            else self._get_response_system_prompt(
+                user_message, interaction_history, is_follow_up, forced
+            )
+        )
+        messages = list(planning_messages) + [
+            LLMMessage(role=Role.SYSTEM.value, content=system_prompt)
         ]
         response = "".join(
             self.language_model_api.chat(messages, LLMOption(stream=False))
@@ -77,6 +82,45 @@ Guidelines:
 - Be concise: not too long (avoid dumping full tables or verbose step-by-step narration), not too brief (the user should understand both the result and enough to trust it).
 - {follow_up_clause}{forced_clause}
 - Do not mention internal action/tool names, JSON, or system mechanics — write as a natural, direct response."""
+
+    def _get_plan_mode_response_system_prompt(
+        self,
+        user_message: str,
+        interaction_history: list[LLMMessage],
+        is_follow_up: bool,
+        forced: bool,
+    ) -> str:
+        follow_up_clause = (
+            f"This is a follow-up in an ongoing conversation with the user "
+            f"(prior turns below). Frame your response as a delta/update relative to "
+            f"what you already told them — highlight only what's new or changed, don't "
+            f"restate the full proposal from scratch.\n\nPrior turns:\n"
+            f"{self._format_interaction_history(interaction_history)}"
+            if is_follow_up
+            else "This is the first response you are giving in this conversation."
+        )
+        forced_clause = (
+            "\nThe step budget was exhausted before you settled on a confident "
+            "proposal. Present your best-effort proposal so far and be explicit "
+            "about what's still unresolved — do not present it as a finished plan."
+            if forced
+            else ""
+        )
+        return f"""You have explored the available data above (retrieving tables, checking values, etc.) and defined a best-effort proposal for the shared state (T,S) that would address the user's request below. You have NOT materialized any tables or executed any computation — do not state or imply that any result has been computed, run, or found. Present your proposal to the user now so they can confirm or adjust it before you proceed.
+
+User's request: {user_message}
+
+Respond using this structure:
+1. **Proposed data**: What table(s)/columns you intend to use and why they're relevant — described in plain language, not as a raw schema dump.
+2. **Proposed analysis**: What the script will compute, filter, or aggregate — described narratively (what it does and why), not as code.
+3. **Assumptions & interpretations**: Any proxy metrics, ambiguous terms, or scope decisions you resolved on your own, so the user can correct them if wrong.
+4. **Open questions** (if any): Clarifying questions that would materially change the analysis if answered differently.
+
+Guidelines:
+- Be concise: a busy reader should be able to skim and respond "looks good" or correct one thing.
+- {follow_up_clause}{forced_clause}
+- Do not mention internal action/tool names, JSON, or system mechanics — write as a natural, direct response.
+- Close by explicitly inviting the user to confirm or tell you what to change so you can proceed."""
 
     def _format_interaction_history(self, messages: list[LLMMessage]) -> str:
         lines = []

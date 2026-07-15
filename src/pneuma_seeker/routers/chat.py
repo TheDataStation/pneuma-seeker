@@ -63,6 +63,7 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
         body.get("message") or body.get("user_message") or body.get("content")
     )
     files = body.get("files", [])
+    plan_mode = bool(body.get("plan_mode", False))
 
     if dataset_name is None:
         raise HTTPException(
@@ -88,6 +89,8 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                 response_queue.put(stream_payload("log", resp.message))
             elif resp.type == ConductorResponseType.FINAL_RESPONSE:
                 response_queue.put(stream_payload("assistant", resp.message))
+            elif resp.type == ConductorResponseType.PLAN_PROPOSAL:
+                response_queue.put(stream_payload("plan", resp.message))
             elif resp.type == ConductorResponseType.DONE:
                 response_queue.put(
                     stream_payload(
@@ -100,7 +103,10 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
             assert latest_user_message is not None
             try:
                 for response in chat_session.chat(
-                    latest_user_message, files, frontend_callback=send_to_frontend
+                    latest_user_message,
+                    files,
+                    frontend_callback=send_to_frontend,
+                    plan_mode=plan_mode,
                 ):
                     send_to_frontend(response)
             finally:
@@ -141,7 +147,10 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
             assert latest_user_message is not None
             try:
                 for response in chat_session.chat(
-                    latest_user_message, files, frontend_callback=send_to_frontend
+                    latest_user_message,
+                    files,
+                    frontend_callback=send_to_frontend,
+                    plan_mode=plan_mode,
                 ):
                     cur = rss_mb()
                     peak_rss = max(peak_rss, cur)

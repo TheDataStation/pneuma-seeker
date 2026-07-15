@@ -97,6 +97,7 @@ class Conductor:
         self._pending_skeptic_feedback: str | None = None
         self._skeptic_pushed_back: bool = False
         self._pending_plan_feedback: str | None = None
+        self._plan_mode: bool = False
 
         self._action_handlers: dict[str, Any] = {
             ActionNames.SITUATIONAL_ANALYSIS.value: self._handle_situational_analysis,
@@ -116,18 +117,24 @@ class Conductor:
         user_message: str,
         interaction_history: list[LLMMessage],
         external_table_paths: list[str],  # TODO: handle reading external tables
+        plan_mode: bool = False,
     ):
         """Processes user message and yields responses."""
         self._log(f"Processing user message: {user_message}")
 
         chat_start_time = time()
         self._reset_conductor()
+        self._plan_mode = plan_mode and self.config.ENABLE_PLAN_MODE
         self.interaction_history = interaction_history
 
         self.llm_messages = [
             LLMMessage(
                 role=Role.SYSTEM.value,
-                content=self.prompt_factory.get_sys_prompt(),
+                content=(
+                    self.prompt_factory.get_plan_mode_sys_prompt()
+                    if self._plan_mode
+                    else self.prompt_factory.get_sys_prompt()
+                ),
             )
         ]
 
@@ -298,7 +305,12 @@ class Conductor:
                 )
 
         yield ConductorResponse(
-            ConductorResponseType.FINAL_RESPONSE, self.user_facing_response
+            (
+                ConductorResponseType.PLAN_PROPOSAL
+                if self._plan_mode
+                else ConductorResponseType.FINAL_RESPONSE
+            ),
+            self.user_facing_response,
         )
 
         chat_end_time = time()
@@ -343,6 +355,17 @@ class Conductor:
                 raise ValueError(error_msg)
 
             action = action_plan.get("action")
+            if self._plan_mode and action in (
+                ActionNames.MATERIALIZER.value,
+                ActionNames.PYTHON_EXECUTOR.value,
+            ):
+                error_msg = (
+                    f"'{action}' is not available in plan mode. Plan mode stops at "
+                    f"proposing (T,S) — call {ActionNames.USER_FACING_COMMUNICATION.value} "
+                    "to present the proposal instead."
+                )
+                self._log(f"=> {error_msg}")
+                raise ValueError(error_msg)
             if action == ActionNames.PYTHON_EXECUTOR.value:
                 executor_in_plan = True
             elif action == ActionNames.USER_FACING_COMMUNICATION.value:
@@ -407,6 +430,12 @@ class Conductor:
         """
         Expands `plan` in place with deterministic prerequisite/follow-up actions,
         all in one pass before any action in it executes.
+
+        No plan-mode awareness is needed here: this is only ever called (from
+        `chat()`) after `_validate_plan` has already raised on any MATERIALIZER/
+        PYTHON_EXECUTOR entry when `self._plan_mode` is True, so those action
+        names structurally cannot appear in `plan` by the time this runs — the
+        rules below are naturally inert in plan mode without an explicit check.
         """
         will_T_materialized = self.state.is_T_materialized
         effective_S = self.state.S
@@ -512,6 +541,7 @@ class Conductor:
                 user_message=user_message,
                 interaction_history=self.interaction_history,
                 forced=forced,
+                plan_mode=self._plan_mode,
             )
         except Exception as e:
             self._log(f"=> {e}")
@@ -926,6 +956,7 @@ class Conductor:
         self._pending_skeptic_feedback = None
         self._skeptic_pushed_back = False
         self._pending_plan_feedback = None
+        self._plan_mode = False
 
         self.language_model_api.llm.reset_metrics()
 

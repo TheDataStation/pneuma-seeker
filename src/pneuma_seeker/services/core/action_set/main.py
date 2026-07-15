@@ -185,6 +185,7 @@ class ActionSet:
         user_message: str,
         interaction_history: list[LLMMessage],
         forced: bool = False,
+        plan_mode: bool = False,
     ) -> str:
         return self.registry.get(ActionNames.USER_FACING_COMMUNICATION).execute(  # type: ignore[union-attr]
             {
@@ -192,6 +193,7 @@ class ActionSet:
                 "user_message": user_message,
                 "interaction_history": interaction_history,
                 "forced": forced,
+                "plan_mode": plan_mode,
             }
         )
 
