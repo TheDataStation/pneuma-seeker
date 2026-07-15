@@ -49,6 +49,7 @@ class TestChatRouter(unittest.TestCase):
         """Tests that a regular streaming chat request functions cleanly and yields formatted tokens."""
         # Arrange
         mock_config.ENABLE_MEMORY_PROFILING = False
+        mock_config.STREAM_HEARTBEAT_INTERVAL_SECONDS = 15
 
         mock_chat_session = MagicMock()
         # Mock chat loop returning distinct output actions
@@ -59,7 +60,9 @@ class TestChatRouter(unittest.TestCase):
             ),
             ConductorResponse(ConductorResponseType.DONE, ""),
         ]
-        mock_session_manager.get_chat_session_async = AsyncMock(return_value=mock_chat_session)
+        mock_session_manager.get_chat_session_async = AsyncMock(
+            return_value=mock_chat_session
+        )
 
         payload = {
             "chat_id": "session_001",
@@ -89,6 +92,54 @@ class TestChatRouter(unittest.TestCase):
         mock_chat_session.persist_session.assert_called_once()
 
     @patch("pneuma_seeker.routers.chat.session_manager")
+    @patch("pneuma_seeker.routers.chat.config")
+    def test_chat_stream_sends_heartbeat_during_slow_step(
+        self, mock_config, mock_session_manager
+    ):
+        """A long gap with nothing to report (e.g. one slow LLM call) must not
+        leave the stream silent — a heartbeat payload should appear before the
+        real event arrives, so an idle-connection timeout upstream never sees
+        the connection go quiet for longer than the configured interval."""
+        import time
+
+        mock_config.ENABLE_MEMORY_PROFILING = False
+        mock_config.STREAM_HEARTBEAT_INTERVAL_SECONDS = 0.05
+
+        def slow_chat(*args, **kwargs):
+            time.sleep(0.2)
+            yield ConductorResponse(
+                ConductorResponseType.FINAL_RESPONSE, "done thinking"
+            )
+            yield ConductorResponse(ConductorResponseType.DONE, "")
+
+        mock_chat_session = MagicMock()
+        mock_chat_session.chat.side_effect = slow_chat
+        mock_session_manager.get_chat_session_async = AsyncMock(
+            return_value=mock_chat_session
+        )
+
+        payload = {
+            "chat_id": "session_002",
+            "dataset_name": "test_dataset",
+            "message": "Find missing nodes",
+            "files": [],
+        }
+
+        response = self.client.post("/chat/", json=payload)
+
+        self.assertEqual(response.status_code, 200)
+        lines = response.text.strip().split("\n")
+        parsed_chunks = [json.loads(line) for line in lines]
+        senders = [c["sender"] for c in parsed_chunks]
+
+        self.assertIn("heartbeat", senders)
+        self.assertLess(senders.index("heartbeat"), senders.index("assistant"))
+        # Heartbeats carry no text — they exist purely to keep the connection
+        # alive and are ignored by the frontend.
+        heartbeat_chunk = parsed_chunks[senders.index("heartbeat")]
+        self.assertEqual(heartbeat_chunk["text"], "")
+
+    @patch("pneuma_seeker.routers.chat.session_manager")
     def test_chat_missing_message_returns_400(self, mock_session_manager):
         """Validates that requests with missing user queries fail immediately with 400 Bad Request."""
         # Act
@@ -115,7 +166,9 @@ class TestChatRouter(unittest.TestCase):
 
         mock_session = MagicMock()
         mock_session.conductor = mock_conductor
-        mock_session_manager.get_chat_session_async = AsyncMock(return_value=mock_session)
+        mock_session_manager.get_chat_session_async = AsyncMock(
+            return_value=mock_session
+        )
 
         # Act
         response = self.client.get("/chat/execute_code/session_001")
@@ -150,7 +203,9 @@ class TestChatRouter(unittest.TestCase):
         mock_chat_session = MagicMock()
         mock_chat_session.conductor = mock_conductor
         mock_chat_session.dataset_name = "test_dataset"
-        mock_session_manager.get_chat_session_async = AsyncMock(return_value=mock_chat_session)
+        mock_session_manager.get_chat_session_async = AsyncMock(
+            return_value=mock_chat_session
+        )
 
         # Act
         response = self.client.get("/chat/state/session_001")
@@ -170,7 +225,9 @@ class TestChatRouter(unittest.TestCase):
         mock_chat_session = MagicMock()
         mock_chat_session.messages = [{"role": "user", "content": "hello"}]
         mock_chat_session.dataset_name = None
-        mock_session_manager.get_chat_session_async = AsyncMock(return_value=mock_chat_session)
+        mock_session_manager.get_chat_session_async = AsyncMock(
+            return_value=mock_chat_session
+        )
 
         # Act
         response = self.client.get("/chat/chat/session_001/history")
@@ -279,7 +336,9 @@ class TestChatRouter(unittest.TestCase):
 
         mock_session = MagicMock()
         mock_session.conductor.materializer.prov_graph = mock_prov_graph
-        mock_session_manager.get_chat_session_async = AsyncMock(return_value=mock_session)
+        mock_session_manager.get_chat_session_async = AsyncMock(
+            return_value=mock_session
+        )
 
         # Act
         response = self.client.get("/chat/provenance_nodes/session_001")
@@ -367,7 +426,9 @@ class TestQueryTableEndpoint(unittest.TestCase):
         """Wire an async-compatible session mock with the given conductor."""
         mock_session = MagicMock()
         mock_session.conductor = mock_conductor
-        mock_session_manager.get_chat_session_async = AsyncMock(return_value=mock_session)
+        mock_session_manager.get_chat_session_async = AsyncMock(
+            return_value=mock_session
+        )
 
     @patch("pneuma_seeker.routers.chat.session_manager")
     def test_query_table_basic_success(self, mock_session_manager):
@@ -667,7 +728,9 @@ class TestDownloadTableEndpoint(unittest.TestCase):
         """Wire an async-compatible session mock with the given conductor."""
         mock_session = MagicMock()
         mock_session.conductor = mock_conductor
-        mock_session_manager.get_chat_session_async = AsyncMock(return_value=mock_session)
+        mock_session_manager.get_chat_session_async = AsyncMock(
+            return_value=mock_session
+        )
 
     @patch("pneuma_seeker.routers.chat.session_manager")
     def test_download_table_returns_csv(self, mock_session_manager):
@@ -828,10 +891,9 @@ class TestPersistOnDisconnectMechanism(unittest.TestCase):
 
         async def run():
             with CancelScope() as scope:
+
                 async def worker():
-                    await to_thread.run_sync(
-                        slow_blocking_work, abandon_on_cancel=True
-                    )
+                    await to_thread.run_sync(slow_blocking_work, abandon_on_cancel=True)
 
                 async with create_task_group() as tg:
                     tg.start_soon(worker)

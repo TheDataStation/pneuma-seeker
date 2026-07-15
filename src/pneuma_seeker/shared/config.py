@@ -36,6 +36,12 @@ class Config:
         self.ALLOWED_ORIGINS = getenv("ALLOWED_ORIGINS", "*").split(",")
         self.TABLE_MAX_ROWS_DISPLAY = int(getenv("TABLE_MAX_ROWS_DISPLAY", "10"))
         self.SESSION_RESTORE_MAX_ROWS = int(getenv("SESSION_RESTORE_MAX_ROWS", "5000"))
+        # How often to send an inert keepalive over an idle chat stream, so a
+        # proxy/load balancer's idle-connection timeout doesn't kill the stream
+        # while the backend is still mid-turn (e.g. waiting on one slow LLM call).
+        self.STREAM_HEARTBEAT_INTERVAL_SECONDS = int(
+            getenv("STREAM_HEARTBEAT_INTERVAL_SECONDS", "15")
+        )
 
         # Core Configuration Settings
         self.MAX_CONDUCTOR_STEPS = int(getenv("MAX_CONDUCTOR_STEPS", "10"))
