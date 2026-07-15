@@ -131,6 +131,7 @@ class SkillsAgent:
         user_input: str,
         interaction_history: list[LLMMessage],
         external_table_paths: list[str],  # TODO: handle reading external tables
+        plan_mode: bool = False,  # not supported by SkillsAgent; accepted for signature parity with Conductor
     ):
         """Drive the skills loop; yields LOG strings then the final user response."""
         chat_start_time = time()

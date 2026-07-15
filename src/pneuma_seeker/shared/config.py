@@ -75,6 +75,7 @@ class Config:
         )
         self.SEMANTIC_JOIN_DELIMITER = getenv("SEMANTIC_JOIN_DELIMITER", " [SEP] ")
         self.SEMANTIC_JOIN_ALPHA = float(getenv("SEMANTIC_JOIN_ALPHA", "0.5"))
+        self.SEMANTIC_JOIN_MODE = getenv("SEMANTIC_JOIN_MODE", "jarowinkler")
         self.SEMANTIC_COL_GEN_ROW_PROCESSING_BATCH_SIZE = max(
             1, int(getenv("SEMANTIC_COL_GEN_ROW_PROCESSING_BATCH_SIZE", "60"))
         )
@@ -102,6 +103,7 @@ class Config:
         self.ENABLE_DS_SKEPTIC = getenv("ENABLE_DS_SKEPTIC", "false").lower() == "true"
         self.MAX_DS_SKEPTIC_ROUNDS = int(getenv("MAX_DS_SKEPTIC_ROUNDS", "2"))
         self.MAX_DS_SKEPTIC_CE_CALLS = int(getenv("MAX_DS_SKEPTIC_CE_CALLS", "5"))
+        self.ENABLE_PLAN_MODE = getenv("ENABLE_PLAN_MODE", "true").lower() == "true"
 
         ## Column Compaction Settings
         self.COLUMN_COMPACTION_ENABLED = (

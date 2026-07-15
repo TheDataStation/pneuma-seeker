@@ -8,7 +8,10 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
 from pneuma_seeker.chat_session import ChatSession
-from pneuma_seeker.services.core.conductor.models import ConductorResponse, ConductorResponseType
+from pneuma_seeker.services.core.conductor.models import (
+    ConductorResponse,
+    ConductorResponseType,
+)
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 
@@ -16,7 +19,17 @@ from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 class DummyConductor:
     """A clean mock replacement for the Conductor."""
 
-    def __init__(self, user_id, chat_id, config, logger, prov_graph, db_api, lm_api, frontend_callback):
+    def __init__(
+        self,
+        user_id,
+        chat_id,
+        config,
+        logger,
+        prov_graph,
+        db_api,
+        lm_api,
+        frontend_callback,
+    ):
         self.user_id = user_id
         self.chat_id = chat_id
         self.config = config
@@ -34,9 +47,13 @@ class DummyConductor:
         self.web_crawl_result = None
         self.join_paths = None
 
-    def chat(self, last_content, interaction_history, external_data_paths):
+    def chat(
+        self, last_content, interaction_history, external_data_paths, plan_mode=False
+    ):
         yield ConductorResponse(ConductorResponseType.LOG, "resp:")
-        yield ConductorResponse(ConductorResponseType.FINAL_RESPONSE, f"resp:{last_content}")
+        yield ConductorResponse(
+            ConductorResponseType.FINAL_RESPONSE, f"resp:{last_content}"
+        )
 
     def set_prov_graph(self, provenance_graph):
         self.prov_graph = provenance_graph
@@ -72,7 +89,9 @@ class ChatSessionTests(unittest.TestCase):
 
         # Should include typed responses from DummyConductor and the final DONE
         self.assertIn(ConductorResponse(ConductorResponseType.LOG, "resp:"), out)
-        self.assertIn(ConductorResponse(ConductorResponseType.FINAL_RESPONSE, "resp:hello"), out)
+        self.assertIn(
+            ConductorResponse(ConductorResponseType.FINAL_RESPONSE, "resp:hello"), out
+        )
         self.assertIn(ConductorResponse(ConductorResponseType.DONE, ""), out)
 
         # Verify message history contains the final accumulated assistant message
@@ -103,25 +122,39 @@ class ChatSessionTests(unittest.TestCase):
 
         out = list(cs.chat(user_message="second"))
 
-        self.assertIn(ConductorResponse(ConductorResponseType.FINAL_RESPONSE, "resp:second"), out)
+        self.assertIn(
+            ConductorResponse(ConductorResponseType.FINAL_RESPONSE, "resp:second"), out
+        )
         self.assertEqual(
             cs.messages,
             [
                 {"role": "user", "content": "first"},
                 {"role": "assistant", "content": "first answer"},
                 {"role": "user", "content": "second"},
-                {"role": "assistant", "content": "resp:second"},
+                {
+                    "role": "assistant",
+                    "content": "resp:second",
+                    "is_plan_proposal": False,
+                },
             ],
         )
 
     @patch("pneuma_seeker.chat_session.ProvenanceGraph")
     def test_chat_no_final_response_does_not_append_to_messages(self, mock_prov_graph):
         class LogOnlyConductor(DummyConductor):
-            def chat(self, user_message, interaction_history, external_table_paths):
+            def chat(
+                self,
+                user_message,
+                interaction_history,
+                external_table_paths,
+                plan_mode=False,
+            ):
                 yield ConductorResponse(ConductorResponseType.LOG, "a log line")
 
         with patch("pneuma_seeker.chat_session.Conductor", new=LogOnlyConductor):
-            cs = ChatSession("u1", "c1", self.cfg, self.logger, self.db_api, self.lm_api)
+            cs = ChatSession(
+                "u1", "c1", self.cfg, self.logger, self.db_api, self.lm_api
+            )
             out = list(cs.chat(user_message="hello"))
 
         self.assertEqual(len(cs.messages), 1)
@@ -133,30 +166,84 @@ class ChatSessionTests(unittest.TestCase):
         captured = {}
 
         class CapturingConductor(DummyConductor):
-            def chat(self, user_message, interaction_history, external_table_paths):
+            def chat(
+                self,
+                user_message,
+                interaction_history,
+                external_table_paths,
+                plan_mode=False,
+            ):
                 captured["paths"] = external_table_paths
                 yield ConductorResponse(ConductorResponseType.FINAL_RESPONSE, "ok")
 
         with patch("pneuma_seeker.chat_session.Conductor", new=CapturingConductor):
-            cs = ChatSession("u1", "c1", self.cfg, self.logger, self.db_api, self.lm_api)
-            list(cs.chat(user_message="hello", external_table_paths=["/a.csv", "/b.csv"]))
+            cs = ChatSession(
+                "u1", "c1", self.cfg, self.logger, self.db_api, self.lm_api
+            )
+            list(
+                cs.chat(user_message="hello", external_table_paths=["/a.csv", "/b.csv"])
+            )
 
         self.assertEqual(captured["paths"], ["/a.csv", "/b.csv"])
 
     @patch("pneuma_seeker.chat_session.ProvenanceGraph")
-    def test_chat_none_external_table_paths_defaults_to_empty_list(self, mock_prov_graph):
+    def test_chat_none_external_table_paths_defaults_to_empty_list(
+        self, mock_prov_graph
+    ):
         captured = {}
 
         class CapturingConductor(DummyConductor):
-            def chat(self, user_message, interaction_history, external_table_paths):
+            def chat(
+                self,
+                user_message,
+                interaction_history,
+                external_table_paths,
+                plan_mode=False,
+            ):
                 captured["paths"] = external_table_paths
                 yield ConductorResponse(ConductorResponseType.FINAL_RESPONSE, "ok")
 
         with patch("pneuma_seeker.chat_session.Conductor", new=CapturingConductor):
-            cs = ChatSession("u1", "c1", self.cfg, self.logger, self.db_api, self.lm_api)
+            cs = ChatSession(
+                "u1", "c1", self.cfg, self.logger, self.db_api, self.lm_api
+            )
             list(cs.chat(user_message="hello"))
 
         self.assertEqual(captured["paths"], [])
+
+    @patch("pneuma_seeker.chat_session.ProvenanceGraph")
+    def test_chat_plan_proposal_appended_with_flag_and_forwarded(self, mock_prov_graph):
+        captured = {}
+
+        class PlanProposingConductor(DummyConductor):
+            def chat(
+                self,
+                user_message,
+                interaction_history,
+                external_table_paths,
+                plan_mode=False,
+            ):
+                captured["plan_mode"] = plan_mode
+                yield ConductorResponse(
+                    ConductorResponseType.PLAN_PROPOSAL, "here's my proposal"
+                )
+
+        with patch("pneuma_seeker.chat_session.Conductor", new=PlanProposingConductor):
+            cs = ChatSession(
+                "u1", "c1", self.cfg, self.logger, self.db_api, self.lm_api
+            )
+            out = list(cs.chat(user_message="hello", plan_mode=True))
+
+        self.assertTrue(captured["plan_mode"])
+        self.assertIn(
+            ConductorResponse(
+                ConductorResponseType.PLAN_PROPOSAL, "here's my proposal"
+            ),
+            out,
+        )
+        self.assertEqual(cs.messages[1]["role"], "assistant")
+        self.assertEqual(cs.messages[1]["content"], "here's my proposal")
+        self.assertTrue(cs.messages[1]["is_plan_proposal"])
 
     @patch("pneuma_seeker.chat_session.Conductor", new=DummyConductor)
     @patch("pneuma_seeker.chat_session.ProvenanceGraph")
@@ -191,6 +278,33 @@ class ChatSessionTests(unittest.TestCase):
         self.assertEqual(args[3], "latest query")
         self.assertEqual(args[4], "latest answer")
 
+    @patch("pneuma_seeker.chat_session.Conductor", new=DummyConductor)
+    @patch("pneuma_seeker.chat_session.ProvenanceGraph")
+    def test_persist_session_forwards_is_plan_proposal_flag(self, mock_prov_graph):
+        cs = ChatSession("u1", "c1", self.cfg, self.logger, self.db_api, self.lm_api)
+        cs.messages = [
+            LLMMessage(role="user", content="query"),
+            LLMMessage(role="assistant", content="proposal", is_plan_proposal=True),
+        ]
+
+        cs.persist_session("dataset_name")
+
+        args, _ = self.db_api.persist_session.call_args
+        self.assertTrue(args[-1])
+
+    @patch("pneuma_seeker.chat_session.Conductor", new=DummyConductor)
+    @patch("pneuma_seeker.chat_session.ProvenanceGraph")
+    def test_persist_session_defaults_is_plan_proposal_false(self, mock_prov_graph):
+        cs = ChatSession("u1", "c1", self.cfg, self.logger, self.db_api, self.lm_api)
+        cs.messages = [
+            LLMMessage(role="user", content="query"),
+            LLMMessage(role="assistant", content="normal answer"),
+        ]
+
+        cs.persist_session("dataset_name")
+
+        args, _ = self.db_api.persist_session.call_args
+        self.assertFalse(args[-1])
 
     @patch("pneuma_seeker.chat_session.Conductor", new=DummyConductor)
     @patch("pneuma_seeker.chat_session.ProvenanceGraph")

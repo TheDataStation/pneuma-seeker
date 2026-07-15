@@ -80,6 +80,7 @@ class ChatSession:
         user_message: str,
         external_table_paths: list[str] | None = None,
         frontend_callback: Callable[[ConductorResponse], None] = lambda _: None,
+        plan_mode: bool = False,
     ):
         """Processes a user message and yields responses from Conductor."""
         external_table_paths = external_table_paths or []
@@ -97,13 +98,21 @@ class ChatSession:
 
         self.conductor.frontend_callback = frontend_callback
         final_response = ""
+        final_response_is_plan_proposal = False
         for conductor_response in self.conductor.chat(
             user_message,
             self.messages[:-1],
             external_table_paths,
+            plan_mode=plan_mode,
         ):
-            if conductor_response.type == ConductorResponseType.FINAL_RESPONSE:
+            if conductor_response.type in (
+                ConductorResponseType.FINAL_RESPONSE,
+                ConductorResponseType.PLAN_PROPOSAL,
+            ):
                 final_response = conductor_response.message
+                final_response_is_plan_proposal = (
+                    conductor_response.type == ConductorResponseType.PLAN_PROPOSAL
+                )
             yield conductor_response
 
         if final_response:
@@ -111,6 +120,7 @@ class ChatSession:
                 LLMMessage(
                     role=Role.ASSISTANT.value,
                     content=final_response,
+                    is_plan_proposal=final_response_is_plan_proposal,
                 )
             )
         yield ConductorResponse(ConductorResponseType.DONE, "")
@@ -121,10 +131,14 @@ class ChatSession:
             self.__log(f"Persisting session...")
             last_user_message = ""
             last_conductor_response = ""
+            last_response_is_plan_proposal = False
             if self.messages:
                 # If the last message is from the assistant, the one before it was the user prompt
                 if self.messages[-1]["role"] == Role.ASSISTANT.value:
                     last_conductor_response = self.messages[-1]["content"]
+                    last_response_is_plan_proposal = self.messages[-1].get(
+                        "is_plan_proposal", False
+                    )
                     if len(self.messages) > 1:
                         last_user_message = self.messages[-2]["content"]
                 # If it cut off right after the user sent something, but before assistant finished
@@ -145,6 +159,7 @@ class ChatSession:
                 self.conductor.web_search_result,
                 self.conductor.web_crawl_result,
                 self.conductor.join_paths,
+                last_response_is_plan_proposal,
             )
             self.__log("Session persisted successfully!")
         except Exception as e:

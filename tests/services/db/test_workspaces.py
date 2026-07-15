@@ -25,7 +25,7 @@ class TestWorkspaceSessionDiscovery(unittest.TestCase):
         self.config = Config()
         self.logger = logging.getLogger("test")
         self.tmpdir = tempfile.mkdtemp()
-        
+
         # PneumaDB wraps WorkspaceManager internally
         self.db = PneumaDB(
             logger=self.logger,
@@ -58,10 +58,14 @@ class TestWorkspaceSessionDiscovery(unittest.TestCase):
     def test_get_user_chat_sessions_returns_metadata_sorted_by_recency(self):
         """Tests that session discovery extracts correct titles and sorts descending by activity."""
         user_id = "user_discovery_test"
-        
+
         # 1. Seed historical sessions sequentially to guarantee distinct timestamps
         self._create_mock_session(user_id, "chat_old", "Short prompt")
-        self._create_mock_session(user_id, "chat_new", "An exceptionally long prompt that exceeds twenty characters")
+        self._create_mock_session(
+            user_id,
+            "chat_new",
+            "An exceptionally long prompt that exceeds twenty characters",
+        )
 
         # 2. Discover sessions
         result = self.db.get_user_chat_sessions(user_id=user_id, limit=10, offset=0)
@@ -74,8 +78,12 @@ class TestWorkspaceSessionDiscovery(unittest.TestCase):
 
         # The most recently written session must appear first
         self.assertEqual(chats[0]["id"], "chat_new")
-        self.assertEqual(chats[0]["title"], "An exceptionally lon...") # Verifies 20-character truncation logic
-        self.assertTrue(chats[0]["lastActive"].endswith("Z") or "T" in chats[0]["lastActive"])
+        self.assertEqual(
+            chats[0]["title"], "An exceptionally lon..."
+        )  # Verifies 20-character truncation logic
+        self.assertTrue(
+            chats[0]["lastActive"].endswith("Z") or "T" in chats[0]["lastActive"]
+        )
 
         # The older session must appear second
         self.assertEqual(chats[1]["id"], "chat_old")
@@ -84,7 +92,7 @@ class TestWorkspaceSessionDiscovery(unittest.TestCase):
     def test_get_user_chat_sessions_pagination_boundaries(self):
         """Tests that limit and offset windowing correctly segments results and reports remaining items."""
         user_id = "user_pagination_test"
-        
+
         # Seed three distinct sessions
         self._create_mock_session(user_id, "chat_alpha", "First message text")
         self._create_mock_session(user_id, "chat_beta", "Second message text")
@@ -97,7 +105,9 @@ class TestWorkspaceSessionDiscovery(unittest.TestCase):
         self.assertEqual(page_1["next_offset"], 2)
 
         # Page 2: Request the remainder using the next_offset
-        page_2 = self.db.get_user_chat_sessions(user_id=user_id, limit=2, offset=page_1["next_offset"])
+        page_2 = self.db.get_user_chat_sessions(
+            user_id=user_id, limit=2, offset=page_1["next_offset"]
+        )
         self.assertEqual(len(page_2["chats"]), 1)
         self.assertFalse(page_2["has_more"])
         self.assertIsNone(page_2["next_offset"])
@@ -123,7 +133,7 @@ class TestWorkspaceSessionDiscovery(unittest.TestCase):
         # Case B: Chat subdirectories exist but contain no ws.db files, or contain zero bytes
         empty_chat_dir = user_dir / "chat_empty"
         empty_chat_dir.mkdir(exist_ok=True)
-        
+
         corrupted_chat_dir = user_dir / "chat_corrupted"
         corrupted_chat_dir.mkdir(exist_ok=True)
         (corrupted_chat_dir / "ws.db").write_text("INVALID_DUCKDB_BINARY_DATA")
@@ -242,7 +252,9 @@ class TestWorkspaceQueries(unittest.TestCase):
         second = pd.DataFrame([{"id": 2, "name": "Bob"}])
 
         self.db.persist_df("user_1", "chat_1", first, "people", overwrite_content=True)
-        self.db.persist_df("user_1", "chat_1", second, "people", overwrite_content=False)
+        self.db.persist_df(
+            "user_1", "chat_1", second, "people", overwrite_content=False
+        )
         result = self.db.execute_query(
             "user_1",
             "chat_1",
@@ -306,7 +318,13 @@ class TestWorkspaceSessionPersistence(unittest.TestCase):
         self.db.close_all_connections()
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def _persist_turn(self, user_input: str, assistant_response: str, script: str):
+    def _persist_turn(
+        self,
+        user_input: str,
+        assistant_response: str,
+        script: str,
+        is_plan_proposal: bool = False,
+    ):
         """Helper to persist a single turn of chat history and conductor state."""
         state = ConductorState()
         state.S = script
@@ -320,6 +338,7 @@ class TestWorkspaceSessionPersistence(unittest.TestCase):
             ProvenanceGraph(self.logger),
             [],
             [],
+            is_plan_proposal=is_plan_proposal,
         )
 
     def test_persist_session_keeps_all_chat_history(self):
@@ -332,12 +351,30 @@ class TestWorkspaceSessionPersistence(unittest.TestCase):
         self.assertEqual(
             history,
             [
-                {"role": "user", "content": "hello"},
-                {"role": "assistant", "content": "hi there"},
-                {"role": "user", "content": "next"},
-                {"role": "assistant", "content": "answer"},
+                {"role": "user", "content": "hello", "is_plan_proposal": False},
+                {"role": "assistant", "content": "hi there", "is_plan_proposal": False},
+                {"role": "user", "content": "next", "is_plan_proposal": False},
+                {"role": "assistant", "content": "answer", "is_plan_proposal": False},
             ],
         )
+
+    def test_persist_session_round_trips_is_plan_proposal_flag(self):
+        """A plan-proposal assistant message persists and reloads with is_plan_proposal=True; a normal one reloads as False."""
+        self._persist_turn(
+            "hello", "here's my proposal", "x = 1", is_plan_proposal=True
+        )
+        self._persist_turn(
+            "go ahead", "computed answer", "x = 2", is_plan_proposal=False
+        )
+
+        history = self.db.load_chat_history("user_1", "chat_1")
+
+        self.assertFalse(history[0]["is_plan_proposal"])  # user message
+        self.assertTrue(
+            history[1]["is_plan_proposal"]
+        )  # plan-proposal assistant message
+        self.assertFalse(history[2]["is_plan_proposal"])  # user message
+        self.assertFalse(history[3]["is_plan_proposal"])  # normal assistant message
 
     def test_persist_session_keeps_every_state_even_when_switch_is_false(self):
         """Tests that persisting multiple turns of a chat session retains every state snapshot in the conductor_state table, even when fine-grained state change tracking is disabled."""
@@ -345,13 +382,11 @@ class TestWorkspaceSessionPersistence(unittest.TestCase):
         self._persist_turn("next", "answer", "x = 2")
 
         con = self.db.get_ws_db_connection("user_1", "chat_1")
-        state_rows = con.execute(
-            """
+        state_rows = con.execute("""
             SELECT python_script
             FROM conductor_state
             ORDER BY creation_timestamp ASC
-            """
-        ).fetchall()
+            """).fetchall()
         chat_count = con.execute("SELECT COUNT(*) FROM chat_history").fetchone()
         assert chat_count is not None
         chat_count = chat_count[0]
@@ -388,7 +423,9 @@ class TestWorkspaceSessionSearch(unittest.TestCase):
         self.db.close_all_connections()
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def _create_session(self, user_id: str, chat_id: str, user_input: str, response: str = "OK"):
+    def _create_session(
+        self, user_id: str, chat_id: str, user_input: str, response: str = "OK"
+    ):
         state = ConductorState()
         self.db.persist_session(
             user_id=user_id,
@@ -423,16 +460,39 @@ class TestWorkspaceSessionSearch(unittest.TestCase):
         user_id = "user_search_case"
         self._create_session(user_id, "chat_1", "Find REVENUE data")
 
-        self.assertEqual(len(self.db.workspace_manager.search_chat_sessions(user_id, "revenue")["chats"]), 1)
-        self.assertEqual(len(self.db.workspace_manager.search_chat_sessions(user_id, "REVENUE")["chats"]), 1)
-        self.assertEqual(len(self.db.workspace_manager.search_chat_sessions(user_id, "Revenue")["chats"]), 1)
+        self.assertEqual(
+            len(
+                self.db.workspace_manager.search_chat_sessions(user_id, "revenue")[
+                    "chats"
+                ]
+            ),
+            1,
+        )
+        self.assertEqual(
+            len(
+                self.db.workspace_manager.search_chat_sessions(user_id, "REVENUE")[
+                    "chats"
+                ]
+            ),
+            1,
+        )
+        self.assertEqual(
+            len(
+                self.db.workspace_manager.search_chat_sessions(user_id, "Revenue")[
+                    "chats"
+                ]
+            ),
+            1,
+        )
 
     def test_search_returns_empty_when_no_match(self):
         """Tests that search returns an empty list when no messages match the query."""
         user_id = "user_search_no_match"
         self._create_session(user_id, "chat_1", "Something completely different")
 
-        result = self.db.workspace_manager.search_chat_sessions(user_id, "xyznonexistent")
+        result = self.db.workspace_manager.search_chat_sessions(
+            user_id, "xyznonexistent"
+        )
         self.assertEqual(result["chats"], [])
         self.assertFalse(result["has_more"])
         self.assertIsNone(result["next_offset"])
@@ -440,7 +500,9 @@ class TestWorkspaceSessionSearch(unittest.TestCase):
     def test_search_matches_assistant_responses(self):
         """Tests that search also matches content in assistant responses, not only user messages."""
         user_id = "user_search_response"
-        self._create_session(user_id, "chat_1", "What is 2+2?", response="The answer is four")
+        self._create_session(
+            user_id, "chat_1", "What is 2+2?", response="The answer is four"
+        )
 
         result = self.db.workspace_manager.search_chat_sessions(user_id, "answer")
         self.assertEqual(len(result["chats"]), 1)
@@ -452,12 +514,16 @@ class TestWorkspaceSessionSearch(unittest.TestCase):
         for i in range(3):
             self._create_session(user_id, f"chat_{i}", f"Sales data query {i}")
 
-        page1 = self.db.workspace_manager.search_chat_sessions(user_id, "sales", limit=2, offset=0)
+        page1 = self.db.workspace_manager.search_chat_sessions(
+            user_id, "sales", limit=2, offset=0
+        )
         self.assertEqual(len(page1["chats"]), 2)
         self.assertTrue(page1["has_more"])
         self.assertEqual(page1["next_offset"], 2)
 
-        page2 = self.db.workspace_manager.search_chat_sessions(user_id, "sales", limit=2, offset=2)
+        page2 = self.db.workspace_manager.search_chat_sessions(
+            user_id, "sales", limit=2, offset=2
+        )
         self.assertEqual(len(page2["chats"]), 1)
         self.assertFalse(page2["has_more"])
         self.assertIsNone(page2["next_offset"])
@@ -467,7 +533,9 @@ class TestWorkspaceSessionSearch(unittest.TestCase):
 
     def test_search_handles_missing_user_directory(self):
         """Tests that search returns an empty result when the user has no workspace directory."""
-        result = self.db.workspace_manager.search_chat_sessions("user_nonexistent", "anything")
+        result = self.db.workspace_manager.search_chat_sessions(
+            "user_nonexistent", "anything"
+        )
         self.assertEqual(result["chats"], [])
         self.assertFalse(result["has_more"])
 
@@ -761,7 +829,9 @@ class TestWorkspaceSessionRoundTrip(unittest.TestCase):
         graph = ProvenanceGraph(self.logger, create_default_root=False)
 
         root = ProvenanceNode(RetrieverType.USER, "tables = {}", "root node")
-        child = ProvenanceNode(RetrieverType.PNEUMA_RETRIEVER, "tables['t'] = df", "retrieval step")
+        child = ProvenanceNode(
+            RetrieverType.PNEUMA_RETRIEVER, "tables['t'] = df", "retrieval step"
+        )
         root.add_child(child)
         graph.add_node(root)
         graph.add_node(child)

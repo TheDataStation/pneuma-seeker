@@ -19,6 +19,7 @@ from pneuma_seeker.shared.schemas.core.action import ActionNames
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
 from pneuma_seeker.services.core.conductor.main import Conductor
+from pneuma_seeker.services.core.conductor.models import ConductorResponseType
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.schemas.core.ir_system import (
     AbstractDocument,
@@ -541,7 +542,8 @@ class ConductorTests(unittest.TestCase):
         _accelerate_plan, which substitutes materializer for this step and requeues
         python_executor onto the plan. Once materializer succeeds, python_executor runs
         for real from the queue and its own acceleration queues user_facing_communication.
-        S must execute exactly once and the final response must be produced exactly once."""
+        S must execute exactly once and the final response must be produced exactly once.
+        """
         self.conductor.state.T = {
             "t1": Table(
                 doc_id="t1",
@@ -566,7 +568,9 @@ class ConductorTests(unittest.TestCase):
         ]
 
         responses = list(
-            self.conductor.chat("run S", interaction_history=[], external_table_paths=[])
+            self.conductor.chat(
+                "run S", interaction_history=[], external_table_paths=[]
+            )
         )
 
         self.assertEqual(responses[-1].message, "chained done")
@@ -606,7 +610,6 @@ class ConductorTests(unittest.TestCase):
         )
         responses = list(gen)
         self.assertIn("info provided", responses[-1].message)
-
 
     def test_max_steps_force_response(self):
         """When all conductor steps are exhausted without a response, a fallback is force-produced."""
@@ -650,7 +653,10 @@ class ConductorTests(unittest.TestCase):
         """_validate_plan removes user_facing_communication when an execution action is present."""
         plan = [
             {"action": ActionNames.PYTHON_EXECUTOR.value, "args": {}},
-            {"action": ActionNames.USER_FACING_COMMUNICATION.value, "args": {"message": "done"}},
+            {
+                "action": ActionNames.USER_FACING_COMMUNICATION.value,
+                "args": {"message": "done"},
+            },
         ]
         result = self.conductor._validate_plan(plan)
         action_names = [p["action"] for p in result]
@@ -664,8 +670,14 @@ class ConductorTests(unittest.TestCase):
     def test_validate_plan_preserves_user_facing_without_execution_action(self):
         """_validate_plan does NOT strip user_facing_communication when no execution action is present."""
         plan = [
-            {"action": ActionNames.SITUATIONAL_ANALYSIS.value, "args": {"message": "thinking"}},
-            {"action": ActionNames.USER_FACING_COMMUNICATION.value, "args": {"message": "done"}},
+            {
+                "action": ActionNames.SITUATIONAL_ANALYSIS.value,
+                "args": {"message": "thinking"},
+            },
+            {
+                "action": ActionNames.USER_FACING_COMMUNICATION.value,
+                "args": {"message": "done"},
+            },
         ]
         result = self.conductor._validate_plan(plan)
         action_names = [p["action"] for p in result]
@@ -684,7 +696,9 @@ class ConductorTests(unittest.TestCase):
             f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{}}}}]}}""",
             "reconsidered",
         ]
-        self.conductor.ds_skeptic.review = MagicMock(return_value=(True, "Skeptic has concerns"))
+        self.conductor.ds_skeptic.review = MagicMock(
+            return_value=(True, "Skeptic has concerns")
+        )
 
         responses = list(
             self.conductor.chat("test", interaction_history=[], external_table_paths=[])
@@ -740,7 +754,13 @@ class ConductorTests(unittest.TestCase):
             "materialization and execution done",
         ]
         self.conductor.materializer.materialize_T = MagicMock(
-            return_value=([], None, None, None, {"t1": pd.DataFrame({"a": [1, 2], "b": [3, 4]})})
+            return_value=(
+                [],
+                None,
+                None,
+                None,
+                {"t1": pd.DataFrame({"a": [1, 2], "b": [3, 4]})},
+            )
         )
         self.conductor.action_set.execute_code = MagicMock(
             return_value=pd.DataFrame({"sum": [3]})
@@ -780,11 +800,13 @@ class ConductorTests(unittest.TestCase):
         ]}}""",
             "S updated",
         ]
-        list(self.conductor.chat(
-            user_message="update S",
-            interaction_history=[],
-            external_table_paths=[],
-        ))
+        list(
+            self.conductor.chat(
+                user_message="update S",
+                interaction_history=[],
+                external_table_paths=[],
+            )
+        )
 
         self.assertEqual(self.conductor.state.S, "result = 42")
         self.assertEqual(
@@ -804,11 +826,13 @@ class ConductorTests(unittest.TestCase):
         ]}}""",
             "both updated",
         ]
-        list(self.conductor.chat(
-            user_message="update S and T",
-            interaction_history=[],
-            external_table_paths=[],
-        ))
+        list(
+            self.conductor.chat(
+                user_message="update S and T",
+                interaction_history=[],
+                external_table_paths=[],
+            )
+        )
 
         self.assertEqual(self.conductor.state.s_description, "")
 
@@ -823,11 +847,13 @@ class ConductorTests(unittest.TestCase):
         ]}}""",
             "T only",
         ]
-        list(self.conductor.chat(
-            user_message="update T only",
-            interaction_history=[],
-            external_table_paths=[],
-        ))
+        list(
+            self.conductor.chat(
+                user_message="update T only",
+                interaction_history=[],
+                external_table_paths=[],
+            )
+        )
 
         self.assertEqual(
             self.conductor.state.s_description,
@@ -857,10 +883,137 @@ class ConductorTests(unittest.TestCase):
         )
 
         responses = list(
-            self.conductor.chat("check assumptions", interaction_history=[], external_table_paths=[])
+            self.conductor.chat(
+                "check assumptions", interaction_history=[], external_table_paths=[]
+            )
         )
         self.assertIn("done", responses[-1].message)
         self.conductor.action_set.run_context_extraction.assert_called_once()
+
+    def test_plan_mode_rejects_materializer_and_python_executor(self):
+        """_validate_plan rejects MATERIALIZER/PYTHON_EXECUTOR in plan mode, and the
+        corresponding handler is never invoked."""
+        self.conductor.config.ENABLE_PLAN_MODE = True
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [{{"action":"{ActionNames.MATERIALIZER.value}","args":{{}}}}]}}""",
+            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{}}}}]}}""",
+            "recovered",
+        ]
+        self.conductor.materializer.materialize_T = MagicMock()
+
+        responses = list(
+            self.conductor.chat(
+                "test", interaction_history=[], external_table_paths=[], plan_mode=True
+            )
+        )
+
+        self.conductor.materializer.materialize_T.assert_not_called()
+        self.assertEqual(responses[-1].type, ConductorResponseType.PLAN_PROPOSAL)
+        self.assertEqual(responses[-1].message, "recovered")
+
+    def test_plan_mode_end_to_end_yields_plan_proposal_without_materializing(self):
+        """A plan-mode turn that defines (T,S) and presents it never materializes or
+        executes S, and yields PLAN_PROPOSAL instead of FINAL_RESPONSE."""
+        self.conductor.config.ENABLE_PLAN_MODE = True
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
+                {{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"exploring"}}}},
+                {{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}
+            ]}}""",
+            f"""{{"plan": [
+                {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"S":"result = tables['t1']"}}}},
+                {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{}}}}
+            ]}}""",
+            "Here is my proposed plan.",
+        ]
+        self.conductor.action_set.retrieve_multi_topic_documents = MagicMock(
+            return_value=[
+                Table(
+                    doc_id="table1",
+                    retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+                    content=pd.DataFrame({"a": [1, 2], "b": [3, 4]}),
+                    metadata={},
+                )
+            ]
+        )
+
+        responses = list(
+            self.conductor.chat(
+                "plan this out",
+                interaction_history=[],
+                external_table_paths=[],
+                plan_mode=True,
+            )
+        )
+
+        self.assertEqual(responses[-1].type, ConductorResponseType.PLAN_PROPOSAL)
+        self.assertEqual(responses[-1].message, "Here is my proposed plan.")
+        self.assertFalse(self.conductor.state.is_T_materialized)
+        self.assertFalse(self.conductor.state.is_S_executed)
+        self.assertIn("t1", self.conductor.state.T)
+
+    def test_plan_mode_disabled_by_config_behaves_as_normal_mode(self):
+        """ENABLE_PLAN_MODE=False AND-gates the plan_mode argument to False, so the
+        run proceeds as normal mode (yields FINAL_RESPONSE) and MATERIALIZER stays
+        available even though the caller asked for plan_mode=True."""
+        self.conductor.config.ENABLE_PLAN_MODE = False
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
+                {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"S":"result = 1"}}}},
+                {{"action":"{ActionNames.MATERIALIZER.value}","args":{{}}}}
+            ]}}""",
+            "materialized for real",
+        ]
+        self.conductor.materializer.materialize_T = MagicMock(
+            return_value=([], None, None, None, {"t1": pd.DataFrame({"a": [1]})})
+        )
+        self.conductor.action_set.execute_code = MagicMock(
+            return_value=pd.DataFrame({"a": [1]})
+        )
+
+        responses = list(
+            self.conductor.chat(
+                "test", interaction_history=[], external_table_paths=[], plan_mode=True
+            )
+        )
+
+        self.assertFalse(self.conductor._plan_mode)
+        self.assertEqual(responses[-1].type, ConductorResponseType.FINAL_RESPONSE)
+        self.assertTrue(self.conductor.state.is_T_materialized)
+
+    def test_plan_mode_forced_fallback_still_yields_plan_proposal(self):
+        """When the step budget runs out in plan mode, the forced fallback response
+        still yields PLAN_PROPOSAL, not FINAL_RESPONSE."""
+        self.conductor.config.ENABLE_PLAN_MODE = True
+        self.conductor.config.MAX_CONDUCTOR_STEPS = 1
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"still exploring"}}}}]}}""",
+            "Best-effort proposal so far.",
+        ]
+
+        responses = list(
+            self.conductor.chat(
+                "test", interaction_history=[], external_table_paths=[], plan_mode=True
+            )
+        )
+
+        self.assertEqual(responses[-1].type, ConductorResponseType.PLAN_PROPOSAL)
+        self.assertEqual(responses[-1].message, "Best-effort proposal so far.")
+
+    def test_plan_mode_sys_prompt_excludes_materializer_and_python_executor(self):
+        """The plan-mode system prompt does not list MATERIALIZER/PYTHON_EXECUTOR as
+        available actions, while other actions and normal-mode prompt still do."""
+        plan_prompt = self.conductor.prompt_factory.get_plan_mode_sys_prompt()
+        normal_prompt = self.conductor.prompt_factory.get_sys_prompt()
+
+        materializer_desc_marker = f"**{ActionNames.MATERIALIZER.value}**:"
+        executor_desc_marker = f"**{ActionNames.PYTHON_EXECUTOR.value}**:"
+
+        self.assertNotIn(materializer_desc_marker, plan_prompt)
+        self.assertNotIn(executor_desc_marker, plan_prompt)
+        self.assertIn(materializer_desc_marker, normal_prompt)
+        self.assertIn(executor_desc_marker, normal_prompt)
+        self.assertIn(f"**{ActionNames.STATE_MANIPULATION.value}**:", plan_prompt)
 
 
 if __name__ == "__main__":

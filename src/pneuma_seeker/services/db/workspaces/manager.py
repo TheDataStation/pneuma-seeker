@@ -81,8 +81,14 @@ class WorkspaceManager:
                         chat_history_id     UUID PRIMARY KEY,
                         role                VARCHAR,
                         content             VARCHAR,
+                        is_plan_proposal    BOOLEAN DEFAULT FALSE,
                         creation_timestamp  TIMESTAMP WITH TIME ZONE DEFAULT now()
                     );
+                """)
+            # Idempotent migration: add column to pre-existing DBs that lack it
+            con.execute("""
+                    ALTER TABLE chat_history
+                    ADD COLUMN IF NOT EXISTS is_plan_proposal BOOLEAN DEFAULT FALSE;
                 """)
 
             con.execute("""
@@ -285,6 +291,7 @@ class WorkspaceManager:
         web_search_result: AbstractDocument | None = None,
         web_crawl_result: AbstractDocument | None = None,
         join_paths: str | None = None,
+        is_plan_proposal: bool = False,
     ):
         """Persists the chat session."""
         con = self.get_ws_db_connection(user_id, chat_id)
@@ -319,10 +326,16 @@ class WorkspaceManager:
                 INSERT INTO chat_history (
                     chat_history_id,
                     role,
-                    content
-                ) VALUES (?, ?, ?);
+                    content,
+                    is_plan_proposal
+                ) VALUES (?, ?, ?, ?);
                 """,
-                (new_system_response_id, Role.ASSISTANT.value, new_system_response),
+                (
+                    new_system_response_id,
+                    Role.ASSISTANT.value,
+                    new_system_response,
+                    is_plan_proposal,
+                ),
             )
 
             new_state_id = uuid4()
@@ -460,12 +473,16 @@ class WorkspaceManager:
         """Loads the persisted chat messages for a workspace in chronological order."""
         con = self.get_ws_db_connection(user_id, chat_id)
         rows = con.execute("""
-            SELECT role, content
+            SELECT role, content, is_plan_proposal
             FROM chat_history
             ORDER BY creation_timestamp ASC
             """).fetchdf()
         return [
-            LLMMessage(role=row["role"], content=row["content"])
+            LLMMessage(
+                role=row["role"],
+                content=row["content"],
+                is_plan_proposal=bool(row["is_plan_proposal"]),
+            )
             for _, row in rows.iterrows()
         ]
 

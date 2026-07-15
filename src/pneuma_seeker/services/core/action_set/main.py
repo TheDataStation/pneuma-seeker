@@ -17,7 +17,6 @@ from pneuma_seeker.provenance.provenance_helper import (
 from pneuma_seeker.services.core.action_set.impl.join_path_extraction import (
     JoinPathExtraction,
 )
-from pneuma_seeker.services.core.action_set.impl.semantic_join import SyntacticSimMetric
 from pneuma_seeker.services.core.action_set.registry import ActionRegistry
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
@@ -186,6 +185,7 @@ class ActionSet:
         user_message: str,
         interaction_history: list[LLMMessage],
         forced: bool = False,
+        plan_mode: bool = False,
     ) -> str:
         return self.registry.get(ActionNames.USER_FACING_COMMUNICATION).execute(  # type: ignore[union-attr]
             {
@@ -193,6 +193,7 @@ class ActionSet:
                 "user_message": user_message,
                 "interaction_history": interaction_history,
                 "forced": forced,
+                "plan_mode": plan_mode,
             }
         )
 
@@ -207,24 +208,24 @@ class ActionSet:
         top_k: int = 3,
         delimiter: str = " [SEP] ",
         embed_batch_size: int = 30,
-        syntactic_sim_metric: SyntacticSimMetric = SyntacticSimMetric.JACCARD_QGRAM,
+        mode: str | None = None,
         use_llm: bool = False,
     ) -> DataFrame:
-        return self.registry.get(ActionNames.SEMANTIC_JOIN).apply(  # type: ignore[union-attr]
-            {
-                "left_table_id": left_table_id,
-                "right_table_id": right_table_id,
-                "relevant_left_cols": relevant_left_cols,
-                "relevant_right_cols": relevant_right_cols,
-                "joined_table_id": joined_table_id,
-                "alpha": alpha,
-                "top_k": top_k,
-                "delimiter": delimiter,
-                "embed_batch_size": embed_batch_size,
-                "syntactic_sim_metric": syntactic_sim_metric,
-                "use_llm": use_llm,
-            }
-        )
+        args: dict[str, Any] = {
+            "left_table_id": left_table_id,
+            "right_table_id": right_table_id,
+            "relevant_left_cols": relevant_left_cols,
+            "relevant_right_cols": relevant_right_cols,
+            "joined_table_id": joined_table_id,
+            "alpha": alpha,
+            "top_k": top_k,
+            "delimiter": delimiter,
+            "embed_batch_size": embed_batch_size,
+            "use_llm": use_llm,
+        }
+        if mode is not None:
+            args["mode"] = mode
+        return self.registry.get(ActionNames.SEMANTIC_JOIN).apply(args)  # type: ignore[union-attr]
 
     def generate_semantic_column(
         self,

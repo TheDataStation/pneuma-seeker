@@ -208,6 +208,7 @@ class PneumaDB:
         web_search_result: AbstractDocument | None = None,
         web_crawl_result: AbstractDocument | None = None,
         join_paths: str | None = None,
+        is_plan_proposal: bool = False,
     ):
         """Persists the current chat session state, including user input, system response, conductor state, provenance graph, retrieved tables, enumerated tables, web search results, web crawl results, and join paths."""
         self.workspace_manager.persist_session(
@@ -223,6 +224,7 @@ class PneumaDB:
             web_search_result,
             web_crawl_result,
             join_paths,
+            is_plan_proposal,
         )
 
     def load_chat_history(self, user_id: str, chat_id: str) -> list[LLMMessage]:

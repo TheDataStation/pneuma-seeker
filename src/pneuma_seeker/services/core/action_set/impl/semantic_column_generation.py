@@ -147,11 +147,16 @@ class SemanticColumnGeneration(Action, Applicable):
 
             df[new_column_name] = [cached_values.get(v) for v in formatted_values]
 
-            # 4. Materialize batch back into DuckDB using VALUES()
-            values_sql = ", ".join(
-                f"({row.rowid}, {repr(row[new_column_name])})"
-                for _, row in df.iterrows()
-            )
+            # 4. Materialize batch back into DuckDB using VALUES(), bound via
+            # placeholders — generated values are arbitrary LLM text and may
+            # contain quotes, so they must never be interpolated into SQL.
+            # .tolist() (rather than .iterrows()) converts numpy scalars to
+            # native Python types, which duckdb's parameter binder requires.
+            placeholders = ", ".join("(?, ?)" for _ in range(len(df)))
+            params: list[Any] = []
+            for rowid, val in zip(df["rowid"].tolist(), df[new_column_name].tolist()):
+                params.append(rowid)
+                params.append(val)
 
             self.db_api.execute_query(
                 self.user_id,
@@ -160,10 +165,11 @@ class SemanticColumnGeneration(Action, Applicable):
                 INSERT INTO "{temp_table}"
                 SELECT src.*, v.val AS "{new_column_name}"
                 FROM "{src_table_id}" AS src
-                JOIN (VALUES {values_sql}) AS v(rowid, val)
+                JOIN (VALUES {placeholders}) AS v(rowid, val)
                 USING (rowid)
                 ORDER BY rowid;
                 """,
+                tuple(params),
             )
 
             offset += batch_size
