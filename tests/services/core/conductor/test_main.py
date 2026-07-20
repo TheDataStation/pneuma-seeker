@@ -1015,6 +1015,20 @@ class ConductorTests(unittest.TestCase):
         self.assertIn(executor_desc_marker, normal_prompt)
         self.assertIn(f"**{ActionNames.STATE_MANIPULATION.value}**:", plan_prompt)
 
+    def test_plan_mode_sys_prompt_permits_declaring_data_unanswerable(self):
+        """Plan mode's prompt must give Conductor an explicit escape hatch for a
+        genuine subject-matter mismatch — not just the weaker 'find a proxy'
+        guidance carried over from normal mode, which biases toward fabricating
+        a plausible-looking but ungrounded (T,S) proposal instead."""
+        plan_prompt = self.conductor.prompt_factory.get_plan_mode_sys_prompt()
+
+        self.assertIn("fundamentally the wrong subject matter", plan_prompt)
+        self.assertIn("genuinely unrelated in subject matter", plan_prompt)
+        self.assertIn(
+            f"call {ActionNames.USER_FACING_COMMUNICATION.value} directly",
+            plan_prompt,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
