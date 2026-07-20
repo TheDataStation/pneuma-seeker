@@ -73,11 +73,28 @@ class UserFacingCommunicationTests(unittest.TestCase):
         )
         self.assertEqual(result, "the response")
         prompt = self._system_prompt_from_last_call()
-        self.assertIn("Present your proposal to the user now", prompt)
         self.assertNotIn("Respond to the user directly now", prompt)
         self.assertIn("Proposed data", prompt)
         self.assertIn("Proposed analysis", prompt)
         self.assertIn("Open questions", prompt)
+
+    def test_plan_mode_prompt_offers_unanswerable_alternative(self):
+        """The plan-mode prompt must not force every response into the 4-part
+        proposal structure — it needs a real alternative for when nothing
+        retrieved plausibly relates to the question at all."""
+        self.action.execute(
+            {
+                "planning_messages": [],
+                "user_message": "how many orders?",
+                "interaction_history": [],
+                "forced": False,
+                "plan_mode": True,
+            }
+        )
+        prompt = self._system_prompt_from_last_call()
+        self.assertIn("does not support this request", prompt)
+        self.assertIn("subject-matter mismatch", prompt)
+        self.assertIn("not just an imperfect proxy", prompt)
 
     def test_plan_mode_defaults_to_false_when_omitted(self):
         self.action.execute(

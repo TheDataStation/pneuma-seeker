@@ -106,21 +106,25 @@ Guidelines:
             if forced
             else ""
         )
-        return f"""You have explored the available data above (retrieving tables, checking values, etc.) and defined a best-effort proposal for the shared state (T,S) that would address the user's request below. You have NOT materialized any tables or executed any computation — do not state or imply that any result has been computed, run, or found. Present your proposal to the user now so they can confirm or adjust it before you proceed.
+        return f"""You have explored the available data above (retrieving tables, checking values, etc.) to address the user's request below. You have NOT materialized any tables or executed any computation — do not state or imply that any result has been computed, run, or found.
 
 User's request: {user_message}
 
-Respond using this structure:
+First, decide which of these applies, based on what you actually found above — not on what would be convenient to assume:
+
+**A. You have a grounded proposal.** You found data that plausibly relates to the request and settled on a (T,S) you're reasonably confident in. Present it now, using this structure:
 1. **Proposed data**: What table(s)/columns you intend to use and why they're relevant — described in plain language, not as a raw schema dump.
 2. **Proposed analysis**: What the script will compute, filter, or aggregate — described narratively (what it does and why), not as code.
 3. **Assumptions & interpretations**: Any proxy metrics, ambiguous terms, or scope decisions you resolved on your own, so the user can correct them if wrong.
 4. **Open questions** (if any): Clarifying questions that would materially change the analysis if answered differently.
+Close by explicitly inviting the user to confirm or tell you what to change so you can proceed.
+
+**B. The available data does not support this request.** After exploring, nothing you found plausibly relates to the question — a genuine subject-matter mismatch, not just an imperfect proxy (e.g., the dataset covers a different domain than what's being asked). In this case, do **not** force a proposal into the structure above. Say directly and honestly that this doesn't look answerable with the available data, briefly note what you checked and why it didn't fit, and ask whether the user has different data in mind or wants to rephrase.
 
 Guidelines:
 - Be concise: a busy reader should be able to skim and respond "looks good" or correct one thing.
 - {follow_up_clause}{forced_clause}
-- Do not mention internal action/tool names, JSON, or system mechanics — write as a natural, direct response.
-- Close by explicitly inviting the user to confirm or tell you what to change so you can proceed."""
+- Do not mention internal action/tool names, JSON, or system mechanics — write as a natural, direct response."""
 
     def _format_interaction_history(self, messages: list[LLMMessage]) -> str:
         lines = []

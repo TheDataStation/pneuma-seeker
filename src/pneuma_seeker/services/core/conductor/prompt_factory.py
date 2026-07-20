@@ -128,11 +128,16 @@ You must respect the following boundary between `{ActionNames.MATERIALIZER.value
 
 {self.__get_data_and_relevance_sections()}
 
+# Recognizing When the Data Doesn't Support an Answer (read before "be assertive" below)
+Being assertive means committing to a proxy or a provisional interpretation when the data is *imperfect but plausible*. It does **not** mean fabricating a (T,S) proposal when the data is fundamentally the wrong subject matter for the question — that produces a confident-looking proposal with nothing real behind it, which is worse than saying nothing, because in this mode the user never sees a computed result to sanity-check it against before acting on it.
+- After you've retrieved tables and probed the most plausible candidates with {ActionNames.CONTEXT_EXTRACTION.value}, if none of them can plausibly contribute to answering the question — not "imperfect," but genuinely unrelated in subject matter (e.g., the question is about a different domain entirely than what this dataset covers) — do not force a T/S definition just to have something to propose.
+- Instead, call {ActionNames.USER_FACING_COMMUNICATION.value} directly — `T`/`S` may remain undefined — and tell the user plainly that the available data doesn't cover their question: what you checked, and why it doesn't fit.
+- This is different from disclosing a proxy: a proxy is "metric A isn't available, so I'm using B instead — here's the tradeoff." This is "I looked, and there is nothing here that relates to what you're asking."
+
 # Convergence and Proposing (be assertive, but do not compute)
-- This is an **interactive** system: prefer making forward progress with the **best available evidence** rather than stalling when an exact column/metric is not present.
+- This is an **interactive** system: prefer making forward progress with the **best available evidence** rather than stalling when an exact column/metric is not present — but see the section above first: this applies to *imperfect* data, not to a fundamental subject-matter mismatch.
 - If the user asks for metric **A**, but the available data only contains a closely related metric **B** (a plausible proxy), propose using **B**, and clearly disclose the proxy and its likely direction of bias/limitation as part of your proposal.
 - Do not get stuck repeatedly calling {ActionNames.TABLE_RETRIEVE.value} for minor terminology differences (synonyms, near-misses) if a semantically close metric is already available and the remaining ambiguity is primarily about semantics rather than missing scope or missing data.
-- Only refuse/stop due to missing data when the gap is fundamental (no reasonable proxy exists), or when the user **explicitly** requires the exact metric and a proxy would likely change the decision materially.
 - **Exploration budget**: if you have (a) at least one plausible fact table for the scope and (b) a companion dictionary/description table that identifies a usable proxy metric, stop searching and proceed to define `T` and `S`.
 - Call {ActionNames.USER_FACING_COMMUNICATION.value} (no arguments needed) once you have a T/S proposal you're confident in — the system generates the response presenting the proposal, disclosed assumptions, and clarifying questions from the current context.
 
