@@ -25,3 +25,8 @@ class ActionNames(Enum):
 class ActionExecutionStatus(Enum):
     SUCCESS = "success"
     ERROR = "error"
+
+
+PLAN_INSTRUCTION = (
+    "Decide your next plan and output a JSON object of one or more actions."
+)

@@ -1,7 +1,8 @@
 from typing import Any
 
 from pneuma_seeker.services.core.action_set.interfaces import Action, Executable
-from pneuma_seeker.shared.schemas.core.action import ActionNames
+from pneuma_seeker.shared.parser import parse_json
+from pneuma_seeker.shared.schemas.core.action import PLAN_INSTRUCTION, ActionNames
 from pneuma_seeker.shared.schemas.core.agent import AgentType
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.schemas.language_model.option import LLMOption
@@ -31,22 +32,69 @@ class UserFacingCommunication(Action, Executable):
         plan_mode: bool = bool(input.get("plan_mode", False))
 
         is_follow_up = len(interaction_history) > 0
+        planning_transcript = self._format_planning_transcript(planning_messages)
         system_prompt = (
             self._get_plan_mode_response_system_prompt(
-                user_message, interaction_history, is_follow_up, forced
+                user_message,
+                interaction_history,
+                is_follow_up,
+                forced,
+                planning_transcript,
             )
             if plan_mode
             else self._get_response_system_prompt(
-                user_message, interaction_history, is_follow_up, forced
+                user_message,
+                interaction_history,
+                is_follow_up,
+                forced,
+                planning_transcript,
             )
         )
-        messages = list(planning_messages) + [
-            LLMMessage(role=Role.SYSTEM.value, content=system_prompt)
-        ]
+        # Single system message, not planning_messages' raw turns — replaying those
+        # verbatim conditions the model to keep answering in the same JSON plan
+        # format instead of switching to prose.
+        messages = [LLMMessage(role=Role.SYSTEM.value, content=system_prompt)]
+        response = self._generate(messages)
+
+        if self._looks_like_plan_json(response):
+            correction_messages = messages + [
+                LLMMessage(role=Role.ASSISTANT.value, content=response),
+                LLMMessage(
+                    role=Role.SYSTEM.value,
+                    content=(
+                        "That reply was formatted as an internal action-plan (JSON "
+                        "with 'action'/'plan' keys) instead of a direct message to "
+                        "the user. Rewrite it as plain natural-language prose only "
+                        "— no JSON, no action names, no braces/brackets."
+                    ),
+                ),
+            ]
+            response = self._generate(correction_messages)
+
+        return response
+
+    def _generate(self, messages: list[LLMMessage]) -> str:
         response = "".join(
             self.language_model_api.chat(messages, LLMOption(stream=False))
         )
         return response.strip()
+
+    def _looks_like_plan_json(self, text: str) -> bool:
+        """Lightweight guard against the model responding with an internal
+        action-plan JSON blob instead of a natural-language reply."""
+        if '"action":' not in text and '"plan":' not in text:
+            return False
+        stripped = text.strip()
+        if not stripped or stripped[0] not in "{[":
+            # Plan-shaped key(s) present but the text isn't even well-formed
+            # JSON to begin with (e.g. a leak truncated at/missing the opening
+            # brace) — still a leak.
+            return True
+        try:
+            parsed = parse_json(stripped)
+        except ValueError:
+            return True  # garbled near-JSON dump, e.g. mismatched brackets
+        return isinstance(parsed, dict) and ("plan" in parsed or "action" in parsed)
 
     def _get_response_system_prompt(
         self,
@@ -54,6 +102,7 @@ class UserFacingCommunication(Action, Executable):
         interaction_history: list[LLMMessage],
         is_follow_up: bool,
         forced: bool,
+        planning_transcript: str,
     ) -> str:
         follow_up_clause = (
             f"This is a follow-up in an ongoing conversation with the user "
@@ -71,7 +120,10 @@ class UserFacingCommunication(Action, Executable):
             if forced
             else ""
         )
-        return f"""You have just finished working through the plan above (retrieving tables, materializing data, running analysis, etc.) to address the user's request below. Respond to the user directly now.
+        return f"""You have just finished working through the following plan (retrieving tables, materializing data, running analysis, etc.) to address the user's request below. Respond to the user directly now.
+
+What you did, step by step:
+{planning_transcript or "(no planning steps were recorded)"}
 
 User's request: {user_message}
 
@@ -89,6 +141,7 @@ Guidelines:
         interaction_history: list[LLMMessage],
         is_follow_up: bool,
         forced: bool,
+        planning_transcript: str,
     ) -> str:
         follow_up_clause = (
             f"This is a follow-up in an ongoing conversation with the user "
@@ -106,11 +159,14 @@ Guidelines:
             if forced
             else ""
         )
-        return f"""You have explored the available data above (retrieving tables, checking values, etc.) to address the user's request below. You have NOT materialized any tables or executed any computation — do not state or imply that any result has been computed, run, or found.
+        return f"""You have explored the available data (retrieving tables, checking values, etc.) to address the user's request below. You have NOT materialized any tables or executed any computation — do not state or imply that any result has been computed, run, or found.
+
+What you did while exploring, step by step:
+{planning_transcript or "(no planning steps were recorded)"}
 
 User's request: {user_message}
 
-First, decide which of these applies, based on what you actually found above — not on what would be convenient to assume:
+First, decide which of these applies, based on what you actually found — not on what would be convenient to assume:
 
 **A. You have a grounded proposal.** You found data that plausibly relates to the request and settled on a (T,S) you're reasonably confident in. Present it now, using this structure:
 1. **Proposed data**: What table(s)/columns you intend to use and why they're relevant — described in plain language, not as a raw schema dump.
@@ -125,6 +181,26 @@ Guidelines:
 - Be concise: a busy reader should be able to skim and respond "looks good" or correct one thing.
 - {follow_up_clause}{forced_clause}
 - Do not mention internal action/tool names, JSON, or system mechanics — write as a natural, direct response."""
+
+    def _format_planning_transcript(self, planning_messages: list[LLMMessage]) -> str:
+        # Narrative summary ("Step N plan/output"), not literal turns — see execute().
+        steps: list[dict[str, Any]] = []
+        for msg in planning_messages:
+            role = msg["role"]
+            content = msg["content"]
+            if role == Role.SYSTEM.value or PLAN_INSTRUCTION in content:
+                continue
+            if role == Role.ASSISTANT.value:
+                steps.append({"plan": content, "results": []})
+            elif role == Role.USER.value and steps:
+                steps[-1]["results"].append(content)
+
+        lines = []
+        for i, step in enumerate(steps, start=1):
+            lines.append(f"Step {i} plan: {step['plan']}")
+            for result in step["results"]:
+                lines.append(f"Step {i} output: {result}")
+        return "\n".join(lines)
 
     def _format_interaction_history(self, messages: list[LLMMessage]) -> str:
         lines = []

@@ -4,7 +4,7 @@ from pneuma_seeker.services.core.action_set.main import ActionSet
 from pneuma_seeker.services.core.conductor.state import ConductorState
 from pneuma_seeker.services.core.materializer.models import MaterializerMode
 from pneuma_seeker.shared.config import Config
-from pneuma_seeker.shared.schemas.core.action import ActionNames
+from pneuma_seeker.shared.schemas.core.action import PLAN_INSTRUCTION, ActionNames
 from pneuma_seeker.shared.schemas.core.agent import AgentType
 from pneuma_seeker.shared.schemas.core.ir_system import (
     AbstractDocument,
@@ -321,7 +321,7 @@ Retrieved Tables:
 {f"\nExternal tables:\n{convert_retrieval_results_to_str(external_tables)}\n" if len(external_tables) > 0 else ""}
 {f"\nWeb search result:\n{web_search_result}\n" if self.config.ENABLE_WEB_SEARCH and web_search_result else ""}
 {f"\nWeb crawl result:\n{web_crawl_result}\n" if self.config.ENABLE_WEB_CRAWL and web_crawl_result else ""}
-{ce_gate}Decide your next plan and output a JSON object of one or more actions.""".strip()
+{ce_gate}{PLAN_INSTRUCTION}""".strip()
 
     def get_skeleton_curr_state_prompt(
         self,
@@ -331,7 +331,7 @@ Retrieved Tables:
         return f"""
 Step {current_step} (out of maximum {self.config.MAX_CONDUCTOR_STEPS} steps)
 ... (truncated for brevity)
-Decide your next plan and output a JSON object of one or more actions.
+{PLAN_INSTRUCTION}
 """.strip()
 
     def get_knowledge_extraction_prompt(self, user_input: str) -> str:
