@@ -85,7 +85,7 @@ class IRSystemTests(unittest.TestCase):
         self.assertEqual(result, mock_documents)
         self.assertEqual(len(result), 2)
         mock_retriever.retrieve.assert_called_once_with(
-            "test query", 10, False, None
+            "test query", "", 10, False, None
         )
 
     def test_retrieve_documents_with_sample_only(self):
@@ -114,9 +114,7 @@ class IRSystemTests(unittest.TestCase):
         )
 
         self.assertEqual(result, mock_documents)
-        mock_retriever.retrieve.assert_called_once_with(
-            "test query", 5, True, 100
-        )
+        mock_retriever.retrieve.assert_called_once_with("test query", "", 5, True, 100)
 
     def test_retrieve_multi_topic_documents_returns_dict(self):
         """Test that retrieve_multi_topic_documents returns a dictionary of results."""
@@ -137,7 +135,7 @@ class IRSystemTests(unittest.TestCase):
             )
         ]
 
-        def retrieve_side_effect(prompt, k, sample_only, sample_size):
+        def retrieve_side_effect(prompt, dataset_name, k, sample_only, sample_size):
             if "topic 1" in prompt:
                 return mock_documents_1
             elif "topic 2" in prompt:
@@ -278,6 +276,6 @@ class IRSystemTests(unittest.TestCase):
         # Verify each call had the correct parameters
         for call in mock_retriever.retrieve.call_args_list:
             args, kwargs = call
-            self.assertEqual(args[1], 3)  # k
-            self.assertEqual(args[2], True)  # sample_only
-            self.assertEqual(args[3], 50)  # sample_size
+            self.assertEqual(args[2], 3)  # k
+            self.assertEqual(args[3], True)  # sample_only
+            self.assertEqual(args[4], 50)  # sample_size

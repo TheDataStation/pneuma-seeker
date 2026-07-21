@@ -118,6 +118,7 @@ class Conductor:
         interaction_history: list[LLMMessage],
         external_table_paths: list[str],  # TODO: handle reading external tables
         plan_mode: bool = False,
+        dataset_name: str = "",
     ):
         """Processes user message and yields responses."""
         self._log(f"Processing user message: {user_message}")
@@ -247,7 +248,9 @@ class Conductor:
                         ConductorResponseType.LOG, f"Executing action: {action_name}..."
                     )
                 )
-                status = self._execute_action(user_message, action_name, action_args)
+                status = self._execute_action(
+                    user_message, action_name, action_args, dataset_name
+                )
 
                 if self._pending_skeptic_feedback is not None:
                     self.llm_messages.append(
@@ -297,7 +300,9 @@ class Conductor:
 
         if self.user_facing_response == "":
             self._log("Force produce user-facing response")
-            self._handle_user_facing_communication(user_message, {}, forced=True)
+            self._handle_user_facing_communication(
+                user_message, {}, dataset_name, forced=True
+            )
             if self.user_facing_response == "":
                 self.user_facing_response = (
                     "I wasn't able to fully resolve this within the available steps. "
@@ -413,14 +418,18 @@ class Conductor:
         return plan
 
     def _execute_action(
-        self, user_message: str, action_name: str, action_args: dict[str, Any]
+        self,
+        user_message: str,
+        action_name: str,
+        action_args: dict[str, Any],
+        dataset_name: str,
     ) -> ActionExecutionStatus:
         handler = self._action_handlers.get(action_name)
         if handler is None:
             outcome = f"Tool calling failed; {action_name} is unknown"
             status = ActionExecutionStatus.ERROR
         else:
-            outcome, status = handler(user_message, action_args)
+            outcome, status = handler(user_message, action_args, dataset_name)
 
         self.llm_messages.append(LLMMessage(role=Role.USER.value, content=outcome))
 
@@ -514,7 +523,7 @@ class Conductor:
             i += 1
 
     def _handle_situational_analysis(
-        self, user_message: str, action_args: dict[str, Any]
+        self, user_message: str, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         message = action_args.get("message")
         if not isinstance(message, str):
@@ -533,6 +542,7 @@ class Conductor:
         self,
         user_message: str,
         action_args: dict[str, Any],
+        dataset_name: str,
         forced: bool = False,
     ) -> tuple[str, ActionExecutionStatus]:
         try:
@@ -552,7 +562,7 @@ class Conductor:
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_table_retrieve(
-        self, user_message: str, action_args: dict[str, Any]
+        self, user_message: str, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         self._log(f"Table Retrieve request with params: {action_args}")
         if not isinstance(action_args, dict):
@@ -570,7 +580,12 @@ class Conductor:
             self._log(f"=> {error_msg}")
             return error_msg, ActionExecutionStatus.ERROR
         self.retrieved_tables = self.action_set.retrieve_multi_topic_documents(
-            action_args["prompts"], RetrieverType.PNEUMA_RETRIEVER, 10, True, 3
+            action_args["prompts"],
+            RetrieverType.PNEUMA_RETRIEVER,
+            dataset_name,
+            10,
+            True,
+            3,
         )
 
         # Deduplicate: same table may appear for multiple prompts — keep first occurrence
@@ -590,7 +605,7 @@ class Conductor:
             self.retrieved_tables = retrieve_attribute(
                 action_args["prompts"],
                 self.retrieved_tables,  # type: ignore
-                self.config.DATA_SOURCES[0],
+                dataset_name,
                 self.language_model_api,
                 alpha=self.config.COLUMN_COMPACTION_ALPHA,
                 sim_threshold=self.config.COLUMN_COMPACTION_SIM_THRESHOLD,
@@ -608,7 +623,7 @@ class Conductor:
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_web_search(
-        self, user_message: str, action_args: dict[str, Any]
+        self, user_message: str, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         self._log(f"Web Search request with params: {action_args}")
         if not isinstance(action_args, dict):
@@ -620,7 +635,7 @@ class Conductor:
             self._log(f"=> {error_msg}")
             return error_msg, ActionExecutionStatus.ERROR
         retrieved_docs = self.action_set.retrieve_documents(
-            action_args["prompt"], RetrieverType.WEB_SEARCH
+            action_args["prompt"], RetrieverType.WEB_SEARCH, dataset_name
         )
         self.web_search_result = retrieved_docs[0] if len(retrieved_docs) > 0 else None
         if self.web_search_result is None:
@@ -634,7 +649,7 @@ class Conductor:
         )
 
     def _handle_web_crawl(
-        self, user_message: str, action_args: dict[str, Any]
+        self, user_message: str, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         self._log(f"Web Crawl request with params: {action_args}")
         if not isinstance(action_args, dict):
@@ -646,7 +661,7 @@ class Conductor:
             self._log(f"=> {error_msg}")
             return error_msg, ActionExecutionStatus.ERROR
         retrieved_docs = self.action_set.retrieve_documents(
-            action_args["url"], RetrieverType.WEB_CRAWL
+            action_args["url"], RetrieverType.WEB_CRAWL, dataset_name
         )
         self.web_crawl_result = retrieved_docs[0] if len(retrieved_docs) > 0 else None
         if self.web_crawl_result is None:
@@ -658,7 +673,7 @@ class Conductor:
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_table_enumeration(
-        self, user_message: str, action_args: dict[str, Any]
+        self, user_message: str, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         self._log(f"Table Enumerator request with params: {action_args}")
         if not isinstance(action_args, dict):
@@ -680,14 +695,14 @@ class Conductor:
             self._log(f"=> {error_msg}")
             return error_msg, ActionExecutionStatus.ERROR
         self.enumerated_tables = self.action_set.retrieve_multi_topic_documents(
-            action_args["patterns"], RetrieverType.ENUMERATOR, 20, True, 2
+            action_args["patterns"], RetrieverType.ENUMERATOR, dataset_name, 20, True, 2
         )
         success_msg = f"Enumerated table IDs based on these patterns: {action_args['patterns']}. If there are any matches, the IDs will be reflected in `OTHER TABLE IDS WITH SIMILAR NAMING PATTERNS`."
         self._log(success_msg)
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_state_manipulation(
-        self, user_message: str, action_args: dict[str, Any]
+        self, user_message: str, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         self._log(f"State Manipulation request with params: {action_args}")
         if not isinstance(action_args, dict):
@@ -802,7 +817,7 @@ class Conductor:
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_materializer(
-        self, user_message: str, action_args: dict[str, Any]
+        self, user_message: str, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         if len(self.state.T.keys()) == 0:
             error_msg = "T has to already be defined before calling Materializer"
@@ -835,6 +850,7 @@ class Conductor:
             self.retrieved_tables + self.enumerated_tables,
             self.web_search_result,
             self.web_crawl_result,
+            dataset_name=dataset_name,
         )
 
         if len(retrieved_tables) > 0:
@@ -855,7 +871,7 @@ class Conductor:
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_python_executor(
-        self, user_message: str, action_args: dict[str, Any]
+        self, user_message: str, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         self._log(f"{ActionNames.PYTHON_EXECUTOR.value} called")
         if len(self.state.T.keys()) == 0:
@@ -884,7 +900,7 @@ class Conductor:
             return error_msg, ActionExecutionStatus.ERROR
 
     def _handle_context_extraction(
-        self, user_message: str, action_args: dict[str, Any]
+        self, user_message: str, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         self._log(f"Context Extraction request with params: {action_args}")
         if not isinstance(action_args, dict):

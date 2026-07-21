@@ -41,6 +41,7 @@ class TableProjection(Action, Applicable):
         src_table_id = input.get("src_table_id")
         target_table_id = input.get("target_table_id")
         column_mapping = input.get("column_mapping")
+        dataset_name = input.get("dataset_name", "")
 
         if not isinstance(src_table_id, str):
             raise ValueError("Input 'src_table_id' must be a string.")
@@ -62,7 +63,7 @@ class TableProjection(Action, Applicable):
         column_mapping = dict(column_mapping)
 
         src_table_ref = self.__validate_table_ref(src_table_id)
-        self.__link_datasets_for_table_ref(src_table_ref)
+        self.__link_datasets_for_table_ref(src_table_ref, dataset_name)
 
         cols_sql = ", ".join(
             f"{self.__quote_ident(source)} AS {self.__quote_ident(alias)}"
@@ -106,7 +107,7 @@ class TableProjection(Action, Applicable):
             )
         return stripped
 
-    def __link_datasets_for_table_ref(self, table_ref: str) -> None:
+    def __link_datasets_for_table_ref(self, table_ref: str, dataset_name: str) -> None:
         """If table_ref is dataset-qualified, ensure the dataset is attached."""
 
         if "." not in table_ref:
@@ -116,5 +117,5 @@ class TableProjection(Action, Applicable):
         if dataset_part.startswith('"') and dataset_part.endswith('"'):
             dataset_part = dataset_part[1:-1].replace('""', '"')
 
-        if self.config.DATA_SOURCES and dataset_part in self.config.DATA_SOURCES:
+        if dataset_name and dataset_part == dataset_name:
             self.db_api.link_dataset_tables(self.user_id, self.chat_id, dataset_part)

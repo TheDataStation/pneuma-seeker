@@ -36,6 +36,7 @@ class DummyConductor:
         self.logger = logger
         self.db_api = db_api
         self.lm_api = lm_api
+        self.last_dataset_name = None
 
         # Mocks for properties referenced inside ChatSession
         self.prov_graph = MagicMock()
@@ -48,8 +49,14 @@ class DummyConductor:
         self.join_paths = None
 
     def chat(
-        self, last_content, interaction_history, external_data_paths, plan_mode=False
+        self,
+        last_content,
+        interaction_history,
+        external_data_paths,
+        plan_mode=False,
+        dataset_name="",
     ):
+        self.last_dataset_name = dataset_name
         yield ConductorResponse(ConductorResponseType.LOG, "resp:")
         yield ConductorResponse(
             ConductorResponseType.FINAL_RESPONSE, f"resp:{last_content}"
@@ -78,6 +85,25 @@ class ChatSessionTests(unittest.TestCase):
             None,  # join_paths
             None,
         )
+
+    @patch("pneuma_seeker.chat_session.Conductor", new=DummyConductor)
+    @patch("pneuma_seeker.chat_session.ProvenanceGraph")
+    def test_set_dataset_name_updates_session_and_propagates_to_conductor_chat(
+        self, mock_prov_graph
+    ):
+        """Regression test: a session created without a dataset_name (e.g. because
+        GET /state raced ahead of the first POST /chat/ for a brand-new chat and
+        created it dataset-less) must still be correctable afterward, and that
+        correction must reach Conductor.chat() as a fresh per-call argument
+        (dataset_name is no longer stored as an attribute below ChatSession)."""
+        cs = ChatSession("u1", "c1", self.cfg, self.logger, self.db_api, self.lm_api)
+        self.assertEqual(cs.dataset_name, "")
+
+        cs.set_dataset_name("real_dataset")
+        self.assertEqual(cs.dataset_name, "real_dataset")
+
+        list(cs.chat("hi"))
+        self.assertEqual(cs.conductor.last_dataset_name, "real_dataset")
 
     @patch("pneuma_seeker.chat_session.Conductor", new=DummyConductor)
     @patch("pneuma_seeker.chat_session.ProvenanceGraph")
@@ -148,6 +174,7 @@ class ChatSessionTests(unittest.TestCase):
                 interaction_history,
                 external_table_paths,
                 plan_mode=False,
+                dataset_name="",
             ):
                 yield ConductorResponse(ConductorResponseType.LOG, "a log line")
 
@@ -172,6 +199,7 @@ class ChatSessionTests(unittest.TestCase):
                 interaction_history,
                 external_table_paths,
                 plan_mode=False,
+                dataset_name="",
             ):
                 captured["paths"] = external_table_paths
                 yield ConductorResponse(ConductorResponseType.FINAL_RESPONSE, "ok")
@@ -199,6 +227,7 @@ class ChatSessionTests(unittest.TestCase):
                 interaction_history,
                 external_table_paths,
                 plan_mode=False,
+                dataset_name="",
             ):
                 captured["paths"] = external_table_paths
                 yield ConductorResponse(ConductorResponseType.FINAL_RESPONSE, "ok")
@@ -222,6 +251,7 @@ class ChatSessionTests(unittest.TestCase):
                 interaction_history,
                 external_table_paths,
                 plan_mode=False,
+                dataset_name="",
             ):
                 captured["plan_mode"] = plan_mode
                 yield ConductorResponse(

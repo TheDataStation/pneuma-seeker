@@ -28,14 +28,37 @@ class ChatSession:
         logger: Logger,
         db_api: DBAPI,
         language_model_api: LanguageModelAPI,
+        dataset_name: str | None = None,
     ):
-        """Initializes the ChatSession with user and chat IDs, config, logger, and APIs."""
+        """Initializes the ChatSession with user and chat IDs, config, logger, and APIs.
+
+        `dataset_name` only seeds a brand-new chat — an existing chat's persisted
+        dataset always takes precedence, since a chat's dataset is fixed once established.
+        """
         self.user_id = user_id
         self.chat_id = chat_id
         self.config = config
         self.logger = logger
         self.db_api = db_api
         self.language_model_api = language_model_api
+
+        (
+            messages,
+            conductor_state,
+            provenance_graph,
+            retrieved_tables,
+            enumerated_tables,
+            web_search_result,
+            web_crawl_result,
+            join_paths,
+            persisted_dataset_name,
+        ) = self.db_api.load_session(
+            self.user_id,
+            self.chat_id,
+        )
+
+        self.messages = messages
+        self.dataset_name = persisted_dataset_name or dataset_name or ""
 
         _agent_cls = SkillsAgent if config.USE_SKILLS_AGENT else Conductor
         self.conductor = _agent_cls(
@@ -49,24 +72,6 @@ class ChatSession:
             frontend_callback=lambda _: None,
         )
 
-        (
-            messages,
-            conductor_state,
-            provenance_graph,
-            retrieved_tables,
-            enumerated_tables,
-            web_search_result,
-            web_crawl_result,
-            join_paths,
-            dataset_name,
-        ) = self.db_api.load_session(
-            self.user_id,
-            self.chat_id,
-        )
-
-        self.messages = messages
-        self.dataset_name = dataset_name
-
         self.conductor.state = conductor_state
         self.conductor.set_prov_graph(provenance_graph)
         self.conductor.retrieved_tables = retrieved_tables
@@ -74,6 +79,9 @@ class ChatSession:
         self.conductor.web_search_result = web_search_result
         self.conductor.web_crawl_result = web_crawl_result
         self.conductor.join_paths = join_paths
+
+    def set_dataset_name(self, dataset_name: str) -> None:
+        self.dataset_name = dataset_name
 
     def chat(
         self,
@@ -104,6 +112,7 @@ class ChatSession:
             self.messages[:-1],
             external_table_paths,
             plan_mode=plan_mode,
+            dataset_name=self.dataset_name,
         ):
             if conductor_response.type in (
                 ConductorResponseType.FINAL_RESPONSE,

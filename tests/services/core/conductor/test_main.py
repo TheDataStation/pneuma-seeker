@@ -63,6 +63,33 @@ class ConductorTests(unittest.TestCase):
     def tearDown(self):
         patch.stopall()
 
+    def test_chat_dataset_name_reaches_table_retrieve_call(self):
+        """dataset_name is a chat()-time parameter (not a stored attribute) —
+        verify it's actually forwarded into the retrieval call that needs it."""
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
+            {{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}
+        ]}}""",
+            f"""{{"plan": [
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
+        ]}}""",
+            "done",
+        ]
+        mock_retrieve = MagicMock(return_value=[])
+        self.conductor.action_set.retrieve_multi_topic_documents = mock_retrieve
+
+        list(
+            self.conductor.chat(
+                user_message="Find relevant tables",
+                interaction_history=[],
+                external_table_paths=[],
+                dataset_name="real_dataset",
+            )
+        )
+
+        mock_retrieve.assert_called_once()
+        self.assertIn("real_dataset", mock_retrieve.call_args.args)
+
     def test_table_retrieve_updates_retrieved_tables(self):
         # set the queued responses on the underlying mock LLM instance
         self.conductor.language_model_api.llm._responses = [  # type: ignore

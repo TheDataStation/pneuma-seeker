@@ -31,7 +31,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         self.dataset_db_path = Path(self.temp_dir) / "datasets"
         self.workspace_db_path = Path(self.temp_dir) / "workspaces"
         self.config = Config()
-        self.config.DATA_SOURCES = ["test_ds"]
+        self.dataset_name = "test_ds"
         self.config.ENABLE_SEMANTIC_COL_GEN = True
         self.logger = MagicMock()
         self.db_api = DBAPI(
@@ -45,7 +45,12 @@ class SemanticColumnGenerationTests(unittest.TestCase):
             "user_id", "chat_id", self.config, self.logger, self.db_api, self.lm_api
         )
         self.table_projection = TableProjection(
-            "user_id", "chat_id", self.config, self.logger, self.db_api, self.lm_api
+            "user_id",
+            "chat_id",
+            self.config,
+            self.logger,
+            self.db_api,
+            self.lm_api,
         )
 
     def test_apply_invalid_inputs_raise(self):
@@ -53,13 +58,14 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         os.makedirs(Path(self.temp_dir) / "test_ds", exist_ok=True)
         table.to_csv(Path(self.temp_dir) / "test_ds" / "table.csv", index=False)
         self.db_api.ingest_dataset(
-            self.config.DATA_SOURCES[0], str(Path(self.temp_dir) / "test_ds")
+            self.dataset_name, str(Path(self.temp_dir) / "test_ds")
         )
         self.table_projection.apply(
             {
                 "src_table_id": "test_ds.table",
                 "target_table_id": "table",
                 "column_mapping": {"a": "a"},
+                "dataset_name": self.dataset_name,
             }
         )
 
@@ -98,13 +104,14 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         os.makedirs(Path(self.temp_dir) / "test_ds", exist_ok=True)
         table.to_csv(Path(self.temp_dir) / "test_ds" / "table.csv", index=False)
         self.db_api.ingest_dataset(
-            self.config.DATA_SOURCES[0], str(Path(self.temp_dir) / "test_ds")
+            self.dataset_name, str(Path(self.temp_dir) / "test_ds")
         )
         self.table_projection.apply(
             {
                 "src_table_id": "test_ds.table",
                 "target_table_id": "table",
                 "column_mapping": {"a": "a"},
+                "dataset_name": self.dataset_name,
             }
         )
 
@@ -126,13 +133,14 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         os.makedirs(Path(self.temp_dir) / "test_ds", exist_ok=True)
         table.to_csv(Path(self.temp_dir) / "test_ds" / "table.csv", index=False)
         self.db_api.ingest_dataset(
-            self.config.DATA_SOURCES[0], str(Path(self.temp_dir) / "test_ds")
+            self.dataset_name, str(Path(self.temp_dir) / "test_ds")
         )
         self.table_projection.apply(
             {
                 "src_table_id": "test_ds.table",
                 "target_table_id": "table",
                 "column_mapping": {"name": "name", "age": "age"},
+                "dataset_name": self.dataset_name,
             }
         )
 
@@ -214,13 +222,14 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         os.makedirs(Path(self.temp_dir) / "test_ds", exist_ok=True)
         table.to_csv(Path(self.temp_dir) / "test_ds" / "table.csv", index=False)
         self.db_api.ingest_dataset(
-            self.config.DATA_SOURCES[0], str(Path(self.temp_dir) / "test_ds")
+            self.dataset_name, str(Path(self.temp_dir) / "test_ds")
         )
         self.table_projection.apply(
             {
                 "src_table_id": "test_ds.table",
                 "target_table_id": "table",
                 "column_mapping": {"city": "city", "country": "country"},
+                "dataset_name": self.dataset_name,
             }
         )
 
@@ -244,13 +253,14 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         os.makedirs(Path(self.temp_dir) / "test_ds", exist_ok=True)
         table.to_csv(Path(self.temp_dir) / "test_ds" / "table.csv", index=False)
         self.db_api.ingest_dataset(
-            self.config.DATA_SOURCES[0], str(Path(self.temp_dir) / "test_ds")
+            self.dataset_name, str(Path(self.temp_dir) / "test_ds")
         )
         self.table_projection.apply(
             {
                 "src_table_id": "test_ds.table",
                 "target_table_id": "table",
                 "column_mapping": {"name": "name", "age": "age"},
+                "dataset_name": self.dataset_name,
             }
         )
 
@@ -276,7 +286,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         os.makedirs(Path(self.temp_dir) / "test_ds", exist_ok=True)
         table.to_csv(Path(self.temp_dir) / "test_ds" / "table.csv", index=False)
         self.db_api.ingest_dataset(
-            self.config.DATA_SOURCES[0], str(Path(self.temp_dir) / "test_ds")
+            self.dataset_name, str(Path(self.temp_dir) / "test_ds")
         )
         self.table_projection.apply(
             {
@@ -286,6 +296,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
                     "first_name": "first_name",
                     "last_name": "last_name",
                 },
+                "dataset_name": self.dataset_name,
             }
         )
 
@@ -308,7 +319,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         os.makedirs(Path(self.temp_dir) / "test_ds", exist_ok=True)
         table.to_csv(Path(self.temp_dir) / "test_ds" / "table.csv", index=False)
         self.db_api.ingest_dataset(
-            self.config.DATA_SOURCES[0], str(Path(self.temp_dir) / "test_ds")
+            self.dataset_name, str(Path(self.temp_dir) / "test_ds")
         )
         self.table_projection.apply(
             {
@@ -319,6 +330,7 @@ class SemanticColumnGenerationTests(unittest.TestCase):
                     "quantity": "quantity",
                     "price": "price",
                 },
+                "dataset_name": self.dataset_name,
             }
         )
 
@@ -341,13 +353,14 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         os.makedirs(Path(self.temp_dir) / "test_ds", exist_ok=True)
         table.to_csv(Path(self.temp_dir) / "test_ds" / "table.csv", index=False)
         self.db_api.ingest_dataset(
-            self.config.DATA_SOURCES[0], str(Path(self.temp_dir) / "test_ds")
+            self.dataset_name, str(Path(self.temp_dir) / "test_ds")
         )
         self.table_projection.apply(
             {
                 "src_table_id": "test_ds.table",
                 "target_table_id": "table",
                 "column_mapping": {"a": "a"},
+                "dataset_name": self.dataset_name,
             }
         )
 
@@ -372,13 +385,14 @@ class SemanticColumnGenerationTests(unittest.TestCase):
         os.makedirs(Path(self.temp_dir) / "test_ds", exist_ok=True)
         table.to_csv(Path(self.temp_dir) / "test_ds" / "table.csv", index=False)
         self.db_api.ingest_dataset(
-            self.config.DATA_SOURCES[0], str(Path(self.temp_dir) / "test_ds")
+            self.dataset_name, str(Path(self.temp_dir) / "test_ds")
         )
         self.table_projection.apply(
             {
                 "src_table_id": "test_ds.table",
                 "target_table_id": "table",
                 "column_mapping": {"col1": "col1", "col2": "col2"},
+                "dataset_name": self.dataset_name,
             }
         )
 
@@ -441,7 +455,7 @@ class SemanticColumnGenerationMockLLMTests(unittest.TestCase):
         self.dataset_db_path = Path(self.temp_dir) / "datasets"
         self.workspace_db_path = Path(self.temp_dir) / "workspaces"
         self.config = Config()
-        self.config.DATA_SOURCES = ["test_ds"]
+        self.dataset_name = "test_ds"
         self.config.ENABLE_SEMANTIC_COL_GEN = True
         self.logger = MagicMock()
         self.db_api = DBAPI(
@@ -458,7 +472,12 @@ class SemanticColumnGenerationMockLLMTests(unittest.TestCase):
             "user_id", "chat_id", self.config, self.logger, self.db_api, self.lm_api
         )
         self.table_projection = TableProjection(
-            "user_id", "chat_id", self.config, self.logger, self.db_api, self.lm_api
+            "user_id",
+            "chat_id",
+            self.config,
+            self.logger,
+            self.db_api,
+            self.lm_api,
         )
 
     def tearDown(self) -> None:
@@ -475,12 +494,13 @@ class SemanticColumnGenerationMockLLMTests(unittest.TestCase):
         ds_dir = Path(self.temp_dir) / "test_ds"
         os.makedirs(ds_dir, exist_ok=True)
         table.to_csv(ds_dir / f"{table_name}.csv", index=False)
-        self.db_api.ingest_dataset(self.config.DATA_SOURCES[0], str(ds_dir))
+        self.db_api.ingest_dataset(self.dataset_name, str(ds_dir))
         self.table_projection.apply(
             {
                 "src_table_id": f"test_ds.{table_name}",
                 "target_table_id": table_name,
                 "column_mapping": {c: c for c in table.columns},
+                "dataset_name": self.dataset_name,
             }
         )
 

@@ -43,9 +43,12 @@ class TestChatRouter(unittest.TestCase):
     def tearDown(self):
         self.app.dependency_overrides.clear()
 
+    @patch("pneuma_seeker.routers.chat.require_dataset_access")
     @patch("pneuma_seeker.routers.chat.session_manager")
     @patch("pneuma_seeker.routers.chat.config")
-    def test_chat_stream_success(self, mock_config, mock_session_manager):
+    def test_chat_stream_success(
+        self, mock_config, mock_session_manager, mock_require_dataset_access
+    ):
         """Tests that a regular streaming chat request functions cleanly and yields formatted tokens."""
         # Arrange
         mock_config.ENABLE_MEMORY_PROFILING = False
@@ -91,10 +94,46 @@ class TestChatRouter(unittest.TestCase):
 
         mock_chat_session.persist_session.assert_called_once()
 
+    @patch("pneuma_seeker.routers.chat.require_dataset_access")
+    @patch("pneuma_seeker.routers.chat.session_manager")
+    @patch("pneuma_seeker.routers.chat.config")
+    def test_chat_always_corrects_dataset_name_on_the_session(
+        self, mock_config, mock_session_manager, mock_require_dataset_access
+    ):
+        """Regression test: a chat_id's session can already exist in the cache
+        with no dataset_name (e.g. GET /state raced ahead of this being the
+        chat's first-ever message and created it dataset-less). POST /chat/
+        must always assert its own dataset_name onto the session rather than
+        trusting whatever the session was built with."""
+        mock_config.ENABLE_MEMORY_PROFILING = False
+        mock_config.STREAM_HEARTBEAT_INTERVAL_SECONDS = 15
+
+        mock_chat_session = MagicMock()
+        mock_chat_session.chat.return_value = [
+            ConductorResponse(ConductorResponseType.FINAL_RESPONSE, "done"),
+            ConductorResponse(ConductorResponseType.DONE, ""),
+        ]
+        mock_session_manager.get_chat_session_async = AsyncMock(
+            return_value=mock_chat_session
+        )
+
+        payload = {
+            "chat_id": "session_003",
+            "dataset_name": "the_real_dataset",
+            "message": "hi",
+            "files": [],
+        }
+
+        response = self.client.post("/chat/", json=payload)
+
+        self.assertEqual(response.status_code, 200)
+        mock_chat_session.set_dataset_name.assert_called_once_with("the_real_dataset")
+
+    @patch("pneuma_seeker.routers.chat.require_dataset_access")
     @patch("pneuma_seeker.routers.chat.session_manager")
     @patch("pneuma_seeker.routers.chat.config")
     def test_chat_stream_sends_heartbeat_during_slow_step(
-        self, mock_config, mock_session_manager
+        self, mock_config, mock_session_manager, mock_require_dataset_access
     ):
         """A long gap with nothing to report (e.g. one slow LLM call) must not
         leave the stream silent — a heartbeat payload should appear before the
@@ -505,9 +544,10 @@ class TestQueryTableEndpoint(unittest.TestCase):
         count_params = calls[1].args[3]
         self.assertIn("%illi%", count_params)
 
+    @patch("pneuma_seeker.routers.chat.require_dataset_access")
     @patch("pneuma_seeker.routers.chat.session_manager")
     def test_query_table_with_dataset_name_qualifies_reference(
-        self, mock_session_manager
+        self, mock_session_manager, mock_require_dataset_access
     ):
         """When dataset_name is provided, the SQL uses "dataset"."table" qualified form."""
         mock_conductor = MagicMock()
@@ -529,8 +569,11 @@ class TestQueryTableEndpoint(unittest.TestCase):
         cols_sql = mock_conductor.db_api.execute_query.call_args_list[0].args[2]
         self.assertIn('"csn_2024"."reports"', cols_sql)
 
+    @patch("pneuma_seeker.routers.chat.require_dataset_access")
     @patch("pneuma_seeker.routers.chat.session_manager")
-    def test_query_table_dataset_name_strips_quotes(self, mock_session_manager):
+    def test_query_table_dataset_name_strips_quotes(
+        self, mock_session_manager, mock_require_dataset_access
+    ):
         """A dataset_name containing quotes has the quote chars removed before interpolation."""
         mock_conductor = MagicMock()
         mock_conductor.db_api.execute_query.side_effect = self._mock_db_side_effects(
@@ -790,9 +833,10 @@ class TestDownloadTableEndpoint(unittest.TestCase):
 
         self.assertEqual(response.status_code, 404)
 
+    @patch("pneuma_seeker.routers.chat.require_dataset_access")
     @patch("pneuma_seeker.routers.chat.session_manager")
     def test_download_table_with_dataset_name_qualifies_reference(
-        self, mock_session_manager
+        self, mock_session_manager, mock_require_dataset_access
     ):
         """dataset_name is used to qualify the table reference and link_dataset_tables is called."""
         mock_conductor = MagicMock()
@@ -812,8 +856,11 @@ class TestDownloadTableEndpoint(unittest.TestCase):
         sql = mock_conductor.db_api.execute_query.call_args_list[0].args[2]
         self.assertIn('"csn_2024"."reports"', sql)
 
+    @patch("pneuma_seeker.routers.chat.require_dataset_access")
     @patch("pneuma_seeker.routers.chat.session_manager")
-    def test_download_table_dataset_name_strips_quotes(self, mock_session_manager):
+    def test_download_table_dataset_name_strips_quotes(
+        self, mock_session_manager, mock_require_dataset_access
+    ):
         """Quotes in dataset_name are stripped before interpolation."""
         mock_conductor = MagicMock()
         mock_conductor.db_api.execute_query.side_effect = [

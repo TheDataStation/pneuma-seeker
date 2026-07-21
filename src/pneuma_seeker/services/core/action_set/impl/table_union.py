@@ -44,6 +44,7 @@ class TableUnion(Action, Applicable):
         result_table_id = input.get("result_table_id")
         provenance_column_name = input.get("provenance_column_name")
         provenance_regex = input.get("provenance_regex")
+        dataset_name = input.get("dataset_name", "")
 
         if not isinstance(table_ids, list) or not all(
             isinstance(x, str) for x in table_ids
@@ -66,7 +67,7 @@ class TableUnion(Action, Applicable):
         provenance_column_name = provenance_column_name.strip()
         provenance_regex = provenance_regex.strip()
 
-        resolved = self.__resolve_table_ids_and_patterns(table_ids)
+        resolved = self.__resolve_table_ids_and_patterns(table_ids, dataset_name)
         if not resolved:
             raise ValueError("No tables were resolved from table_ids.")
 
@@ -157,13 +158,13 @@ class TableUnion(Action, Applicable):
             )
         return stripped
 
-    def __link_datasets_for_table_ref(self, table_ref: str) -> None:
+    def __link_datasets_for_table_ref(self, table_ref: str, dataset_name: str) -> None:
         if "." not in table_ref:
             return
         dataset_part = table_ref.split(".", 1)[0].strip()
         if dataset_part.startswith('"') and dataset_part.endswith('"'):
             dataset_part = dataset_part[1:-1].replace('""', '"')
-        if self.config.DATA_SOURCES and dataset_part in self.config.DATA_SOURCES:
+        if dataset_name and dataset_part == dataset_name:
             self.db_api.link_dataset_tables(self.user_id, self.chat_id, dataset_part)
 
     def __list_available_tables(self) -> list[tuple[str, str]]:
@@ -206,7 +207,7 @@ class TableUnion(Action, Applicable):
         return results
 
     def __resolve_table_ids_and_patterns(
-        self, table_ids: list[str]
+        self, table_ids: list[str], dataset_name: str
     ) -> list[tuple[str, str]]:
         """Resolve a mixed list of explicit table refs and regex patterns.
 
@@ -225,17 +226,18 @@ class TableUnion(Action, Applicable):
             except ValueError:
                 # Not a safe table ref; leave it to regex resolution.
                 continue
-            self.__link_datasets_for_table_ref(table_ref)
+            self.__link_datasets_for_table_ref(table_ref, dataset_name)
 
-        # Best-effort attach known datasets so patterns can match them.
-        if self.config.DATA_SOURCES:
-            for ds in self.config.DATA_SOURCES:
-                try:
-                    self.db_api.link_dataset_tables(self.user_id, self.chat_id, ds)
-                except FileNotFoundError:
-                    continue
-                except Exception:
-                    continue
+        # Best-effort attach the chat's dataset so patterns can match it.
+        if dataset_name:
+            try:
+                self.db_api.link_dataset_tables(
+                    self.user_id, self.chat_id, dataset_name
+                )
+            except FileNotFoundError:
+                pass
+            except Exception:
+                pass
 
         available = self.__list_available_tables()
         available_by_display: dict[str, str] = {d: r for d, r in available}
@@ -272,7 +274,7 @@ class TableUnion(Action, Applicable):
             # Try explicit ref
             try:
                 table_ref = self.__validate_table_ref(stripped)
-                self.__link_datasets_for_table_ref(table_ref)
+                self.__link_datasets_for_table_ref(table_ref, dataset_name)
                 display = self.__display_name_from_ref(table_ref)
                 add(display, available_by_display.get(display, table_ref))
                 continue

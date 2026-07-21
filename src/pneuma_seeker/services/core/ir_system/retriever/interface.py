@@ -7,7 +7,12 @@ from pneuma_seeker.shared.schemas.core.ir_system import AbstractDocument, Retrie
 
 class AbstractRetriever(ABC):
     def __init__(
-        self, user_id: str, chat_id: str, config: Config, db_api: DBAPI, language_model_api: LanguageModelAPI
+        self,
+        user_id: str,
+        chat_id: str,
+        config: Config,
+        db_api: DBAPI,
+        language_model_api: LanguageModelAPI,
     ):
         """
         Initialize the Retriever class
@@ -38,6 +43,7 @@ class AbstractRetriever(ABC):
     def retrieve(
         self,
         query: str,
+        dataset_name: str,
         k: int,
         sample_only: bool,
         sample_size: int | None = None,

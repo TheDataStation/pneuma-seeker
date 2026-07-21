@@ -28,7 +28,7 @@ class TableProjectionTests(unittest.TestCase):
         self.dataset_db_path = Path(self.temp_dir) / "datasets"
         self.workspace_db_path = Path(self.temp_dir) / "workspaces"
         self.config = Config()
-        self.config.DATA_SOURCES = ["test_ds"]
+        self.dataset_name = "test_ds"
         self.logger = MagicMock()
         self.lm_api = MagicMock()
         self.db_api = DBAPI(
@@ -68,7 +68,7 @@ class TableProjectionTests(unittest.TestCase):
             Path(self.temp_dir) / "test_ds" / f"{table_name}.csv", index=False
         )
         self.db_api.ingest_dataset(
-            self.config.DATA_SOURCES[0], str(Path(self.temp_dir) / "test_ds")
+            self.dataset_name, str(Path(self.temp_dir) / "test_ds")
         )
 
     def test_apply_projects_columns_and_returns_sample(self):
@@ -79,6 +79,7 @@ class TableProjectionTests(unittest.TestCase):
                 "src_table_id": "test_ds.src_table",
                 "target_table_id": "target_table",
                 "column_mapping": {"c": "c", "a": "a"},
+                "dataset_name": self.dataset_name,
             }
         )
 
@@ -107,6 +108,7 @@ class TableProjectionTests(unittest.TestCase):
                 "src_table_id": "test_ds.src_table",
                 "target_table_id": "target_table",
                 "column_mapping": {"b": "b"},
+                "dataset_name": self.dataset_name,
             }
         )
 
@@ -125,6 +127,7 @@ class TableProjectionTests(unittest.TestCase):
                     "src_table_id": None,
                     "target_table_id": "target_table",
                     "column_mapping": {"a": "a"},
+                    "dataset_name": self.dataset_name,
                 }
             )
         self.assertIn("Input 'src_table_id' must be a string", str(context.exception))
@@ -136,6 +139,7 @@ class TableProjectionTests(unittest.TestCase):
                     "src_table_id": "test_ds.src_table",
                     "target_table_id": 123,
                     "column_mapping": {"a": "a"},
+                    "dataset_name": self.dataset_name,
                 }
             )
         self.assertIn(
@@ -149,6 +153,7 @@ class TableProjectionTests(unittest.TestCase):
                     "src_table_id": "test_ds.src_table",
                     "target_table_id": "target_table",
                     "column_mapping": "a",
+                    "dataset_name": self.dataset_name,
                 }
             )
         self.assertIn(
@@ -163,6 +168,7 @@ class TableProjectionTests(unittest.TestCase):
                     "src_table_id": "test_ds.src_table",
                     "target_table_id": "target_table",
                     "column_mapping": {"a": 1},
+                    "dataset_name": self.dataset_name,
                 }
             )
         self.assertIn(
@@ -177,6 +183,7 @@ class TableProjectionTests(unittest.TestCase):
                     "src_table_id": "test_ds.src_table",
                     "target_table_id": "target_table",
                     "column_mapping": {},
+                    "dataset_name": self.dataset_name,
                 }
             )
         self.assertIn(
@@ -193,6 +200,7 @@ class TableProjectionTests(unittest.TestCase):
                     "src_table_id": "test_ds.src_table",
                     "target_table_id": "target_table",
                     "column_mapping": {"missing": "missing"},
+                    "dataset_name": self.dataset_name,
                 }
             )
 
@@ -203,6 +211,7 @@ class TableProjectionTests(unittest.TestCase):
                     "src_table_id": "missing_table",
                     "target_table_id": "target_table",
                     "column_mapping": {"a": "a"},
+                    "dataset_name": self.dataset_name,
                 }
             )
 
@@ -218,6 +227,7 @@ class TableProjectionTests(unittest.TestCase):
                 "src_table_id": "test_ds.src_table",
                 "target_table_id": "target_table",
                 "column_mapping": {"x_y": "x_y", "col_name": "col_name"},
+                "dataset_name": self.dataset_name,
             }
         )
 
@@ -236,6 +246,7 @@ class TableProjectionTests(unittest.TestCase):
                 "src_table_id": "test_ds.src_table",
                 "target_table_id": "target_table",
                 "column_mapping": {"b": "b"},
+                "dataset_name": self.dataset_name,
             }
         )
 
@@ -254,6 +265,7 @@ class TableProjectionTests(unittest.TestCase):
                 "src_table_id": "test_ds.src_table",
                 "target_table_id": "target_table",
                 "column_mapping": {"a": "a"},
+                "dataset_name": self.dataset_name,
             }
         )
 
@@ -268,6 +280,7 @@ class TableProjectionTests(unittest.TestCase):
                 "src_table_id": "test_ds.src_table",
                 "target_table_id": "target_table",
                 "column_mapping": {"c_alias": "c", "a_alias": "a"},
+                "dataset_name": self.dataset_name,
             }
         )
 
@@ -292,6 +305,7 @@ class TableProjectionTests(unittest.TestCase):
                     "src_table_id": "test_ds.src_table",
                     "target_table_id": "target_table",
                     "column_mapping": {"x": "missing"},
+                    "dataset_name": self.dataset_name,
                 }
             )
 
@@ -304,6 +318,7 @@ class TableProjectionTests(unittest.TestCase):
                 "src_table_id": "test_ds.src_table",
                 "target_table_id": "intermediate_table",
                 "column_mapping": {"a": "a", "b": "b"},
+                "dataset_name": self.dataset_name,
             }
         )
 
@@ -313,6 +328,7 @@ class TableProjectionTests(unittest.TestCase):
                 "src_table_id": "intermediate_table",
                 "target_table_id": "target_table",
                 "column_mapping": {"b": "b"},
+                "dataset_name": self.dataset_name,
             }
         )
 
@@ -333,6 +349,7 @@ class TableProjectionTests(unittest.TestCase):
                 "src_table_id": 'test_ds."src_table"',
                 "target_table_id": "target_table",
                 "column_mapping": {"a": "a"},
+                "dataset_name": self.dataset_name,
             }
         )
 

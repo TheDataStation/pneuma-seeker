@@ -85,25 +85,27 @@ class ActionSet:
         self,
         prompt: str,
         retriever_type: RetrieverType,
+        dataset_name: str = "",
         k: int = 10,
         sample_only: bool = False,
         sample_size: int | None = None,
     ) -> list[AbstractDocument]:
         return self.ir_system.retrieve_documents(
-            retriever_type, prompt, k, sample_only, sample_size
+            retriever_type, prompt, dataset_name, k, sample_only, sample_size
         )
 
     def retrieve_multi_topic_documents(
         self,
         prompts: list[str],
         retriever_type: RetrieverType,
+        dataset_name: str = "",
         k: int = 10,
         sample_only: bool = False,
         sample_size: int | None = None,
     ) -> list[AbstractDocument]:
         multi_topic_docs: dict[str, list[AbstractDocument]] = (
             self.ir_system.retrieve_multi_topic_documents(
-                retriever_type, prompts, k, sample_only, sample_size
+                retriever_type, prompts, dataset_name, k, sample_only, sample_size
             )
         )
         aggregated: list[AbstractDocument] = []
@@ -128,6 +130,7 @@ class ActionSet:
         left_table_column_keys: list[str],
         right_table_column_keys: list[str],
         result_table_id: str,
+        dataset_name: str = "",
     ) -> DataFrame:
         return self.registry.get(ActionNames.EQUALITY_JOIN).apply(  # type: ignore[union-attr]
             {
@@ -136,6 +139,7 @@ class ActionSet:
                 "left_table_column_keys": left_table_column_keys,
                 "right_table_column_keys": right_table_column_keys,
                 "result_table_id": result_table_id,
+                "dataset_name": dataset_name,
             }
         )
 
@@ -145,6 +149,7 @@ class ActionSet:
         result_table_id: str,
         provenance_column_name: str,
         provenance_regex: str,
+        dataset_name: str = "",
     ) -> DataFrame:
         return self.registry.get(ActionNames.TABLE_UNION).apply(  # type: ignore[union-attr]
             {
@@ -152,6 +157,7 @@ class ActionSet:
                 "result_table_id": result_table_id,
                 "provenance_column_name": provenance_column_name,
                 "provenance_regex": provenance_regex,
+                "dataset_name": dataset_name,
             }
         )
 
@@ -160,12 +166,14 @@ class ActionSet:
         src_table_id: str,
         target_table_id: str,
         column_mapping: dict[str, str],
+        dataset_name: str = "",
     ) -> DataFrame:
         return self.registry.get(ActionNames.TABLE_PROJECTION).apply(  # type: ignore[union-attr]
             {
                 "src_table_id": src_table_id,
                 "target_table_id": target_table_id,
                 "column_mapping": column_mapping,
+                "dataset_name": dataset_name,
             }
         )
 
@@ -210,6 +218,7 @@ class ActionSet:
         embed_batch_size: int = 30,
         mode: str | None = None,
         use_llm: bool = False,
+        dataset_name: str = "",
     ) -> DataFrame:
         args: dict[str, Any] = {
             "left_table_id": left_table_id,
@@ -222,6 +231,7 @@ class ActionSet:
             "delimiter": delimiter,
             "embed_batch_size": embed_batch_size,
             "use_llm": use_llm,
+            "dataset_name": dataset_name,
         }
         if mode is not None:
             args["mode"] = mode

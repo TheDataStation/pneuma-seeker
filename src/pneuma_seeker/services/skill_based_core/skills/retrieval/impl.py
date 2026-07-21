@@ -13,7 +13,9 @@ class WebSearchSkill(SkillBase):
         query = args.get("query", "")
         if not query:
             return SkillResult("Error: 'query' is required.")
-        results = agent.action_set.retrieve_documents(query, RetrieverType.WEB_SEARCH)
+        results = agent.action_set.retrieve_documents(
+            query, RetrieverType.WEB_SEARCH, agent.dataset_name
+        )
         if results:
             agent.web_search_result = results[0]
         return SkillResult(
@@ -30,7 +32,9 @@ class WebCrawlSkill(SkillBase):
         url = args.get("url", "")
         if not url:
             return SkillResult("Error: 'url' is required.")
-        results = agent.action_set.retrieve_documents(url, RetrieverType.WEB_CRAWL)
+        results = agent.action_set.retrieve_documents(
+            url, RetrieverType.WEB_CRAWL, agent.dataset_name
+        )
         if results:
             agent.web_crawl_result = results[0]
         return SkillResult(
@@ -49,7 +53,7 @@ class RetrieveTablesSkill(SkillBase):
         ):
             return SkillResult("Error: 'prompts' must be a list of strings.")
         agent.retrieved_tables = agent.action_set.retrieve_multi_topic_documents(
-            prompts, RetrieverType.PNEUMA_RETRIEVER, 10, True, 3
+            prompts, RetrieverType.PNEUMA_RETRIEVER, agent.dataset_name, 10, True, 3
         )
         join_paths: str | None = None
         try:
@@ -75,7 +79,7 @@ class EnumerateTablesSkill(SkillBase):
         ):
             return SkillResult("Error: 'patterns' must be a list of strings.")
         agent.enumerated_tables = agent.action_set.retrieve_multi_topic_documents(
-            patterns, RetrieverType.ENUMERATOR, 20, True, 2
+            patterns, RetrieverType.ENUMERATOR, agent.dataset_name, 20, True, 2
         )
         ids = [t.doc_id for t in agent.enumerated_tables]
         return SkillResult(f"Tables matching {patterns}: {ids}")

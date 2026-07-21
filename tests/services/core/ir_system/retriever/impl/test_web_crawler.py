@@ -52,7 +52,7 @@ class WebSearchTests(unittest.TestCase):
         mock_get.side_effect = [robots_resp, page_resp]
 
         crawler = WebCrawler("uX", "cX", self.config, MagicMock(), MagicMock())
-        results = crawler.retrieve("http://www.example.com", 1, False)
+        results = crawler.retrieve("http://www.example.com", "", 1, False)
 
         # Should return a list with one Text document
         self.assertIsInstance(results, list)
@@ -74,7 +74,7 @@ class WebSearchTests(unittest.TestCase):
         mock_get.return_value = robots_resp
 
         crawler = WebCrawler("uX", "cX", self.config, MagicMock(), MagicMock())
-        out = crawler.retrieve("http://www.example.com/anypath", 1, False)
+        out = crawler.retrieve("http://www.example.com/anypath", "", 1, False)
 
         # When disallowed, retrieve returns a string error message
         self.assertIsInstance(out[0], Text)
@@ -144,7 +144,7 @@ class WebCrawlerLiveServerTests(unittest.TestCase):
         return f"http://127.0.0.1:{self.port}{path}"
 
     def test_crawls_allowed_page_and_extracts_clean_text(self):
-        results = self.crawler.retrieve(self._url("/index.html"), 1, False)
+        results = self.crawler.retrieve(self._url("/index.html"), "", 1, False)
 
         self.assertEqual(len(results), 1)
         doc = results[0]
@@ -158,13 +158,13 @@ class WebCrawlerLiveServerTests(unittest.TestCase):
         self.assertNotIn("Enable JS", doc.content)
 
     def test_robots_txt_blocks_disallowed_path(self):
-        results = self.crawler.retrieve(self._url("/private/secret.html"), 1, False)
+        results = self.crawler.retrieve(self._url("/private/secret.html"), "", 1, False)
 
         self.assertIn("disallowed by robots.txt", results[0].content)
         self.assertNotIn("Top secret", results[0].content)
 
     def test_robots_txt_allows_non_disallowed_path(self):
-        results = self.crawler.retrieve(self._url("/public/page.html"), 1, False)
+        results = self.crawler.retrieve(self._url("/public/page.html"), "", 1, False)
 
         self.assertIn("Public page content.", results[0].content)
 
@@ -172,12 +172,12 @@ class WebCrawlerLiveServerTests(unittest.TestCase):
         self.config.WEB_CRAWL_MAX_CHARS = 20
         crawler = WebCrawler("uX", "cX", self.config, MagicMock(), MagicMock())
 
-        results = crawler.retrieve(self._url("/index.html"), 1, False)
+        results = crawler.retrieve(self._url("/index.html"), "", 1, False)
 
         self.assertLessEqual(len(results[0].content), 20)
 
     def test_missing_page_returns_error_message_instead_of_raising(self):
-        results = self.crawler.retrieve(self._url("/does-not-exist.html"), 1, False)
+        results = self.crawler.retrieve(self._url("/does-not-exist.html"), "", 1, False)
 
         self.assertIsInstance(results[0], Text)
         self.assertIn("Error fetching content", results[0].content)

@@ -147,6 +147,7 @@ def index_dataset(
         config,
         DBAPI(config, logger),
         LanguageModelAPI(config, logger),
+        dataset_name,
     )
 
     if schema_summaries is not None:

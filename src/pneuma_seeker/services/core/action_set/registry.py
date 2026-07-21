@@ -77,7 +77,12 @@ class ActionRegistry:
                     continue
                 try:
                     instance = cls(
-                        user_id, chat_id, config, logger, db_api, language_model_api
+                        user_id,
+                        chat_id,
+                        config,
+                        logger,
+                        db_api,
+                        language_model_api,
                     )
                     self._instances[cls.action_name] = instance
                 except Exception as exc:

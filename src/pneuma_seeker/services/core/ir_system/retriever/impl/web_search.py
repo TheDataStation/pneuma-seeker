@@ -1,12 +1,23 @@
 from openai import OpenAI
-from pneuma_seeker.shared.schemas.core.ir_system import RetrieverType, Text, AbstractDocument
+from pneuma_seeker.shared.schemas.core.ir_system import (
+    RetrieverType,
+    Text,
+    AbstractDocument,
+)
 from pneuma_seeker.services.core.ir_system.retriever.interface import AbstractRetriever
 
 
 class WebSearch(AbstractRetriever):
     """Represents a web search interface."""
 
-    def __init__(self, user_id, chat_id, config, db_api, language_model_api):
+    def __init__(
+        self,
+        user_id,
+        chat_id,
+        config,
+        db_api,
+        language_model_api,
+    ):
         # Note: For now, we assume OpenAI model
         super().__init__(user_id, chat_id, config, db_api, language_model_api)
         self.client = OpenAI(api_key=config.OPENAI_API_KEY)
@@ -27,6 +38,7 @@ class WebSearch(AbstractRetriever):
     def retrieve(
         self,
         query: str,
+        dataset_name: str,
         k: int,
         sample_only: bool,
         sample_size: int | None = None,
