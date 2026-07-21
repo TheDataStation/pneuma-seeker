@@ -26,7 +26,7 @@ class EqualityJoinTests(unittest.TestCase):
         self.dataset_db_path = Path(self.temp_dir) / "datasets"
         self.workspace_db_path = Path(self.temp_dir) / "workspaces"
         self.config = Config()
-        self.config.DATA_SOURCES = ["test_ds"]
+        self.dataset_name = "test_ds"
         self.logger = MagicMock()
         self.lm_api = MagicMock()
         self.db_api = DBAPI(
@@ -59,7 +59,7 @@ class EqualityJoinTests(unittest.TestCase):
             Path(self.temp_dir) / "test_ds" / f"{table_name}.csv", index=False
         )
         self.db_api.ingest_dataset(
-            self.config.DATA_SOURCES[0],
+            self.dataset_name,
             str(Path(self.temp_dir) / "test_ds"),
             None,
             True,
@@ -84,6 +84,7 @@ class EqualityJoinTests(unittest.TestCase):
                 "left_table_column_keys": ["id"],
                 "right_table_column_keys": ["id"],
                 "result_table_id": "joined_table",
+                "dataset_name": self.dataset_name,
             }
         )
 
@@ -121,6 +122,7 @@ class EqualityJoinTests(unittest.TestCase):
                 "left_table_column_keys": ["k1", "k2"],
                 "right_table_column_keys": ["x", "y"],
                 "result_table_id": "joined_table",
+                "dataset_name": self.dataset_name,
             }
         )
 
@@ -159,6 +161,7 @@ class EqualityJoinTests(unittest.TestCase):
                 "left_table_column_keys": ["id"],
                 "right_table_column_keys": ["id"],
                 "result_table_id": "joined_table",
+                "dataset_name": self.dataset_name,
             }
         )
 
@@ -180,6 +183,7 @@ class EqualityJoinTests(unittest.TestCase):
                     "left_table_column_keys": ["id"],
                     "right_table_column_keys": ["id"],
                     "result_table_id": "joined_table",
+                    "dataset_name": self.dataset_name,
                 }
             )
         self.assertIn("Input 'left_table_id' must be a string", str(context.exception))
@@ -193,6 +197,7 @@ class EqualityJoinTests(unittest.TestCase):
                     "left_table_column_keys": ["id"],
                     "right_table_column_keys": ["id"],
                     "result_table_id": "joined_table",
+                    "dataset_name": self.dataset_name,
                 }
             )
 
@@ -205,6 +210,7 @@ class EqualityJoinTests(unittest.TestCase):
                     "left_table_column_keys": ["id"],
                     "right_table_column_keys": ["id"],
                     "result_table_id": 1,
+                    "dataset_name": self.dataset_name,
                 }
             )
 
@@ -217,6 +223,7 @@ class EqualityJoinTests(unittest.TestCase):
                     "left_table_column_keys": "id",
                     "right_table_column_keys": ["id"],
                     "result_table_id": "joined_table",
+                    "dataset_name": self.dataset_name,
                 }
             )
 
@@ -228,6 +235,7 @@ class EqualityJoinTests(unittest.TestCase):
                     "left_table_column_keys": ["id"],
                     "right_table_column_keys": [1],
                     "result_table_id": "joined_table",
+                    "dataset_name": self.dataset_name,
                 }
             )
 
@@ -240,6 +248,7 @@ class EqualityJoinTests(unittest.TestCase):
                     "left_table_column_keys": [],
                     "right_table_column_keys": [],
                     "result_table_id": "joined_table",
+                    "dataset_name": self.dataset_name,
                 }
             )
 
@@ -252,6 +261,7 @@ class EqualityJoinTests(unittest.TestCase):
                     "left_table_column_keys": ["a", "b"],
                     "right_table_column_keys": ["c"],
                     "result_table_id": "joined_table",
+                    "dataset_name": self.dataset_name,
                 }
             )
 
@@ -275,6 +285,7 @@ class EqualityJoinTests(unittest.TestCase):
                     "left_table_column_keys": ["missing"],
                     "right_table_column_keys": ["id"],
                     "result_table_id": "joined_table",
+                    "dataset_name": self.dataset_name,
                 }
             )
 
@@ -287,6 +298,7 @@ class EqualityJoinTests(unittest.TestCase):
                     "left_table_column_keys": ["id"],
                     "right_table_column_keys": ["id"],
                     "result_table_id": "joined_table",
+                    "dataset_name": self.dataset_name,
                 }
             )
 
@@ -310,6 +322,7 @@ class EqualityJoinTests(unittest.TestCase):
                 "left_table_column_keys": ["col_name"],
                 "right_table_column_keys": ["x_y"],
                 "result_table_id": "joined_table",
+                "dataset_name": self.dataset_name,
             }
         )
 

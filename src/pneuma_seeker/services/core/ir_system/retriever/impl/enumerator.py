@@ -42,6 +42,7 @@ class Enumerator(AbstractRetriever):
     def retrieve(
         self,
         query: str,
+        dataset_name: str,
         k: int,
         sample_only: bool,
         sample_size: int | None = None,
@@ -50,13 +51,11 @@ class Enumerator(AbstractRetriever):
         Retrieves a list of documents given a query, where the query is a regex pattern.
         """
         results: list[AbstractDocument] = []
-        self.db_api.link_dataset_tables(
-            self.user_id, self.chat_id, self.config.DATA_SOURCES[0]
-        )
+        self.db_api.link_dataset_tables(self.user_id, self.chat_id, dataset_name)
         all_table_names = self.db_api.execute_query(
             self.user_id,
             self.chat_id,
-            f"SHOW TABLES FROM {self.config.DATA_SOURCES[0]}",
+            f"SHOW TABLES FROM {dataset_name}",
         )["name"].values.tolist()
         normalized_table_names: list[str] = []
         for raw_name in all_table_names:
@@ -73,7 +72,7 @@ class Enumerator(AbstractRetriever):
 
         for table_name in match_table_names:
             query_table = f"""
-            SELECT * FROM {self.config.DATA_SOURCES[0]}."{table_name}"
+            SELECT * FROM {dataset_name}."{table_name}"
             """
             if sample_only:
                 if sample_size is None or sample_size <= 0:
@@ -98,8 +97,8 @@ class Enumerator(AbstractRetriever):
                     """.strip(),
                     (
                         table_name,
-                        self.config.DATA_SOURCES[0],
-                        self.config.DATA_SOURCES[0],
+                        dataset_name,
+                        dataset_name,
                     ),
                 )
                 duckdb_col_types = {
@@ -113,11 +112,11 @@ class Enumerator(AbstractRetriever):
                 duckdb_col_types = {}
 
             table_description = self.db_api.get_table_description(
-                self.config.DATA_SOURCES[0], table_name
+                dataset_name, table_name
             )
             table_metadata: dict[str, str] = {
                 "description": table_description,
-                "dataset_name": self.config.DATA_SOURCES[0],
+                "dataset_name": dataset_name,
             }
             if duckdb_col_types:
                 table_metadata["column_types"] = json.dumps(
@@ -130,7 +129,7 @@ class Enumerator(AbstractRetriever):
                     retriever_type=RetrieverType.ENUMERATOR,
                     content=actual_table,
                     metadata=table_metadata,
-                    path=f'{self.config.DATA_SOURCES[0]}."{table_name}"',
+                    path=f'{dataset_name}."{table_name}"',
                 )
             )
         return results

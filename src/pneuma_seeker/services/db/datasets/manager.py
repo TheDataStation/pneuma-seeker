@@ -106,8 +106,7 @@ class DatasetManager:
                         for orig, cleaned in zip(original_cols, cleaned_cols)
                     )
 
-                    dataset_con.execute(
-                        f"""
+                    dataset_con.execute(f"""
                         CREATE OR REPLACE TABLE "{cleaned_table_name}" AS
                         SELECT {select_clause}
                         FROM read_csv_auto(
@@ -119,11 +118,9 @@ class DatasetManager:
                             SAMPLE_SIZE=100_000,
                             PARALLEL=FALSE
                         );
-                        """
-                    )
+                        """)
                 else:
-                    dataset_con.execute(
-                        f"""
+                    dataset_con.execute(f"""
                         CREATE OR REPLACE TABLE "{cleaned_table_name}" AS
                         SELECT * FROM read_csv_auto(
                             '{file_path}',
@@ -134,8 +131,7 @@ class DatasetManager:
                             SAMPLE_SIZE=100_000,
                             PARALLEL=FALSE
                         );
-                        """
-                    )
+                        """)
             dataset_con.commit()
         except Exception as exception:
             dataset_con.rollback()
@@ -173,28 +169,40 @@ class DatasetManager:
             return ""
         return str(description)
 
-    def register_postgres_dataset(self, dataset_name: str, connection_string: str) -> None:
+    def register_postgres_dataset(
+        self, dataset_name: str, connection_string: str
+    ) -> None:
         """Registers a PostgreSQL-backed dataset by storing its connection string."""
         self._pg_registry[dataset_name] = connection_string
-    
-    def get_accessible_local_datasets(self, is_admin: bool, group_permissions: dict[str, str]) -> list[str]:
+
+    def is_dataset_accessible(
+        self, dataset_name: str, is_admin: bool, group_permissions: dict[str, str]
+    ) -> bool:
+        """
+        Single source of truth for whether a dataset is accessible to a user with
+        the given admin status and group permissions. Every code path that reads
+        or exposes dataset data — not just the dataset-listing endpoint — must
+        call this before touching `dataset_name`.
+        """
+        dataset_db_file = self.dataset_db_path / dataset_name / f"{dataset_name}.db"
+        if not dataset_db_file.exists():
+            return False
+        if is_admin:
+            return True
+        permission_key = f"{PermissionKey.DATASET_ACCESS_PREFIX.value}:{dataset_name}"
+        return permission_key in group_permissions
+
+    def get_accessible_local_datasets(
+        self, is_admin: bool, group_permissions: dict[str, str]
+    ) -> list[str]:
         """
         Returns a list of local datasets accessible to the user based on their admin status and group membership.
         """
-        accessible_datasets = []
-        if is_admin:
-            for dataset_name in os.listdir(self.dataset_db_path):
-                dataset_db_file = self.dataset_db_path / dataset_name / f"{dataset_name}.db"
-                if dataset_db_file.exists():
-                    accessible_datasets.append(dataset_name)
-        elif group_permissions:
-            for permission_key, _ in group_permissions.items():
-                if permission_key.startswith(PermissionKey.DATASET_ACCESS_PREFIX.value):
-                    dataset_name = permission_key.split(f"{PermissionKey.DATASET_ACCESS_PREFIX.value}:")[1]
-                    dataset_db_file = self.dataset_db_path / dataset_name / f"{dataset_name}.db"
-                    if dataset_db_file.exists():
-                        accessible_datasets.append(dataset_name)
-        return accessible_datasets
+        return [
+            dataset_name
+            for dataset_name in os.listdir(self.dataset_db_path)
+            if self.is_dataset_accessible(dataset_name, is_admin, group_permissions)
+        ]
 
     def link_dataset_tables(
         self,

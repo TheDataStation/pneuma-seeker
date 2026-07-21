@@ -324,7 +324,6 @@ class SemanticJoinRealDBTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.mkdtemp()
         self.config = Config()
-        self.config.DATA_SOURCES = ["test_ds"]
         self.config.SEMANTIC_JOIN_MODE = "jarowinkler"
         self.config.SEMANTIC_JOIN_BATCH_SIZE = 30
         self.logger = MagicMock()

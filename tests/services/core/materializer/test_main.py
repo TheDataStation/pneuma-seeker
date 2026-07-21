@@ -33,7 +33,7 @@ class MaterializerTests(unittest.TestCase):
         self.prov_graph = ProvenanceGraph(self.logger)
 
         self.config = Config(".env.test")
-        self.config.DATA_SOURCES = ["test_ds"]
+        self.dataset_name = "test_ds"
         self.config.ENABLE_WEB_SEARCH = True
         self.config.ENABLE_WEB_CRAWL = True
         self.config.LLM_PATH = "mock"
@@ -97,7 +97,9 @@ class MaterializerTests(unittest.TestCase):
         # Define target T (schema only) so materializer knows it needs t1
         T = {"t1": pd.DataFrame(columns=["a", "b"])}
 
-        result = self.materializer.materialize_T(T=T, column_descriptions={}, S="")[-1]
+        result = self.materializer.materialize_T(
+            T=T, column_descriptions={}, S="", dataset_name=self.dataset_name
+        )[-1]
 
         self.assertIn("t1", result)
         pd.testing.assert_frame_equal(result["t1"].reset_index(drop=True), table_df)
@@ -150,7 +152,9 @@ class MaterializerTests(unittest.TestCase):
 
         T = {"t1": pd.DataFrame(columns=["a", "b"])}
 
-        result = self.materializer.materialize_T(T=T, column_descriptions={}, S="")[-1]
+        result = self.materializer.materialize_T(
+            T=T, column_descriptions={}, S="", dataset_name=self.dataset_name
+        )[-1]
 
         # After web_search operation the state should have web_search_result set
         self.assertIsNotNone(self.materializer.state.web_search_result)
@@ -221,7 +225,9 @@ class MaterializerTests(unittest.TestCase):
 
         T = {"t1": pd.DataFrame(columns=["a", "b"])}
 
-        result = self.materializer.materialize_T(T=T, column_descriptions={}, S="")[-1]
+        result = self.materializer.materialize_T(
+            T=T, column_descriptions={}, S="", dataset_name=self.dataset_name
+        )[-1]
 
         # After web_crawl operation the state should have web_crawl_result set
         self.assertIsNotNone(self.materializer.state.web_crawl_result)
@@ -296,7 +302,9 @@ class MaterializerTests(unittest.TestCase):
 
         T = {"t1": pd.DataFrame(columns=["a", "b", "newcol"])}
 
-        result = self.materializer.materialize_T(T=T, column_descriptions={}, S="")[-1]
+        result = self.materializer.materialize_T(
+            T=T, column_descriptions={}, S="", dataset_name=self.dataset_name
+        )[-1]
 
         self.assertIn("t1", result)
         res_df = result["t1"].reset_index(drop=True)
@@ -352,10 +360,14 @@ class MaterializerTests(unittest.TestCase):
             content=table_df,
             metadata={},
         )
-        self.action_set.retrieve_multi_topic_documents = MagicMock(return_value=[table_doc])
+        self.action_set.retrieve_multi_topic_documents = MagicMock(
+            return_value=[table_doc]
+        )
 
         T = {"t1": pd.DataFrame(columns=["a", "b"])}
-        result = self.materializer.materialize_T(T=T, column_descriptions={}, S="")
+        result = self.materializer.materialize_T(
+            T=T, column_descriptions={}, S="", dataset_name=self.dataset_name
+        )
         self.assertIn("t1", result[-1])
 
     def test_saved_intermediates_populated_after_fresh_run(self):
@@ -370,17 +382,27 @@ class MaterializerTests(unittest.TestCase):
         self._run_fresh_t1_materialization()
 
         # Verify t1 is in saved intermediates
-        self.assertIn("t1", {d.doc_id for d in self.materializer._saved_intermediate_tables})
+        self.assertIn(
+            "t1", {d.doc_id for d in self.materializer._saved_intermediate_tables}
+        )
 
         # Second run in update mode: LLM just sees t1 already there and accepts it
         plan_update = f'{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"t1 already present, no extra work needed"}}}}'
         self.lm_api.llm._responses = [f'{{"plan": [{plan_update}]}}']  # type: ignore
 
         T_updated = {"t1": pd.DataFrame(columns=["a", "b"])}
-        self.materializer.materialize_T(T=T_updated, column_descriptions={}, S="", update_mode=True)
+        self.materializer.materialize_T(
+            T=T_updated,
+            column_descriptions={},
+            S="",
+            dataset_name=self.dataset_name,
+            update_mode=True,
+        )
 
         # state.intermediate_tables must have included t1 at some point — check via saved
-        saved_ids_after = {d.doc_id for d in self.materializer._saved_intermediate_tables}
+        saved_ids_after = {
+            d.doc_id for d in self.materializer._saved_intermediate_tables
+        }
         self.assertIn("t1", saved_ids_after)
 
     def test_update_mode_preserves_intermediate_tables_in_db(self):
@@ -388,7 +410,9 @@ class MaterializerTests(unittest.TestCase):
         self._run_fresh_t1_materialization()
 
         tables_before = set(
-            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")["name"].tolist()
+            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")[
+                "name"
+            ].tolist()
         )
         self.assertIn("t1", tables_before)
 
@@ -397,10 +421,18 @@ class MaterializerTests(unittest.TestCase):
         self.lm_api.llm._responses = [f'{{"plan": [{plan_noop}]}}']  # type: ignore
 
         T_same = {"t1": pd.DataFrame(columns=["a", "b"])}
-        self.materializer.materialize_T(T=T_same, column_descriptions={}, S="", update_mode=True)
+        self.materializer.materialize_T(
+            T=T_same,
+            column_descriptions={},
+            S="",
+            dataset_name=self.dataset_name,
+            update_mode=True,
+        )
 
         tables_after = set(
-            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")["name"].tolist()
+            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")[
+                "name"
+            ].tolist()
         )
         # t1 must still be present
         self.assertIn("t1", tables_after)
@@ -410,7 +442,9 @@ class MaterializerTests(unittest.TestCase):
         self._run_fresh_t1_materialization()
 
         tables_after_first = set(
-            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")["name"].tolist()
+            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")[
+                "name"
+            ].tolist()
         )
         self.assertIn("t1", tables_after_first)
 
@@ -420,14 +454,29 @@ class MaterializerTests(unittest.TestCase):
         self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}]}}']  # type: ignore
         # retrieval mock already set from first run; reset to same table with new side_effect
         table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
-        table_doc = Table(doc_id="table_1", retriever_type=RetrieverType.PNEUMA_RETRIEVER, content=table_df, metadata={})
-        self.action_set.retrieve_multi_topic_documents = MagicMock(return_value=[table_doc])
+        table_doc = Table(
+            doc_id="table_1",
+            retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+            content=table_df,
+            metadata={},
+        )
+        self.action_set.retrieve_multi_topic_documents = MagicMock(
+            return_value=[table_doc]
+        )
 
         T2 = {"t2": pd.DataFrame(columns=["a", "b"])}
-        self.materializer.materialize_T(T=T2, column_descriptions={}, S="", update_mode=False)
+        self.materializer.materialize_T(
+            T=T2,
+            column_descriptions={},
+            S="",
+            dataset_name=self.dataset_name,
+            update_mode=False,
+        )
 
         tables_after_second = set(
-            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")["name"].tolist()
+            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")[
+                "name"
+            ].tolist()
         )
         self.assertIn("t2", tables_after_second)
         self.assertNotIn("t1", tables_after_second)
@@ -440,15 +489,30 @@ class MaterializerTests(unittest.TestCase):
         plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t2":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
         self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}]}}']  # type: ignore
         table_df = pd.DataFrame({"a": [5, 6], "b": [7, 8]})
-        table_doc = Table(doc_id="table_1", retriever_type=RetrieverType.PNEUMA_RETRIEVER, content=table_df, metadata={})
-        self.action_set.retrieve_multi_topic_documents = MagicMock(return_value=[table_doc])
+        table_doc = Table(
+            doc_id="table_1",
+            retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+            content=table_df,
+            metadata={},
+        )
+        self.action_set.retrieve_multi_topic_documents = MagicMock(
+            return_value=[table_doc]
+        )
 
         T2 = {"t2": pd.DataFrame(columns=["a", "b"])}
         # update_mode=False is reset behavior
-        self.materializer.materialize_T(T=T2, column_descriptions={}, S="", update_mode=False)
+        self.materializer.materialize_T(
+            T=T2,
+            column_descriptions={},
+            S="",
+            dataset_name=self.dataset_name,
+            update_mode=False,
+        )
 
         tables_after = set(
-            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")["name"].tolist()
+            self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")[
+                "name"
+            ].tolist()
         )
         self.assertIn("t2", tables_after)
         self.assertNotIn("t1", tables_after)
@@ -456,18 +520,35 @@ class MaterializerTests(unittest.TestCase):
     def test_saved_intermediates_updated_after_each_run(self):
         """_saved_intermediate_tables reflects the most recently completed run."""
         self._run_fresh_t1_materialization()
-        self.assertIn("t1", {d.doc_id for d in self.materializer._saved_intermediate_tables})
-        self.assertNotIn("t2", {d.doc_id for d in self.materializer._saved_intermediate_tables})
+        self.assertIn(
+            "t1", {d.doc_id for d in self.materializer._saved_intermediate_tables}
+        )
+        self.assertNotIn(
+            "t2", {d.doc_id for d in self.materializer._saved_intermediate_tables}
+        )
 
         # Second fresh run targeting t2
         plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find t2"]}}}}'
         plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t2":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
         self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}]}}']  # type: ignore
         table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
-        table_doc = Table(doc_id="table_1", retriever_type=RetrieverType.PNEUMA_RETRIEVER, content=table_df, metadata={})
-        self.action_set.retrieve_multi_topic_documents = MagicMock(return_value=[table_doc])
+        table_doc = Table(
+            doc_id="table_1",
+            retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+            content=table_df,
+            metadata={},
+        )
+        self.action_set.retrieve_multi_topic_documents = MagicMock(
+            return_value=[table_doc]
+        )
         T2 = {"t2": pd.DataFrame(columns=["a", "b"])}
-        self.materializer.materialize_T(T=T2, column_descriptions={}, S="", update_mode=False)
+        self.materializer.materialize_T(
+            T=T2,
+            column_descriptions={},
+            S="",
+            dataset_name=self.dataset_name,
+            update_mode=False,
+        )
 
         # Now _saved_intermediate_tables should reflect t2, not t1
         saved_ids = {d.doc_id for d in self.materializer._saved_intermediate_tables}
@@ -484,14 +565,27 @@ class MaterializerTests(unittest.TestCase):
         os.makedirs(Path(self.tmpdir) / "test_ds", exist_ok=True)
         table_df.to_csv(Path(self.tmpdir) / "test_ds" / "table_1.csv", index=False)
         self.db_api.ingest_dataset("test_ds", str(Path(self.tmpdir) / "test_ds"))
-        table_doc = Table(doc_id="table_1", retriever_type=RetrieverType.PNEUMA_RETRIEVER, content=table_df, metadata={})
-        self.action_set.retrieve_multi_topic_documents = MagicMock(return_value=[table_doc])
+        table_doc = Table(
+            doc_id="table_1",
+            retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+            content=table_df,
+            metadata={},
+        )
+        self.action_set.retrieve_multi_topic_documents = MagicMock(
+            return_value=[table_doc]
+        )
 
         # No prior run — _saved_intermediate_tables is empty
         self.assertEqual(len(self.materializer._saved_intermediate_tables), 0)
 
         T = {"t1": pd.DataFrame(columns=["a", "b"])}
-        result = self.materializer.materialize_T(T=T, column_descriptions={}, S="", update_mode=True)
+        result = self.materializer.materialize_T(
+            T=T,
+            column_descriptions={},
+            S="",
+            dataset_name=self.dataset_name,
+            update_mode=True,
+        )
         self.assertIn("t1", result[-1])
 
     def test_provenance_not_reset_in_update_mode(self):
@@ -499,7 +593,11 @@ class MaterializerTests(unittest.TestCase):
         self._run_fresh_t1_materialization()
         node_ids_after_first = set(self.prov_graph.nodes.keys())
         # There should be materializer nodes from the first run
-        mat_nodes_first = [n for n in self.prov_graph.nodes.values() if n.source_retriever == RetrieverType.MATERIALIZER]
+        mat_nodes_first = [
+            n
+            for n in self.prov_graph.nodes.values()
+            if n.source_retriever == RetrieverType.MATERIALIZER
+        ]
         self.assertTrue(len(mat_nodes_first) > 0)
 
         # Update run: LLM does a situational analysis only (t1 already satisfies T)
@@ -507,7 +605,13 @@ class MaterializerTests(unittest.TestCase):
         self.lm_api.llm._responses = [f'{{"plan": [{plan_noop}]}}']  # type: ignore
 
         T_same = {"t1": pd.DataFrame(columns=["a", "b"])}
-        self.materializer.materialize_T(T=T_same, column_descriptions={}, S="", update_mode=True)
+        self.materializer.materialize_T(
+            T=T_same,
+            column_descriptions={},
+            S="",
+            dataset_name=self.dataset_name,
+            update_mode=True,
+        )
 
         # All prior nodes must still be in the graph
         for node_id in node_ids_after_first:
@@ -516,7 +620,11 @@ class MaterializerTests(unittest.TestCase):
     def test_provenance_reset_in_fresh_mode(self):
         """In fresh mode, reset_materialization_nodes() IS called; prior MATERIALIZER prov nodes gone."""
         self._run_fresh_t1_materialization()
-        mat_nodes_first = [n for n in self.prov_graph.nodes.values() if n.source_retriever == RetrieverType.MATERIALIZER]
+        mat_nodes_first = [
+            n
+            for n in self.prov_graph.nodes.values()
+            if n.source_retriever == RetrieverType.MATERIALIZER
+        ]
         first_mat_node_ids = {n.id for n in mat_nodes_first}
         self.assertTrue(len(first_mat_node_ids) > 0)
 
@@ -525,10 +633,23 @@ class MaterializerTests(unittest.TestCase):
         plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t2":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
         self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}]}}']  # type: ignore
         table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
-        table_doc = Table(doc_id="table_1", retriever_type=RetrieverType.PNEUMA_RETRIEVER, content=table_df, metadata={})
-        self.action_set.retrieve_multi_topic_documents = MagicMock(return_value=[table_doc])
+        table_doc = Table(
+            doc_id="table_1",
+            retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+            content=table_df,
+            metadata={},
+        )
+        self.action_set.retrieve_multi_topic_documents = MagicMock(
+            return_value=[table_doc]
+        )
         T2 = {"t2": pd.DataFrame(columns=["a", "b"])}
-        self.materializer.materialize_T(T=T2, column_descriptions={}, S="", update_mode=False)
+        self.materializer.materialize_T(
+            T=T2,
+            column_descriptions={},
+            S="",
+            dataset_name=self.dataset_name,
+            update_mode=False,
+        )
 
         # The MATERIALIZER nodes from the first run must be gone
         for node_id in first_mat_node_ids:
@@ -539,7 +660,9 @@ class MaterializerTests(unittest.TestCase):
         self._run_fresh_t1_materialization()
 
         # t1 with [a, b] is now in DB and in _saved_intermediate_tables
-        t1_before = self.db_api.execute_query(self.user_id, self.chat_id, 'SELECT * FROM "t1";')
+        t1_before = self.db_api.execute_query(
+            self.user_id, self.chat_id, 'SELECT * FROM "t1";'
+        )
         self.assertListEqual(sorted(t1_before.columns.tolist()), ["a", "b"])
 
         # Update run: LLM uses query_executor to add column c.
@@ -553,7 +676,13 @@ class MaterializerTests(unittest.TestCase):
         self.lm_api.llm._responses = [f'{{"plan": [{plan_update}]}}']  # type: ignore
 
         T_updated = {"t1": pd.DataFrame(columns=["a", "b", "c"])}
-        result = self.materializer.materialize_T(T=T_updated, column_descriptions={}, S="", update_mode=True)
+        result = self.materializer.materialize_T(
+            T=T_updated,
+            column_descriptions={},
+            S="",
+            dataset_name=self.dataset_name,
+            update_mode=True,
+        )
 
         self.assertIn("t1", result[-1])
         result_df = result[-1]["t1"]
@@ -603,7 +732,9 @@ class MaterializerTests(unittest.TestCase):
         )
 
         T1 = {"t1": pd.DataFrame(columns=["a", "b"])}
-        result_1 = self.materializer.materialize_T(T=T1, column_descriptions={}, S="")
+        result_1 = self.materializer.materialize_T(
+            T=T1, column_descriptions={}, S="", dataset_name=self.dataset_name
+        )
         self.assertIn("t1", result_1[-1])
         tables_after_first = set(
             self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")[
@@ -613,7 +744,9 @@ class MaterializerTests(unittest.TestCase):
         self.assertIn("t1", tables_after_first)
 
         T2 = {"t2": pd.DataFrame(columns=["a", "b"])}
-        result_2 = self.materializer.materialize_T(T=T2, column_descriptions={}, S="")
+        result_2 = self.materializer.materialize_T(
+            T=T2, column_descriptions={}, S="", dataset_name=self.dataset_name
+        )
         self.assertIn("t2", result_2[-1])
         tables_after_second = set(
             self.db_api.execute_query(self.user_id, self.chat_id, "SHOW TABLES;")[
@@ -623,7 +756,6 @@ class MaterializerTests(unittest.TestCase):
         self.assertIn("t2", tables_after_second)
         self.assertNotIn("t1", tables_after_second)
         self.assertEqual(tables_after_second - baseline_tables, {"t2"})
-
 
     def test_check_completion_extra_columns_allowed(self):
         """Extra columns in a materialized table do not prevent completion."""
@@ -662,7 +794,7 @@ class MaterializerTests(unittest.TestCase):
         plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find"]}}}}'
         plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
         self.lm_api.llm._responses = [  # type: ignore
-            '{"plan": "not a list"}',           # bad — consumes step 1
+            '{"plan": "not a list"}',  # bad — consumes step 1
             f'{{"plan": [{plan1}, {plan2}]}}',  # good — completes within step 2
         ]
 
@@ -676,10 +808,14 @@ class MaterializerTests(unittest.TestCase):
             content=table_df,
             metadata={},
         )
-        self.action_set.retrieve_multi_topic_documents = MagicMock(return_value=[table_doc])
+        self.action_set.retrieve_multi_topic_documents = MagicMock(
+            return_value=[table_doc]
+        )
 
         T = {"t1": pd.DataFrame(columns=["a", "b"])}
-        result = self.materializer.materialize_T(T=T, column_descriptions={}, S="")
+        result = self.materializer.materialize_T(
+            T=T, column_descriptions={}, S="", dataset_name=self.dataset_name
+        )
         self.assertIn("t1", result[-1])
 
     def test_plan_parse_error_terminates_within_step_budget(self):
@@ -695,7 +831,9 @@ class MaterializerTests(unittest.TestCase):
         self.lm_api.llm._responses = ['{"plan": "not a list"}'] * 5  # type: ignore
 
         T = {"t1": pd.DataFrame(columns=["a", "b"])}
-        self.materializer.materialize_T(T=T, column_descriptions={}, S="")
+        self.materializer.materialize_T(
+            T=T, column_descriptions={}, S="", dataset_name=self.dataset_name
+        )
 
         self.assertEqual(
             len(self.lm_api.llm._responses),
@@ -720,7 +858,9 @@ class MaterializerTests(unittest.TestCase):
         self.action_set.retrieve_documents = MagicMock(return_value=[])
 
         T = {"t1": pd.DataFrame(columns=["a", "b"])}
-        self.materializer.materialize_T(T=T, column_descriptions={}, S="")
+        self.materializer.materialize_T(
+            T=T, column_descriptions={}, S="", dataset_name=self.dataset_name
+        )
 
         self.action_set.retrieve_documents.assert_not_called()
         abort_messages = [

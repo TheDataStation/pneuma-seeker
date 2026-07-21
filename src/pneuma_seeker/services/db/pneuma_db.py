@@ -148,6 +148,14 @@ class PneumaDB:
             is_admin, group_permissions
         )
 
+    def is_dataset_accessible(
+        self, dataset_name: str, is_admin: bool, group_permissions: dict[str, str]
+    ) -> bool:
+        """Checks whether a single dataset is accessible to a user with the given admin status and group permissions."""
+        return self.dataset_manager.is_dataset_accessible(
+            dataset_name, is_admin, group_permissions
+        )
+
     # ------------------------------------------------------------------
     # Workspace DB Management
     # ------------------------------------------------------------------

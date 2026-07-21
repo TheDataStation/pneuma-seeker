@@ -24,7 +24,6 @@ class EntityResolutionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.mkdtemp()
         self.config = Config()
-        self.config.DATA_SOURCES = ["test_ds"]
         self.config.ENTITY_RESOLUTION_JW_THRESHOLD = 0.75
         self.config.ENTITY_RESOLUTION_EMBEDDING_THRESHOLD = 0.60
         self.config.ENTITY_RESOLUTION_MODE = "jarowinkler"

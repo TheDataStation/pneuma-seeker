@@ -44,6 +44,7 @@ class EqualityJoin(Action, Applicable):
         left_table_column_keys = input.get("left_table_column_keys")
         right_table_column_keys = input.get("right_table_column_keys")
         result_table_id = input.get("result_table_id")
+        dataset_name = input.get("dataset_name", "")
 
         if not isinstance(left_table_id, str):
             raise ValueError("Input 'left_table_id' must be a string.")
@@ -76,8 +77,8 @@ class EqualityJoin(Action, Applicable):
         left_table_ref = self.__validate_table_ref(left_table_id)
         right_table_ref = self.__validate_table_ref(right_table_id)
 
-        self.__link_datasets_for_table_ref(left_table_ref)
-        self.__link_datasets_for_table_ref(right_table_ref)
+        self.__link_datasets_for_table_ref(left_table_ref, dataset_name)
+        self.__link_datasets_for_table_ref(right_table_ref, dataset_name)
 
         left_cols = self.__get_table_columns(left_table_ref)
         right_cols = self.__get_table_columns(right_table_ref)
@@ -144,18 +145,18 @@ class EqualityJoin(Action, Applicable):
             )
         return table_ref.strip()
 
-    def __link_datasets_for_table_ref(self, table_ref: str) -> None:
+    def __link_datasets_for_table_ref(self, table_ref: str, dataset_name: str) -> None:
         """If table_ref is dataset-qualified, ensure the dataset is attached."""
 
         if "." not in table_ref:
             return
 
         dataset_part = table_ref.split(".", 1)[0].strip()
-        # Remove quotes if present to match config.DATA_SOURCES values.
+        # Remove quotes if present to match dataset_name.
         if dataset_part.startswith('"') and dataset_part.endswith('"'):
             dataset_part = dataset_part[1:-1].replace('""', '"')
 
-        if self.config.DATA_SOURCES and dataset_part in self.config.DATA_SOURCES:
+        if dataset_name and dataset_part == dataset_name:
             self.db_api.link_dataset_tables(self.user_id, self.chat_id, dataset_part)
 
     def __get_table_columns(self, table_ref: str) -> list[str]:

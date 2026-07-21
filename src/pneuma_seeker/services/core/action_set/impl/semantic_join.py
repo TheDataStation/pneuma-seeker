@@ -83,6 +83,7 @@ class SemanticJoin(Action, Applicable):
         )
         mode: str = input.get("mode", self.config.SEMANTIC_JOIN_MODE).lower()
         use_llm: bool = input.get("use_llm", False)
+        dataset_name: str = input.get("dataset_name", "")
 
         if not isinstance(left_table_id, str):
             raise ValueError("left_table_id must be a string.")
@@ -114,6 +115,7 @@ class SemanticJoin(Action, Applicable):
             embed_batch_size,
             mode,
             use_llm,
+            dataset_name,
         )
 
     def join(
@@ -129,6 +131,7 @@ class SemanticJoin(Action, Applicable):
         embed_batch_size: int = 30,
         mode: str = "jarowinkler",
         use_llm: bool = False,
+        dataset_name: str = "",
     ) -> DataFrame:
         """
         Join rows from left_table_id and right_table_id using similarity matching.
@@ -153,8 +156,8 @@ class SemanticJoin(Action, Applicable):
             )
         needs_embedding = mode in ("embedding", "hybrid")
 
-        left_table_ref = self.__resolve_table_ref(left_table_id)
-        right_table_ref = self.__resolve_table_ref(right_table_id)
+        left_table_ref = self.__resolve_table_ref(left_table_id, dataset_name)
+        right_table_ref = self.__resolve_table_ref(right_table_id, dataset_name)
         left_all_cols = self.__get_table_columns(left_table_ref)
         right_all_cols = self.__get_table_columns(right_table_ref)
 
@@ -354,16 +357,14 @@ class SemanticJoin(Action, Applicable):
             f'SELECT * FROM "{joined_table_id}" LIMIT 5;',
         )
 
-    def __resolve_table_ref(self, table_id: str) -> str:
+    def __resolve_table_ref(self, table_id: str, dataset_name: str) -> str:
         db_tables = self.db_api.execute_query(
             self.user_id, self.chat_id, "SHOW TABLES;"
         )
         if "name" in db_tables.columns and table_id in db_tables["name"].tolist():
             return f'"{table_id}"'
-        self.db_api.link_dataset_tables(
-            self.user_id, self.chat_id, self.config.DATA_SOURCES[0]
-        )
-        return f'{self.config.DATA_SOURCES[0]}."{table_id}"'
+        self.db_api.link_dataset_tables(self.user_id, self.chat_id, dataset_name)
+        return f'{dataset_name}."{table_id}"'
 
     def __get_table_columns(self, table_ref: str) -> list[str]:
         df = self.db_api.execute_query(

@@ -13,7 +13,9 @@ class ProjectTableSkill(SkillBase):
                 "Error: 'src_table_id', 'target_table_id', and 'column_mapping' (dict) are required."
             )
         try:
-            df = agent.action_set.project_table(src, target, col_map)
+            df = agent.action_set.project_table(
+                src, target, col_map, agent.dataset_name
+            )
             if target not in agent.workspace_table_ids:
                 agent.workspace_table_ids.append(target)
             return SkillResult(
@@ -37,7 +39,9 @@ class JoinTablesSkill(SkillBase):
                 "Error: 'left_table_id', 'right_table_id', and 'output_table_id' are required."
             )
         try:
-            df = agent.action_set.join_equality(left, right, left_keys, right_keys, output)
+            df = agent.action_set.join_equality(
+                left, right, left_keys, right_keys, output, agent.dataset_name
+            )
             if output not in agent.workspace_table_ids:
                 agent.workspace_table_ids.append(output)
             return SkillResult(
@@ -56,11 +60,11 @@ class UnionTablesSkill(SkillBase):
         prov_col = args.get("provenance_column", "_source")
         prov_regex = args.get("provenance_regex", "(.*)")
         if not table_ids or not output:
-            return SkillResult(
-                "Error: 'table_ids' and 'output_table_id' are required."
-            )
+            return SkillResult("Error: 'table_ids' and 'output_table_id' are required.")
         try:
-            df = agent.action_set.union_tables(table_ids, output, prov_col, prov_regex)
+            df = agent.action_set.union_tables(
+                table_ids, output, prov_col, prov_regex, agent.dataset_name
+            )
             if output not in agent.workspace_table_ids:
                 agent.workspace_table_ids.append(output)
             return SkillResult(

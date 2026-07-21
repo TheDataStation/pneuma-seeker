@@ -52,6 +52,7 @@ class Retriever:
         self,
         retriever_type: RetrieverType,
         prompt: str,
+        dataset_name: str = "",
         k: int = 10,
         sample_only: bool = False,
         sample_size: int | None = None,
@@ -64,13 +65,14 @@ class Retriever:
         - sample_size (int | None): The number of documents to retrieve if sample_only is True.
         """
         retriever = self.retriever_factory.get_retriever(retriever_type)
-        documents = retriever.retrieve(prompt, k, sample_only, sample_size)
+        documents = retriever.retrieve(prompt, dataset_name, k, sample_only, sample_size)
         return documents
 
     def retrieve_multi_topic_documents(
         self,
         retriever_type: RetrieverType,
         prompts: list[str],
+        dataset_name: str = "",
         k: int = 10,
         sample_only: bool = False,
         sample_size: int | None = None,
@@ -85,7 +87,7 @@ class Retriever:
         retriever = self.retriever_factory.get_retriever(retriever_type)
         output: dict[str, list[AbstractDocument]] = {}
         for prompt in prompts:
-            documents = retriever.retrieve(prompt, k, sample_only, sample_size)
+            documents = retriever.retrieve(prompt, dataset_name, k, sample_only, sample_size)
             output[prompt] = documents
         return output
 

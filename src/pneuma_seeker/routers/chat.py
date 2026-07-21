@@ -53,6 +53,36 @@ session_manager = SessionManager(
 )
 
 
+def _resolve_dataset_permissions(
+    current_user: UserRecord,
+) -> tuple[bool, dict[str, str]]:
+    """Returns (is_admin, group_permissions) for the current user."""
+    group_permissions = get_current_user_permissions(current_user)
+    admin_value = group_permissions.get(PermissionKey.ADMIN.value, False)
+    is_admin = (
+        admin_value.lower() == "true"
+        if isinstance(admin_value, str)
+        else bool(admin_value)
+    )
+    return is_admin, group_permissions
+
+
+def require_dataset_access(dataset_name: str, current_user: UserRecord) -> None:
+    """Raises 403 unless `current_user` may access `dataset_name`.
+
+    Dataset access is permission-gated per group (see PermissionKey.DATASET_ACCESS_PREFIX),
+    but that's only enforced by the frontend's dataset picker unless every endpoint that
+    reads dataset_name from the request also calls this — the picker doesn't stop a direct
+    API call from requesting a dataset the caller was never granted.
+    """
+    is_admin, group_permissions = _resolve_dataset_permissions(current_user)
+    if not pneuma_db.is_dataset_accessible(dataset_name, is_admin, group_permissions):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Access to dataset '{dataset_name}' is not permitted.",
+        )
+
+
 @router.post("/")
 async def chat(request: Request, current_user: UserRecord = Depends(get_current_user)):
     body: dict[str, Any] = await request.json()
@@ -69,12 +99,18 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
         raise HTTPException(
             status_code=400, detail="Missing data source (dataset_name)"
         )
-    config.DATA_SOURCES = [dataset_name]
-
     if latest_user_message is None or not isinstance(latest_user_message, str):
         raise HTTPException(status_code=400, detail="Missing user message")
 
-    chat_session = await session_manager.get_chat_session_async(user_id, chat_id)
+    require_dataset_access(dataset_name, current_user)
+
+    chat_session = await session_manager.get_chat_session_async(
+        user_id, chat_id, dataset_name
+    )
+    # The session may have been created dataset-less by another endpoint (e.g.
+    # GET /state racing ahead of this being the chat's first-ever message) —
+    # this request's dataset_name is authoritative and always corrects it.
+    chat_session.set_dataset_name(dataset_name)
 
     async def event_stream():
         start = datetime.now().timestamp()
@@ -221,14 +257,7 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
 def get_accessible_datasets(
     current_user: UserRecord = Depends(get_current_user),
 ):
-    group_permissions = get_current_user_permissions(current_user)
-
-    admin_value = group_permissions.get(PermissionKey.ADMIN.value, False)
-    if isinstance(admin_value, str):
-        is_admin = admin_value.lower() == "true"
-    else:
-        is_admin = bool(admin_value)
-
+    is_admin, group_permissions = _resolve_dataset_permissions(current_user)
     datasets = pneuma_db.get_accessible_local_datasets(is_admin, group_permissions)
     return JSONResponse(content={"datasets": datasets})
 
@@ -463,6 +492,7 @@ async def query_table(
     # dataset_name is sanitized by stripping quotes; table_id is regex-validated above.
     if dataset_name:
         safe_ds = dataset_name.replace('"', "")
+        require_dataset_access(safe_ds, current_user)
         db_api.link_dataset_tables(user_id, chat_id, safe_ds)
         table_ref = f'"{safe_ds}"."{table_id}"'
     else:
@@ -608,6 +638,7 @@ async def download_table(
 
     if dataset_name:
         safe_ds = dataset_name.replace('"', "")
+        require_dataset_access(safe_ds, current_user)
         db_api.link_dataset_tables(user_id, chat_id, safe_ds)
         table_ref = f'"{safe_ds}"."{table_id}"'
     else:

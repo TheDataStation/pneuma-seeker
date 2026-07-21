@@ -22,7 +22,9 @@ class SessionManager:
         self.chat_sessions: OrderedDict[tuple[str, str], ChatSession] = OrderedDict()
         self._creation_lock = Lock()
 
-    def get_chat_session(self, user_id: str, chat_id: str) -> ChatSession:
+    def get_chat_session(
+        self, user_id: str, chat_id: str, dataset_name: str | None = None
+    ) -> ChatSession:
         """
         Retrieves or creates a ChatSession, evicting the LRU entry if at capacity.
 
@@ -32,6 +34,10 @@ class SessionManager:
         uncached session.  Call get_chat_session_async from async endpoints so
         that the potentially slow session-creation I/O runs in a thread pool
         rather than on the event loop.
+
+        `dataset_name` only matters when creating a brand-new session — it's
+        ignored on a cache hit, since an existing session's dataset is already
+        fixed (see ChatSession.__init__).
         """
         key = (user_id, chat_id)
 
@@ -56,10 +62,13 @@ class SessionManager:
                 self.logger,
                 DBAPI(self.config, self.logger, pneuma_db=self.pneuma_db),
                 LanguageModelAPI(self.config, self.logger),
+                dataset_name,
             )
             return self.chat_sessions[key]
 
-    async def get_chat_session_async(self, user_id: str, chat_id: str) -> ChatSession:
+    async def get_chat_session_async(
+        self, user_id: str, chat_id: str, dataset_name: str | None = None
+    ) -> ChatSession:
         """
         Event-loop-safe session retrieval for use inside async endpoint handlers.
 
@@ -69,8 +78,10 @@ class SessionManager:
         """
         key = (user_id, chat_id)
         if key in self.chat_sessions:
-            return self.get_chat_session(user_id, chat_id)
-        return await to_thread.run_sync(lambda: self.get_chat_session(user_id, chat_id))
+            return self.get_chat_session(user_id, chat_id, dataset_name)
+        return await to_thread.run_sync(
+            lambda: self.get_chat_session(user_id, chat_id, dataset_name)
+        )
 
     def evict_chat_session(self, user_id: str, chat_id: str) -> None:
         """Removes a ChatSession from the in-memory cache, if present."""

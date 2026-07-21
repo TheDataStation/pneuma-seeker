@@ -11,7 +11,10 @@ from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
 from pneuma_seeker.services.core.conductor.state import ConductorState
 from pneuma_seeker.services.skill_based_core.skills import discover_skills
 from pneuma_seeker.services.skill_based_core.skills.base import SkillBase
-from pneuma_seeker.services.core.conductor.models import ConductorResponse, ConductorResponseType
+from pneuma_seeker.services.core.conductor.models import (
+    ConductorResponse,
+    ConductorResponseType,
+)
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import formatted_log
 from pneuma_seeker.shared.parser import parse_json
@@ -113,6 +116,7 @@ class SkillsAgent:
         self._user_response = ""
         self._messages: list[LLMMessage] = []
         self._skill_calls: list[str] = []
+        self.dataset_name = ""
 
     # ------------------------------------------------------------------
     # ChatSession compatibility (mirrors Conductor public interface)
@@ -132,11 +136,15 @@ class SkillsAgent:
         interaction_history: list[LLMMessage],
         external_table_paths: list[str],  # TODO: handle reading external tables
         plan_mode: bool = False,  # not supported by SkillsAgent; accepted for signature parity with Conductor
+        dataset_name: str = "",
     ):
         """Drive the skills loop; yields LOG strings then the final user response."""
         chat_start_time = time()
         self._log(f"Processing: {user_input}")
         self._reset()
+        # Per-call, not construction-time: fresh on every turn, mirroring how
+        # retrieved_tables/_messages/etc. are reset above — never stale.
+        self.dataset_name = dataset_name
 
         self._messages = [
             LLMMessage(role=Role.SYSTEM.value, content=self._system_prompt)
@@ -148,7 +156,12 @@ class SkillsAgent:
         step = 0
         while not self._done and step < self.MAX_STEPS:
             step += 1
-            self.frontend_callback(ConductorResponse(ConductorResponseType.LOG, f"[Step {step} / {self.MAX_STEPS}] Deciding next skill..."))
+            self.frontend_callback(
+                ConductorResponse(
+                    ConductorResponseType.LOG,
+                    f"[Step {step} / {self.MAX_STEPS}] Deciding next skill...",
+                )
+            )
             self._log(f"Step {step}/{self.MAX_STEPS}")
 
             ctx = self._build_context(step, user_input, interaction_history)
@@ -164,7 +177,9 @@ class SkillsAgent:
                 )
             except Exception as exc:
                 self._log(f"LLM error: {exc}")
-                self.frontend_callback(ConductorResponse(ConductorResponseType.LOG, f"LLM error: {exc}"))
+                self.frontend_callback(
+                    ConductorResponse(ConductorResponseType.LOG, f"LLM error: {exc}")
+                )
                 raise exc
 
             self._log(f"LLM: {full_response}")
@@ -186,7 +201,11 @@ class SkillsAgent:
                 self._messages.append(
                     LLMMessage(role=Role.USER.value, content=result_content)
                 )
-                self.frontend_callback(ConductorResponse(ConductorResponseType.LOG, f"Skill '{skill_name}' executed."))
+                self.frontend_callback(
+                    ConductorResponse(
+                        ConductorResponseType.LOG, f"Skill '{skill_name}' executed."
+                    )
+                )
             except Exception as exc:
                 err = f"Error parsing/executing skill: {exc}"
                 self._log(err)
@@ -216,7 +235,9 @@ class SkillsAgent:
                 self.language_model_api.chat(self._messages, LLMOption(stream=True))
             )
 
-        yield ConductorResponse(ConductorResponseType.FINAL_RESPONSE, self._user_response)
+        yield ConductorResponse(
+            ConductorResponseType.FINAL_RESPONSE, self._user_response
+        )
 
         chat_end_time = time()
         elapsed = chat_end_time - chat_start_time
@@ -263,8 +284,13 @@ class SkillsAgent:
             parts += ["", "Recent interactions:"]
             recent = interaction_history[-6:]
             for i in range(0, len(recent) - 1, 2):
-                if recent[i]["role"] == Role.USER.value and recent[i + 1]["role"] == Role.ASSISTANT.value:
-                    parts.append(f'  {{"user input": {recent[i]["content"]}, "your response": {recent[i + 1]["content"]}}}')
+                if (
+                    recent[i]["role"] == Role.USER.value
+                    and recent[i + 1]["role"] == Role.ASSISTANT.value
+                ):
+                    parts.append(
+                        f'  {{"user input": {recent[i]["content"]}, "your response": {recent[i + 1]["content"]}}}'
+                    )
         if self.external_tables:
             parts += ["", "External tables (user-uploaded):"]
             parts.append(convert_retrieval_results_to_str(self.external_tables))

@@ -98,6 +98,7 @@ class Materializer:
         prefetched_web_search_result: AbstractDocument | None = None,
         prefetched_web_crawl_result: AbstractDocument | None = None,
         precomputed_join_paths: str | None = None,
+        dataset_name: str = "",
     ) -> tuple[
         list[AbstractDocument],
         AbstractDocument | None,
@@ -116,9 +117,7 @@ class Materializer:
         self.state.column_descriptions = column_descriptions
         self.state.S = S
 
-        self.db_api.link_dataset_tables(
-            self.user_id, self.chat_id, self.config.DATA_SOURCES[0]
-        )
+        self.db_api.link_dataset_tables(self.user_id, self.chat_id, dataset_name)
 
         if len(prefetched_tables) > 0:
             self.state.retrieved_tables = prefetched_tables
@@ -227,7 +226,7 @@ class Materializer:
                 self._log(f"Executing action: {action_plan}")
                 action_name: str = action_plan.get("action", "")
                 action_args: dict[str, Any] = action_plan.get("args", {})
-                status = self.__execute_action(action_name, action_args)
+                status = self.__execute_action(action_name, action_args, dataset_name)
                 if status == ActionExecutionStatus.ERROR:
                     self.llm_messages.append(
                         LLMMessage(
@@ -309,6 +308,7 @@ class Materializer:
         self,
         action_name: str,
         action_args: dict[str, Any],
+        dataset_name: str,
     ) -> ActionExecutionStatus:
         self._log(f"==> Executing action {action_name}...")
 
@@ -319,13 +319,13 @@ class Materializer:
             outcome = error_msg
             status = ActionExecutionStatus.ERROR
         else:
-            outcome, status = handler(action_args)
+            outcome, status = handler(action_args, dataset_name)
 
         self.llm_messages.append(LLMMessage(role=Role.USER.value, content=outcome))
         return status
 
     def _handle_situational_analysis(
-        self, action_args: dict[str, Any]
+        self, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         message: str = action_args.get("message", "")
         return (
@@ -334,7 +334,7 @@ class Materializer:
         )
 
     def _handle_table_retrieve(
-        self, action_args: dict[str, Any]
+        self, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         prompts = action_args.get("prompts", [])
         if not isinstance(prompts, list) or not all(
@@ -348,7 +348,7 @@ class Materializer:
             self._log(f"==> {error_msg}")
             return error_msg, ActionExecutionStatus.ERROR
         self.state.retrieved_tables = self.action_set.retrieve_multi_topic_documents(
-            prompts, RetrieverType.PNEUMA_RETRIEVER, 10, True, 5
+            prompts, RetrieverType.PNEUMA_RETRIEVER, dataset_name, 10, True, 5
         )
         if len(self.state.retrieved_tables) == 0:
             error_msg = "No tables were retrieved."
@@ -376,7 +376,7 @@ class Materializer:
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_web_search(
-        self, action_args: dict[str, Any]
+        self, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         if not self.config.ENABLE_WEB_SEARCH:
             error_msg = (
@@ -386,7 +386,7 @@ class Materializer:
             return error_msg, ActionExecutionStatus.ERROR
         prompt = action_args.get("prompt", "")
         web_search_results = self.action_set.retrieve_documents(
-            prompt, RetrieverType.WEB_SEARCH
+            prompt, RetrieverType.WEB_SEARCH, dataset_name
         )
         if len(web_search_results) == 0:
             error_msg = f"No relevant information was found from {ActionNames.WEB_SEARCH.value}."
@@ -407,7 +407,7 @@ class Materializer:
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_web_crawl(
-        self, action_args: dict[str, Any]
+        self, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         if not self.config.ENABLE_WEB_CRAWL:
             error_msg = (
@@ -417,7 +417,7 @@ class Materializer:
             return error_msg, ActionExecutionStatus.ERROR
         prompt = action_args.get("url", "")
         web_crawl_results = self.action_set.retrieve_documents(
-            prompt, RetrieverType.WEB_CRAWL
+            prompt, RetrieverType.WEB_CRAWL, dataset_name
         )
         if len(web_crawl_results) == 0:
             error_msg = (
@@ -440,7 +440,7 @@ class Materializer:
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_table_enumeration(
-        self, action_args: dict[str, Any]
+        self, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         patterns = action_args.get("patterns", [])
         if not isinstance(patterns, list) or not all(
@@ -455,7 +455,7 @@ class Materializer:
             return error_msg, ActionExecutionStatus.ERROR
         extra_tables: list[AbstractDocument] = (
             self.action_set.retrieve_multi_topic_documents(
-                patterns, RetrieverType.ENUMERATOR, 20, True, 5
+                patterns, RetrieverType.ENUMERATOR, dataset_name, 20, True, 5
             )
         )
         pattern_desc = str(patterns)
@@ -488,7 +488,7 @@ class Materializer:
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_table_projection(
-        self, action_args: dict[str, Any]
+        self, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         all_tables = (
             self.state.retrieved_tables
@@ -561,7 +561,7 @@ class Materializer:
             )
             try:
                 projected_table_sample_rows = self.action_set.project_table(
-                    table_id_to_project, target_table_id, column_mapping
+                    table_id_to_project, target_table_id, column_mapping, dataset_name
                 )
             except Exception as e:
                 error_msg = f"Failed projecting columns {column_mapping!r} from table {table_id_to_project!r}: {e}"
@@ -615,7 +615,7 @@ class Materializer:
         return "\n".join(outcome_messages), ActionExecutionStatus.SUCCESS
 
     def _handle_equality_join(
-        self, action_args: dict[str, Any]
+        self, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         left_table_id = action_args.get("left_table_id")
         right_table_id = action_args.get("right_table_id")
@@ -644,7 +644,12 @@ class Materializer:
             return error_msg, ActionExecutionStatus.ERROR
         try:
             joined_preview = self.action_set.join_equality(
-                left_table_id, right_table_id, left_keys, right_keys, result_table_id
+                left_table_id,
+                right_table_id,
+                left_keys,
+                right_keys,
+                result_table_id,
+                dataset_name,
             )
         except Exception as e:
             error_msg = f"Failed equality_join: {e}"
@@ -677,7 +682,7 @@ class Materializer:
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_table_union(
-        self, action_args: dict[str, Any]
+        self, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         table_ids = action_args.get("table_ids")
         result_table_id = action_args.get("result_table_id")
@@ -709,6 +714,7 @@ class Materializer:
                 result_table_id=result_table_id,
                 provenance_column_name=str(provenance_column_name),
                 provenance_regex=str(provenance_regex),
+                dataset_name=dataset_name,
             )
         except Exception as e:
             error_msg = f"Failed table_union: {e}"
@@ -738,7 +744,7 @@ class Materializer:
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_semantic_column_generation(
-        self, action_args: dict[str, Any]
+        self, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         table_id: str | None = action_args.get("table_id")
         new_column_name: str | None = action_args.get("new_column_name")
@@ -813,7 +819,7 @@ class Materializer:
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_semantic_join(
-        self, action_args: dict[str, Any]
+        self, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         all_tables = (
             self.state.retrieved_tables
@@ -893,6 +899,7 @@ class Materializer:
             relevant_right_cols,
             joined_table_id,
             top_k=self.config.SEMANTIC_JOIN_TOP_K,
+            dataset_name=dataset_name,
         )
         join_code = self.action_set.generate_semantic_join_generator_code(
             left_table_doc,  # type: ignore
@@ -937,7 +944,7 @@ class Materializer:
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_python_executor(
-        self, action_args: dict[str, Any]
+        self, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         all_tables = (
             self.state.retrieved_tables
@@ -1008,7 +1015,7 @@ class Materializer:
             return error_msg, ActionExecutionStatus.ERROR
 
     def _handle_query_executor(
-        self, action_args: dict[str, Any]
+        self, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         all_tables = (
             self.state.retrieved_tables
@@ -1088,7 +1095,7 @@ class Materializer:
             return error_msg, ActionExecutionStatus.ERROR
 
     def _handle_context_extraction(
-        self, action_args: dict[str, Any]
+        self, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         if not self.config.ENABLE_CONTEXT_EXTRACTION:
             error_msg = f"{ActionNames.CONTEXT_EXTRACTION.value} is not enabled in the configuration."
@@ -1159,7 +1166,7 @@ class Materializer:
             return error_msg, ActionExecutionStatus.ERROR
 
     def _handle_entity_resolution(
-        self, action_args: dict[str, Any]
+        self, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
         source_table_id = action_args.get("source_table_id")
         target_column = action_args.get("target_column")

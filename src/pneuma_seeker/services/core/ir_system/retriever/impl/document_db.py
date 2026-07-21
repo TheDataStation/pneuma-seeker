@@ -16,18 +16,21 @@ from pneuma_seeker.services.core.ir_system.retriever.interface import AbstractRe
 class DocumentDB(AbstractRetriever):
     """Represents a domain knowledge retriever."""
 
-    def __init__(self, user_id: str, chat_id: str, config, db_api, language_model_api):
+    def __init__(
+        self,
+        user_id: str,
+        chat_id: str,
+        config,
+        db_api,
+        language_model_api,
+    ):
         super().__init__(user_id, chat_id, config, db_api, language_model_api)
         self.local_retriever = None
         self.global_retriever = None
 
         curr_file_path = os.path.dirname(os.path.abspath(__file__))
-        self.LOCAL_INDEX_PATH = os.path.join(
-            curr_file_path, "indices", "kb", "local"
-        )
-        self.GLOBAL_INDEX_PATH = os.path.join(
-            curr_file_path, "indices", "kb", "global"
-        )
+        self.LOCAL_INDEX_PATH = os.path.join(curr_file_path, "indices", "kb", "local")
+        self.GLOBAL_INDEX_PATH = os.path.join(curr_file_path, "indices", "kb", "global")
         self.stemmer = Stemmer("english")
 
     @property
@@ -59,6 +62,7 @@ class DocumentDB(AbstractRetriever):
     def retrieve(
         self,
         query: str,
+        dataset_name: str,
         k: int,
         sample_only: bool,
         sample_size: int | None = None,
@@ -72,7 +76,9 @@ class DocumentDB(AbstractRetriever):
             return []
         retrieval_results: list[AbstractDocument] = []
         if self.local_retriever is not None:
-            retrieval_results.extend(self.__actual_retrieve(query, self.local_retriever, k))
+            retrieval_results.extend(
+                self.__actual_retrieve(query, self.local_retriever, k)
+            )
         if self.global_retriever is not None:
             retrieval_results.extend(
                 self.__actual_retrieve(query, self.global_retriever, k)
@@ -115,13 +121,13 @@ class DocumentDB(AbstractRetriever):
 
         new_global_document = False
         new_local_document = False
-        
+
         # Get existing documents first
         if os.path.exists(self.LOCAL_INDEX_PATH):
             retriever = bm25s.BM25.load(self.LOCAL_INDEX_PATH, load_corpus=True)
             if retriever.corpus is not None:
                 corpus_json_local.extend(retriever.corpus)
-        
+
         if os.path.exists(self.GLOBAL_INDEX_PATH):
             retriever = bm25s.BM25.load(self.GLOBAL_INDEX_PATH, load_corpus=True)
             if retriever.corpus is not None:
@@ -139,14 +145,14 @@ class DocumentDB(AbstractRetriever):
         for document in documents:
             if not isinstance(document, Knowledge):
                 raise ValueError("All documents must be of type Knowledge.")
-            
+
             doc_entry = {
                 "text": document.content,
                 "metadata": {
                     "doc_id": f"kb_{next_id}",
                     "type": document.metadata["type"],
                     "user": document.metadata["user"],
-                }
+                },
             }
             next_id += 1
 
@@ -168,7 +174,7 @@ class DocumentDB(AbstractRetriever):
             retriever = bm25s.BM25(corpus=corpus_json_global)
             retriever.index(corpus_tokens, show_progress=True)
             retriever.save(self.GLOBAL_INDEX_PATH, corpus=corpus_json_global)
-        
+
         if new_local_document:
             if os.path.exists(self.LOCAL_INDEX_PATH):
                 shutil.rmtree(self.LOCAL_INDEX_PATH)

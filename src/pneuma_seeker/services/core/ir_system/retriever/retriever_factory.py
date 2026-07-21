@@ -30,10 +30,18 @@ class RetrieverFactory:
             RetrieverType.PNEUMA_RETRIEVER: PneumaRetriever(
                 user_id, chat_id, config, db_api, language_model_api
             ),
-            RetrieverType.DOCUMENT_DB: DocumentDB(user_id, chat_id, config, db_api, language_model_api),
-            RetrieverType.WEB_SEARCH: WebSearch(user_id, chat_id, config, db_api, language_model_api),
-            RetrieverType.ENUMERATOR: Enumerator(user_id, chat_id, config, db_api, language_model_api),
-            RetrieverType.WEB_CRAWL: WebCrawler(user_id, chat_id, config, db_api, language_model_api),
+            RetrieverType.DOCUMENT_DB: DocumentDB(
+                user_id, chat_id, config, db_api, language_model_api
+            ),
+            RetrieverType.WEB_SEARCH: WebSearch(
+                user_id, chat_id, config, db_api, language_model_api
+            ),
+            RetrieverType.ENUMERATOR: Enumerator(
+                user_id, chat_id, config, db_api, language_model_api
+            ),
+            RetrieverType.WEB_CRAWL: WebCrawler(
+                user_id, chat_id, config, db_api, language_model_api
+            ),
         }
 
     def get_retriever(self, retriever_type: RetrieverType) -> AbstractRetriever:

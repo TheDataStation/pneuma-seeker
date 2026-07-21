@@ -84,6 +84,7 @@ class PneumaRetriever(AbstractRetriever):
     def retrieve(
         self,
         query: str,
+        dataset_name: str,
         k: int,
         sample_only: bool,
         sample_size: int | None = None,
@@ -94,20 +95,14 @@ class PneumaRetriever(AbstractRetriever):
         try:
             retrieval_results: list[AbstractDocument] = []
             increased_k = k * 5
-            self.db_api.link_dataset_tables(
-                self.user_id, self.chat_id, self.config.DATA_SOURCES[0]
-            )
+            self.db_api.link_dataset_tables(self.user_id, self.chat_id, dataset_name)
 
             client = chromadb.PersistentClient(
-                os.path.join(
-                    self.index_path, f"vector-index-{self.config.DATA_SOURCES[0]}"
-                )
+                os.path.join(self.index_path, f"vector-index-{dataset_name}")
             )
             collection = client.get_collection("benchmark")
             retriever = bm25s.BM25.load(
-                os.path.join(
-                    self.index_path, f"fulltext-index-{self.config.DATA_SOURCES[0]}"
-                ),
+                os.path.join(self.index_path, f"fulltext-index-{dataset_name}"),
                 load_corpus=True,
             )
 
@@ -173,7 +168,7 @@ class PneumaRetriever(AbstractRetriever):
                     keywords = entities["entities"]
                     if len(keywords) > 0:
                         final_rank, table_keywords = self.__keyword_relevance_by_table(
-                            keywords
+                            keywords, dataset_name
                         )
 
             for table, _, _ in all_nodes[:k]:
@@ -186,7 +181,7 @@ class PneumaRetriever(AbstractRetriever):
                     continue
 
                 query_table = f"""
-                SELECT * FROM {self.config.DATA_SOURCES[0]}."{table_name}"
+                SELECT * FROM {dataset_name}."{table_name}"
                 """
                 if sample_only:
                     if sample_size is None or sample_size <= 0:
@@ -211,8 +206,8 @@ class PneumaRetriever(AbstractRetriever):
                         """.strip(),
                         (
                             table_name,
-                            self.config.DATA_SOURCES[0],
-                            self.config.DATA_SOURCES[0],
+                            dataset_name,
+                            dataset_name,
                         ),
                     )
                     duckdb_col_types = {
@@ -226,9 +221,9 @@ class PneumaRetriever(AbstractRetriever):
                     duckdb_col_types = {}
                 table_metadata: dict[str, str] = {
                     "description": self.db_api.get_table_description(
-                        self.config.DATA_SOURCES[0], table_name
+                        dataset_name, table_name
                     ),
-                    "dataset_name": self.config.DATA_SOURCES[0],
+                    "dataset_name": dataset_name,
                 }
                 if duckdb_col_types:
                     table_metadata["column_types"] = json.dumps(
@@ -242,7 +237,7 @@ class PneumaRetriever(AbstractRetriever):
                         retriever_type=RetrieverType.PNEUMA_RETRIEVER,
                         content=actual_table,
                         metadata=table_metadata,
-                        path=f'{self.config.DATA_SOURCES[0]}."{table_name}"',
+                        path=f'{dataset_name}."{table_name}"',
                     )
                 )
 
@@ -265,12 +260,10 @@ class PneumaRetriever(AbstractRetriever):
 
                     seen_tables.append(table_id)
                     table_description = self.db_api.get_table_description(
-                        self.config.DATA_SOURCES[0], table_id
+                        dataset_name, table_id
                     )
 
-                    booster_query = (
-                        f'SELECT * FROM {self.config.DATA_SOURCES[0]}."{table_id}"'
-                    )
+                    booster_query = f'SELECT * FROM {dataset_name}."{table_id}"'
                     if sample_only:
                         if sample_size is None or sample_size <= 0:
                             sample_size = 5
@@ -295,8 +288,8 @@ class PneumaRetriever(AbstractRetriever):
                             """.strip(),
                             (
                                 table_id,
-                                self.config.DATA_SOURCES[0],
-                                self.config.DATA_SOURCES[0],
+                                dataset_name,
+                                dataset_name,
                             ),
                         )
                         duckdb_col_types = {
@@ -310,7 +303,7 @@ class PneumaRetriever(AbstractRetriever):
                         duckdb_col_types = {}
 
                     booster_metadata: dict[str, str] = {
-                        "dataset_name": self.config.DATA_SOURCES[0],
+                        "dataset_name": dataset_name,
                         "description": table_description,
                         "keywords_existence": ", ".join(
                             sorted(table_keywords.get(table_id, []))
@@ -326,7 +319,7 @@ class PneumaRetriever(AbstractRetriever):
                             retriever_type=RetrieverType.PNEUMA_RETRIEVER,
                             content=booster_table,
                             metadata=booster_metadata,
-                            path=f'{self.config.DATA_SOURCES[0]}."{table_id}"',
+                            path=f'{dataset_name}."{table_id}"',
                         )
                     )
 
@@ -361,6 +354,7 @@ Your task is to analyze a natural-language query and extract **explicitly mentio
     def __keyword_relevance_by_table(
         self,
         keywords: list[str],
+        dataset_name: str,
     ) -> tuple[list[tuple[str, float]], dict[str, set[str]]]:
         """
         Returns:
@@ -384,7 +378,7 @@ Your task is to analyze a natural-language query and extract **explicitly mentio
             SELECT table_name, column_name
             FROM information_schema.columns
             WHERE data_type IN ('VARCHAR', 'TEXT')
-            AND table_catalog = '{self.config.DATA_SOURCES[0]}'
+            AND table_catalog = '{dataset_name}'
             """,
         )
 
@@ -435,7 +429,7 @@ Your task is to analyze a natural-language query and extract **explicitly mentio
         for _, row in table_columns.iterrows():
             table = row["table_name"]
             column = row["column_name"]
-            fq_table = f"{self.__quote_ident(self.config.DATA_SOURCES[0])}.{self.__quote_ident(table)}"
+            fq_table = f"{self.__quote_ident(dataset_name)}.{self.__quote_ident(table)}"
 
             for keyword, regex in keyword_regexes.items():
                 _ensure(table, regex)
@@ -564,9 +558,9 @@ Your task is to analyze a natural-language query and extract **explicitly mentio
             tables = [i for i in documents if isinstance(i, Table)]
 
             schema_summaries: list[Text] = self.__get_schema_summaries(
-                tables, table_context
+                tables, table_context, dataset
             )
-            sample_rows: list[Text] = self.__get_sample_rows(tables)
+            sample_rows: list[Text] = self.__get_sample_rows(tables, dataset)
 
             schema_summaries = self.__split_schema_summaries(schema_summaries)
             sample_rows = self.__merge_sample_rows(sample_rows)
@@ -626,9 +620,9 @@ Your task is to analyze a natural-language query and extract **explicitly mentio
                 schema_summaries = existing_schema_summaries
             else:
                 schema_summaries: list[Text] = self.__get_schema_summaries(
-                    tables, table_context
+                    tables, table_context, dataset
                 )
-            sample_rows: list[Text] = self.__get_sample_rows(tables)
+            sample_rows: list[Text] = self.__get_sample_rows(tables, dataset)
 
             schema_summaries = self.__split_schema_summaries(schema_summaries)
             sample_rows = self.__merge_sample_rows(sample_rows)
@@ -822,11 +816,11 @@ Your task is to analyze a natural-language query and extract **explicitly mentio
         retriever.save(os.path.join(self.index_path, f"fulltext-index-{dataset}"))
 
     def __get_schema_summaries(
-        self, tables: list[Table], table_context: list[TableContext]
+        self, tables: list[Table], table_context: list[TableContext], dataset_name: str
     ) -> list[Text]:
         summaries: list[Text] = []
         conversations, conv_tables, conv_cols = self.__parse_tables(
-            tables, table_context
+            tables, table_context, dataset_name
         )
         # Still need adjustments; we set the value to 20 for now.
         # optimal_batch_size = self.__get_optimal_batch_size(conversations)
@@ -948,7 +942,9 @@ Your task is to analyze a natural-language query and extract **explicitly mentio
         print(f"Optimal batch size: {optimal_batch_size}")
         return optimal_batch_size
 
-    def __parse_tables(self, tables: list[Table], table_context: list[TableContext]):
+    def __parse_tables(
+        self, tables: list[Table], table_context: list[TableContext], dataset_name: str
+    ):
         print(
             f"Parsing tables to create column descriptions with LLM. Number of tables: {len(tables)}"
         )
@@ -956,9 +952,7 @@ Your task is to analyze a natural-language query and extract **explicitly mentio
         conv_tables: list[str] = []
         conv_cols: list[str] = []
 
-        self.db_api.link_dataset_tables(
-            self.user_id, self.chat_id, self.config.DATA_SOURCES[0]
-        )
+        self.db_api.link_dataset_tables(self.user_id, self.chat_id, dataset_name)
 
         table_names = [i.metadata["table_name"] for i in tables]
         for table in tqdm(table_names):
@@ -966,7 +960,7 @@ Your task is to analyze a natural-language query and extract **explicitly mentio
                 df = self.db_api.execute_query(
                     self.user_id,
                     self.chat_id,
-                    f'SELECT * FROM {self.config.DATA_SOURCES[0]}."{table}" LIMIT 0',
+                    f'SELECT * FROM {dataset_name}."{table}" LIMIT 0',
                 )
             except pd.errors.EmptyDataError:
                 continue
@@ -1013,17 +1007,15 @@ Describe very briefly what the ```{column}``` column represents. Consider the ta
 */
 Describe very briefly what the ```{column}``` column represents. Consider the table name as well to contextualize the description. If not possible, simply state "No description.\""""
 
-    def __get_sample_rows(self, tables: list[Table]) -> list[Text]:
+    def __get_sample_rows(self, tables: list[Table], dataset_name: str) -> list[Text]:
         sample_rows: list[Text] = []
-        self.db_api.link_dataset_tables(
-            self.user_id, self.chat_id, self.config.DATA_SOURCES[0]
-        )
+        self.db_api.link_dataset_tables(self.user_id, self.chat_id, dataset_name)
         for table_idx, table in enumerate(tqdm(tables)):
             try:
                 df = self.db_api.execute_query(
                     self.user_id,
                     self.chat_id,
-                    f'SELECT * FROM {self.config.DATA_SOURCES[0]}."{table.metadata["table_name"]}" LIMIT 100',
+                    f'SELECT * FROM {dataset_name}."{table.metadata["table_name"]}" LIMIT 100',
                 )
             except pd.errors.EmptyDataError:
                 continue
