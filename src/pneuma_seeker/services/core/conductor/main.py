@@ -87,6 +87,7 @@ class Conductor:
         self.web_search_result: AbstractDocument | None = None
         self.web_crawl_result: AbstractDocument | None = None
         self.join_paths: str | None = None
+        self.used_memory_entries: list[dict[str, Any]] = []
 
         self.user_facing_response = ""
         self.actions: list[str] = []
@@ -119,6 +120,8 @@ class Conductor:
         external_table_paths: list[str],  # TODO: handle reading external tables
         plan_mode: bool = False,
         dataset_name: str = "",
+        use_memory: bool = True,
+        memory_group_ids: list[str] | None = None,
     ):
         """Processes user message and yields responses."""
         self._log(f"Processing user message: {user_message}")
@@ -127,6 +130,28 @@ class Conductor:
         self._reset_conductor()
         self._plan_mode = plan_mode and self.config.ENABLE_PLAN_MODE
         self.interaction_history = interaction_history
+
+        self.used_memory_entries = []
+        if use_memory and self.config.ENABLE_MEMORY_LAYER:
+            try:
+                self.used_memory_entries = self.db_api.retrieve_memory_context(
+                    self.user_id,
+                    dataset_name,
+                    memory_group_ids or [],
+                    user_message,
+                    self.config.MEMORY_RETRIEVAL_TOP_K,
+                )
+                self._log(
+                    f"Memory context: found {len(self.used_memory_entries)} relevant entries "
+                    f"(dataset={dataset_name}, group_ids={memory_group_ids})"
+                )
+            except Exception as exc:
+                self._log(f"Memory context retrieval failed, continuing without it: {exc}")
+                self.used_memory_entries = []
+        elif not use_memory:
+            self._log("Memory context: skipped (use_memory=False for this turn)")
+        else:
+            self._log("Memory context: skipped (ENABLE_MEMORY_LAYER=False)")
 
         self.llm_messages = [
             LLMMessage(
@@ -138,6 +163,15 @@ class Conductor:
                 ),
             )
         ]
+        if self.used_memory_entries:
+            self.llm_messages.append(
+                LLMMessage(
+                    role=Role.SYSTEM.value,
+                    content=self.prompt_factory.get_memory_context_prompt(
+                        self.used_memory_entries
+                    ),
+                )
+            )
 
         current_step = 0
         prev_accumulated_in_tokens = 0
@@ -779,6 +813,7 @@ class Conductor:
                     uncertainties,
                     self.retrieved_tables + self.external_tables,
                     _DS_SKEPTIC_TABLE,
+                    dataset_name,
                 )
                 for log_msg in log_msgs:
                     self.frontend_callback(
@@ -944,7 +979,7 @@ class Conductor:
 
         available_tables = self.retrieved_tables + self.external_tables
         summary, log_msgs = self.action_set.run_context_extraction(
-            uncertainties, available_tables, "conductor_assumption_check"
+            uncertainties, available_tables, "conductor_assumption_check", dataset_name
         )
         for log_msg in log_msgs:
             self.frontend_callback(

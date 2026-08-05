@@ -5,6 +5,7 @@ from io import BytesIO, StringIO
 from json import dumps
 from queue import Empty, Queue
 from re import match
+from threading import Thread
 from typing import Any
 from zipfile import ZipFile, ZIP_DEFLATED
 
@@ -31,11 +32,15 @@ from pneuma_seeker.services.core.conductor.models import (
     ConductorResponseType,
 )
 from pneuma_seeker.services.db.pneuma_db import PneumaDB
+from pneuma_seeker.services.db.users.manager import UserDB
 from pneuma_seeker.services.db.users.models import UserRecord
 from pneuma_seeker.session_manager import SessionManager
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import setup_logger
+from pneuma_seeker.shared.parser import parse_json
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
+from pneuma_seeker.shared.schemas.language_model.option import LLMOption
+from pneuma_seeker.shared.schemas.language_model.role import Role
 from pneuma_seeker.shared.table_serializer import serialize_dataframe
 
 router = APIRouter(
@@ -46,11 +51,63 @@ router = APIRouter(
 config = Config("../../../.env")
 logger = setup_logger("Chat Router")
 pneuma_db = PneumaDB(config, logger)
+user_db = UserDB(config, logger)
 session_manager = SessionManager(
     config,
     logger,
     pneuma_db,
 )
+
+
+_MEMORY_EXTRACTION_SYS_PROMPT = """You are extracting durable, reusable knowledge from a single chat turn in a data-analysis assistant.
+
+Identify at most a few short, atomic pieces of knowledge worth remembering long-term:
+- "global": undocumented assumptions, data quirks, or pitfalls about the dataset that would help OTHER users interpret it correctly.
+- "local": a personal preference this specific user expressed about how they like analyses done.
+
+Only extract something if it is clearly durable and reusable in future, unrelated turns — not a one-off detail specific to this single question.
+
+Output ONLY a JSON object of the form:
+{"entries": [{"scope": "local"|"global", "content": "one short sentence"}]}
+
+If nothing qualifies, return {"entries": []}. Never include more than 3 entries."""
+
+
+def _extract_memory_safely(
+    chat_session,
+    user_message: str,
+    final_response: str,
+    user_id: str,
+    group_id: str | None,
+    dataset_name: str,
+    chat_id: str,
+) -> None:
+    """
+    Best-effort, fire-and-forget extraction of tribal knowledge / user preferences
+    from a completed turn. Never allowed to raise — a malformed LLM JSON response
+    or any other failure here must not affect the user-facing chat flow, which has
+    already completed by the time this runs.
+    """
+    try:
+        messages = [
+            LLMMessage(role=Role.SYSTEM.value, content=_MEMORY_EXTRACTION_SYS_PROMPT),
+            LLMMessage(
+                role=Role.USER.value,
+                content=f"User message:\n{user_message}\n\nAssistant response:\n{final_response}",
+            ),
+        ]
+        raw = "".join(
+            chat_session.language_model_api.chat(messages, LLMOption(json_mode=True))
+        )
+        parsed = parse_json(raw)
+        entries = parsed.get("entries", []) if isinstance(parsed, dict) else []
+        if not entries:
+            return
+        chat_session.conductor.db_api.record_memory_candidates(
+            entries, user_id, group_id, dataset_name, chat_id
+        )
+    except Exception as e:
+        logger.info(f"[Memory Extraction] Skipped due to error: {e}")
 
 
 def _resolve_dataset_permissions(
@@ -94,6 +151,7 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
     )
     files = body.get("files", [])
     plan_mode = bool(body.get("plan_mode", False))
+    use_memory = bool(body.get("use_memory", True)) and config.ENABLE_MEMORY_LAYER
 
     if dataset_name is None:
         raise HTTPException(
@@ -103,6 +161,12 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
         raise HTTPException(status_code=400, detail="Missing user message")
 
     require_dataset_access(dataset_name, current_user)
+
+    memory_group_ids = (
+        [g.group_id for g in user_db.list_group_ancestors(current_user.group_id)]
+        if current_user.group_id
+        else []
+    )
 
     chat_session = await session_manager.get_chat_session_async(
         user_id, chat_id, dataset_name
@@ -135,6 +199,39 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                     )
                 )
 
+        def _spawn_memory_extraction_if_enabled():
+            """
+            Best-effort, non-blocking: extracts tribal knowledge/preferences from
+            the just-completed turn on a daemon thread. Never allowed to delay or
+            fail the response — see _extract_memory_safely for the try/except.
+            """
+            if not (config.ENABLE_MEMORY_AUTO_EXTRACTION and use_memory):
+                return
+            if (
+                not chat_session.messages
+                or chat_session.messages[-1]["role"] != Role.ASSISTANT.value
+            ):
+                return
+            final_response = chat_session.messages[-1]["content"]
+            user_msg = (
+                chat_session.messages[-2]["content"]
+                if len(chat_session.messages) > 1
+                else latest_user_message
+            )
+            Thread(
+                target=_extract_memory_safely,
+                args=(
+                    chat_session,
+                    user_msg,
+                    final_response,
+                    user_id,
+                    current_user.group_id,
+                    dataset_name,
+                    chat_id,
+                ),
+                daemon=True,
+            ).start()
+
         def run_chat():
             assert latest_user_message is not None
             try:
@@ -143,6 +240,8 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                     files,
                     frontend_callback=send_to_frontend,
                     plan_mode=plan_mode,
+                    use_memory=use_memory,
+                    memory_group_ids=memory_group_ids,
                 ):
                     send_to_frontend(response)
             finally:
@@ -156,6 +255,7 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                 # silently discarding the fully-computed answer once this
                 # thread finishes with nothing left to save it.
                 chat_session.persist_session(dataset_name)
+                _spawn_memory_extraction_if_enabled()
                 response_queue.put(None)
 
         def run_chat_with_profiling():
@@ -187,6 +287,8 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                     files,
                     frontend_callback=send_to_frontend,
                     plan_mode=plan_mode,
+                    use_memory=use_memory,
+                    memory_group_ids=memory_group_ids,
                 ):
                     cur = rss_mb()
                     peak_rss = max(peak_rss, cur)
@@ -204,6 +306,7 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                 logger.info(f"[TIME] took {time() - t0:.2f}s")
                 # See run_chat()'s finally for why this must happen here.
                 chat_session.persist_session(dataset_name)
+                _spawn_memory_extraction_if_enabled()
                 response_queue.put(None)
 
         producer = create_task(
@@ -260,6 +363,68 @@ def get_accessible_datasets(
     is_admin, group_permissions = _resolve_dataset_permissions(current_user)
     datasets = pneuma_db.get_accessible_local_datasets(is_admin, group_permissions)
     return JSONResponse(content={"datasets": datasets})
+
+
+@router.get("/dataset_tables/{dataset_name}")
+def list_dataset_tables(
+    dataset_name: str,
+    current_user: UserRecord = Depends(get_current_user),
+):
+    """
+    Lists the tables in a dataset directly (no chat session required), for
+    browsing a dataset's contents outside of any particular conversation.
+    """
+    require_dataset_access(dataset_name, current_user)
+    try:
+        tables = pneuma_db.list_dataset_tables(dataset_name)
+    except Exception:
+        raise HTTPException(
+            status_code=404, detail=f"Dataset '{dataset_name}' not found."
+        )
+    return JSONResponse(content={"tables": sorted(tables)})
+
+
+@router.get("/dataset_table_query/{dataset_name}", response_class=JSONResponse)
+def query_dataset_table(
+    dataset_name: str,
+    table_id: str,
+    limit: int = 50,
+    offset: int = 0,
+    order_by: str | None = None,
+    order_dir: str = "asc",
+    search: str | None = None,
+    current_user: UserRecord = Depends(get_current_user),
+):
+    """
+    Paginated/sortable/searchable read of a single dataset table, directly
+    from the dataset's own DB file — the dataset-browsing counterpart to
+    /table_query/{chat_id}, which requires an active chat session.
+    """
+    if not match(r"^[a-zA-Z0-9_]+$", table_id):
+        raise HTTPException(status_code=400, detail="Invalid table_id")
+    require_dataset_access(dataset_name, current_user)
+    if order_dir.lower() not in ("asc", "desc"):
+        order_dir = "asc"
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+
+    try:
+        rows_df, total_count, columns = pneuma_db.query_dataset_table(
+            dataset_name, table_id, limit, offset, order_by, order_dir, search
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Table '{table_id}' not found in dataset '{dataset_name}'.",
+        )
+
+    return JSONResponse(
+        content={
+            "rows": serialize_dataframe(rows_df, limit),
+            "total_count": total_count,
+            "columns": columns,
+        }
+    )
 
 
 @router.get("/execute_code/{chat_id}")
@@ -328,6 +493,7 @@ async def get_state(chat_id: str, current_user: UserRecord = Depends(get_current
             "prov_steps": prov_steps,
             "retrieved_tables": retrieved_tables,
             "dataset_name": chat_session.dataset_name,
+            "used_memory_entries": conductor.used_memory_entries,  # type: ignore
         }
     )
 

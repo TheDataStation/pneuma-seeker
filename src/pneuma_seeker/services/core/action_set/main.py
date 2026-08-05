@@ -304,6 +304,7 @@ class ActionSet:
         uncertainties: list[dict],
         available_tables: list[AbstractDocument],
         result_table_name: str,
+        dataset_name: str = "",
     ) -> tuple[str, list[str]]:
         return self.registry.get(ActionNames.CONTEXT_EXTRACTION).apply(  # type: ignore[union-attr]
             {
@@ -311,6 +312,7 @@ class ActionSet:
                 "available_tables": available_tables,
                 "result_table_name": result_table_name,
                 "execute_code_fn": self.execute_code,
+                "dataset_name": dataset_name,
             }
         )
 

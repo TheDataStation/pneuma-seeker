@@ -229,6 +229,13 @@ class PneumaRetriever(AbstractRetriever):
                     table_metadata["column_types"] = json.dumps(
                         duckdb_col_types, ensure_ascii=False
                     )
+                column_descriptions = self.__get_column_descriptions(
+                    dataset_name, table_name, duckdb_col_types
+                )
+                if column_descriptions:
+                    table_metadata["column_descriptions"] = json.dumps(
+                        column_descriptions, ensure_ascii=False
+                    )
 
                 actual_table.rename(columns=clean_column_table_name, inplace=True)
                 retrieval_results.append(
@@ -312,6 +319,13 @@ class PneumaRetriever(AbstractRetriever):
                     if duckdb_col_types:
                         booster_metadata["column_types"] = json.dumps(
                             duckdb_col_types, ensure_ascii=False
+                        )
+                    booster_column_descriptions = self.__get_column_descriptions(
+                        dataset_name, table_id, duckdb_col_types
+                    )
+                    if booster_column_descriptions:
+                        booster_metadata["column_descriptions"] = json.dumps(
+                            booster_column_descriptions, ensure_ascii=False
                         )
                     retrieval_results.append(
                         Table(
@@ -520,6 +534,17 @@ Your task is to analyze a natural-language query and extract **explicitly mentio
 
         final_rank = sorted(final_scores.items(), key=lambda x: (-x[1], x[0]))
         return final_rank, table_keyword_hits
+
+    def __get_column_descriptions(
+        self, dataset_name: str, table_name: str, columns: dict[str, str]
+    ) -> dict[str, str]:
+        """Returns admin-set column descriptions (memory layer) for the given columns, if any."""
+        descriptions: dict[str, str] = {}
+        for col in columns:
+            description = self.db_api.get_column_description(dataset_name, table_name, col)
+            if description:
+                descriptions[col] = description
+        return descriptions
 
     def __quote_ident(self, x: str) -> str:
         return '"' + x.replace('"', '""') + '"'

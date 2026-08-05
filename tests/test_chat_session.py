@@ -55,6 +55,7 @@ class DummyConductor:
         external_data_paths,
         plan_mode=False,
         dataset_name="",
+        **kwargs,
     ):
         self.last_dataset_name = dataset_name
         yield ConductorResponse(ConductorResponseType.LOG, "resp:")
@@ -175,6 +176,7 @@ class ChatSessionTests(unittest.TestCase):
                 external_table_paths,
                 plan_mode=False,
                 dataset_name="",
+                **kwargs,
             ):
                 yield ConductorResponse(ConductorResponseType.LOG, "a log line")
 
@@ -200,6 +202,7 @@ class ChatSessionTests(unittest.TestCase):
                 external_table_paths,
                 plan_mode=False,
                 dataset_name="",
+                **kwargs,
             ):
                 captured["paths"] = external_table_paths
                 yield ConductorResponse(ConductorResponseType.FINAL_RESPONSE, "ok")
@@ -228,6 +231,7 @@ class ChatSessionTests(unittest.TestCase):
                 external_table_paths,
                 plan_mode=False,
                 dataset_name="",
+                **kwargs,
             ):
                 captured["paths"] = external_table_paths
                 yield ConductorResponse(ConductorResponseType.FINAL_RESPONSE, "ok")
@@ -252,6 +256,7 @@ class ChatSessionTests(unittest.TestCase):
                 external_table_paths,
                 plan_mode=False,
                 dataset_name="",
+                **kwargs,
             ):
                 captured["plan_mode"] = plan_mode
                 yield ConductorResponse(

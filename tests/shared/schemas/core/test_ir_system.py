@@ -10,7 +10,6 @@ import pandas as pd
 
 from pneuma_seeker.shared.schemas.core.ir_system import (
     AbstractDocument,
-    Knowledge,
     RetrieverType,
     Table,
     TableContext,
@@ -31,7 +30,7 @@ class IRSystemSchemaTests(unittest.TestCase):
         """Test converting single Text document in normal mode."""
         doc = Text(
             doc_id="doc1",
-            retriever_type=RetrieverType.DOCUMENT_DB,
+            retriever_type=RetrieverType.ENUMERATOR,
             content="Test content",
             metadata={"source": "test"},
         )
@@ -99,7 +98,7 @@ class IRSystemSchemaTests(unittest.TestCase):
         docs: list[AbstractDocument] = [
             Text(
                 doc_id="doc1",
-                retriever_type=RetrieverType.DOCUMENT_DB,
+                retriever_type=RetrieverType.ENUMERATOR,
                 content="Content without topic",
                 metadata={"source": "test"},
             ),
@@ -135,16 +134,16 @@ class IRSystemSchemaTests(unittest.TestCase):
         self.assertIn("context1", result)
         self.assertIn("This table contains user data", result)
 
-    def test_convert_retrieval_results_to_str_with_knowledge_document(self):
-        """Test converting Knowledge document."""
-        knowledge = Knowledge(
-            doc_id="know1",
+    def test_convert_retrieval_results_to_str_with_user_provided_document(self):
+        """Test converting a user-provided (external) document."""
+        doc = Text(
+            doc_id="ext1",
             retriever_type=RetrieverType.USER,
             content="Important knowledge",
-            metadata={"type": "local", "user": "test_user"},
+            metadata={"source": "user"},
         )
-        result = convert_retrieval_results_to_str([knowledge])
-        self.assertIn("know1", result)
+        result = convert_retrieval_results_to_str([doc])
+        self.assertIn("ext1", result)
         self.assertIn("Important knowledge", result)
 
     def test_convert_retrieval_results_to_str_mixed_documents_multi_topic(self):
@@ -194,13 +193,13 @@ class IRSystemSchemaTests(unittest.TestCase):
         """Test AbstractDocument equality based on doc_id and retriever_type."""
         doc1 = Text(
             doc_id="doc1",
-            retriever_type=RetrieverType.DOCUMENT_DB,
+            retriever_type=RetrieverType.ENUMERATOR,
             content="Content",
             metadata={},
         )
         doc2 = Text(
             doc_id="doc1",
-            retriever_type=RetrieverType.DOCUMENT_DB,
+            retriever_type=RetrieverType.ENUMERATOR,
             content="Different content",
             metadata={},
         )
@@ -218,13 +217,13 @@ class IRSystemSchemaTests(unittest.TestCase):
         """Test AbstractDocument can be used in sets/dicts."""
         doc1 = Text(
             doc_id="doc1",
-            retriever_type=RetrieverType.DOCUMENT_DB,
+            retriever_type=RetrieverType.ENUMERATOR,
             content="Content",
             metadata={},
         )
         doc2 = Text(
             doc_id="doc1",
-            retriever_type=RetrieverType.DOCUMENT_DB,
+            retriever_type=RetrieverType.ENUMERATOR,
             content="Different content",
             metadata={},
         )

@@ -89,6 +89,8 @@ class ChatSession:
         external_table_paths: list[str] | None = None,
         frontend_callback: Callable[[ConductorResponse], None] = lambda _: None,
         plan_mode: bool = False,
+        use_memory: bool = True,
+        memory_group_ids: list[str] | None = None,
     ):
         """Processes a user message and yields responses from Conductor."""
         external_table_paths = external_table_paths or []
@@ -113,6 +115,8 @@ class ChatSession:
             external_table_paths,
             plan_mode=plan_mode,
             dataset_name=self.dataset_name,
+            use_memory=use_memory,
+            memory_group_ids=memory_group_ids,
         ):
             if conductor_response.type in (
                 ConductorResponseType.FINAL_RESPONSE,

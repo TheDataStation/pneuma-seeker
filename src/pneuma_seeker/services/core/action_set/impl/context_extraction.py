@@ -56,6 +56,7 @@ class ContextExtraction(Action, Applicable):
             available_tables  list[AbstractDocument]
             result_table_name str  — e.g. "conductor_assumption_check"
             execute_code_fn   Callable[[str, str], Any]  — injected by ActionSet
+            dataset_name      str  — used to scope the agent-learning cache
 
         Returns:
             (formatted_Q→A_summary, log_messages)
@@ -64,6 +65,7 @@ class ContextExtraction(Action, Applicable):
         available_tables: list[AbstractDocument] = input.get("available_tables", [])
         result_table_name: str = input.get("result_table_name", "ce_result")
         execute_code_fn: Callable[[str, str], Any] = input["execute_code_fn"]
+        dataset_name: str = input.get("dataset_name", "")
 
         results: list[dict] = []
         log_messages: list[str] = []
@@ -85,9 +87,22 @@ class ContextExtraction(Action, Applicable):
                 relevant_tables = available_tables
 
             table_str = "\n\n".join(str(t) for t in relevant_tables)
-            answer, retry_logs = self._resolve_single(
-                question, table_str, result_table_name, execute_code_fn
-            )
+            retry_logs: list[str] = []
+
+            def _resolve() -> str:
+                answer, logs = self._resolve_single(
+                    question, table_str, result_table_name, execute_code_fn
+                )
+                retry_logs.extend(logs)
+                return answer
+
+            if dataset_name and self.config.ENABLE_MEMORY_LAYER:
+                answer = self.db_api.get_or_create_agent_learning(
+                    dataset_name, question, table_ids, _resolve
+                )
+            else:
+                answer = _resolve()
+
             log_messages.extend(retry_logs)
             results.append({"question": question, "answer": answer})
 

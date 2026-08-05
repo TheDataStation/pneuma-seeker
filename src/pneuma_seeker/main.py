@@ -5,7 +5,8 @@ from os import getenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from pneuma_seeker.routers import auth, chat, indexing
+from pneuma_seeker.routers import auth, chat, indexing, memory
+from pneuma_seeker.services.db.memory.manager import MemoryManager
 from pneuma_seeker.services.db.users.manager import UserDB
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import setup_logger
@@ -21,6 +22,9 @@ async def lifespan(app: FastAPI):
 
     db_initializer = UserDB(config, logger)
     db_initializer.init_db()  # Initializes schema safely before any requests arrive
+
+    memory_initializer = MemoryManager(config, logger)
+    memory_initializer.init_db()
 
     admin_group = db_initializer.get_group_by_name("admin")
     if admin_group is None:
@@ -69,6 +73,7 @@ app = FastAPI(title="Pneuma-Seeker", lifespan=lifespan)
 app.include_router(auth.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
 app.include_router(indexing.router, prefix="/api")
+app.include_router(memory.router, prefix="/api")
 
 logger = setup_logger()
 config = Config("../../.env")
