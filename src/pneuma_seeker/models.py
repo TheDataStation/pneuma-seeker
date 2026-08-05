@@ -11,6 +11,7 @@ class EndpointTag(Enum):
     CORE = "core"
     CHAT = "chat"
     AUTH = "auth"
+    MEMORY = "memory"
 
 
 class PermissionKey(Enum):
@@ -18,6 +19,7 @@ class PermissionKey(Enum):
     DATASET_ACCESS_PREFIX = "dataset:access"
     USER_MANAGEMENT = "user:management"
     INDEXING_MANAGEMENT = "indexing:management"
+    MEMORY_MANAGEMENT = "memory:management"  # Gates admin-only actions like metadata CSV upload
 
 
 class ChatHistoryResponse(BaseModel):
@@ -121,3 +123,44 @@ class ChangePasswordRequest(BaseModel):
 class UpdateGroupRequest(BaseModel):
     name: str | None = None
     parent_group_id: str | None = None
+
+
+class MemoryEntryResponse(BaseModel):
+    memory_id: str
+    memory_type: str
+    content: str
+    source: str
+    group_id: str | None = None
+    user_id: str | None = None
+    dataset_name: str | None = None
+    key_text: str | None = None
+    source_user_id: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class MemoryEntryListResponse(BaseModel):
+    items: list[MemoryEntryResponse]
+    has_more: bool
+    next_offset: int | None = None
+
+
+class CreateMemoryEntryRequest(BaseModel):
+    memory_type: str = Field(
+        ..., description="tribal_knowledge | user_preference | table_metadata | column_metadata"
+    )
+    content: str = Field(min_length=1)
+    dataset_name: str | None = None
+    key_text: str | None = Field(
+        None, description="Required for table_metadata (table name) / column_metadata (table.column)"
+    )
+
+
+class UpdateMemoryEntryRequest(BaseModel):
+    content: str = Field(min_length=1)
+
+
+class MemoryMetadataUploadResponse(BaseModel):
+    dataset_name: str
+    memory_type: str
+    rows_stored: int

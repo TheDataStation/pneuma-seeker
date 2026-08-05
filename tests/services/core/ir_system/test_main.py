@@ -42,16 +42,16 @@ class IRSystemTests(unittest.TestCase):
         documents: list[AbstractDocument] = [
             Text(
                 doc_id="doc1",
-                retriever_type=RetrieverType.DOCUMENT_DB,
+                retriever_type=RetrieverType.ENUMERATOR,
                 content="Test content",
                 metadata={"source": "test"},
             )
         ]
 
-        self.ir_system.index_documents(RetrieverType.DOCUMENT_DB, documents)
+        self.ir_system.index_documents(RetrieverType.ENUMERATOR, documents)
 
         self.ir_system.retriever_factory.get_retriever.assert_called_once_with(
-            RetrieverType.DOCUMENT_DB
+            RetrieverType.ENUMERATOR
         )
         mock_retriever.index.assert_called_once_with(documents)
 
@@ -60,13 +60,13 @@ class IRSystemTests(unittest.TestCase):
         mock_documents = [
             Text(
                 doc_id="doc1",
-                retriever_type=RetrieverType.DOCUMENT_DB,
+                retriever_type=RetrieverType.ENUMERATOR,
                 content="Test content 1",
                 metadata={"source": "test"},
             ),
             Text(
                 doc_id="doc2",
-                retriever_type=RetrieverType.DOCUMENT_DB,
+                retriever_type=RetrieverType.ENUMERATOR,
                 content="Test content 2",
                 metadata={"source": "test"},
             ),
@@ -79,7 +79,7 @@ class IRSystemTests(unittest.TestCase):
         )
 
         result = self.ir_system.retrieve_documents(
-            RetrieverType.DOCUMENT_DB, "test query", k=10
+            RetrieverType.ENUMERATOR, "test query", k=10
         )
 
         self.assertEqual(result, mock_documents)
@@ -169,7 +169,7 @@ class IRSystemTests(unittest.TestCase):
         )
 
         result = self.ir_system.retrieve_multi_topic_documents(
-            RetrieverType.DOCUMENT_DB, [], k=10
+            RetrieverType.ENUMERATOR, [], k=10
         )
 
         self.assertIsInstance(result, dict)

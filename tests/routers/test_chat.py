@@ -238,6 +238,7 @@ class TestChatRouter(unittest.TestCase):
         mock_doc.doc_id = "table_alpha"
         mock_doc.content = pd.DataFrame({"x": [1]})
         mock_conductor.retrieved_tables = [mock_doc]
+        mock_conductor.used_memory_entries = []
 
         mock_chat_session = MagicMock()
         mock_chat_session.conductor = mock_conductor
@@ -657,6 +658,129 @@ class TestQueryTableEndpoint(unittest.TestCase):
 
         rows_sql = mock_conductor.db_api.execute_query.call_args_list[2].args[2]
         self.assertIn("OFFSET 50", rows_sql)
+
+
+class TestDatasetTableEndpoints(unittest.TestCase):
+    """Unit tests for GET /chat/dataset_tables/{dataset_name} and
+    GET /chat/dataset_table_query/{dataset_name} — the chat-session-free
+    counterparts to table listing/querying, used for dataset browsing."""
+
+    def setUp(self):
+        self.app = FastAPI()
+        self.app.include_router(chat.router)
+        self.fake_user = UserRecord(
+            user_id="user_999",
+            email="developer@pneuma.io",
+            username="developer@pneuma.io",
+            group_id="developer",
+            is_active=True,
+        )
+        self.app.dependency_overrides[get_current_user] = lambda: self.fake_user
+        self.client = TestClient(self.app)
+
+    def tearDown(self):
+        self.app.dependency_overrides.clear()
+
+    @patch("pneuma_seeker.routers.chat.pneuma_db")
+    def test_list_dataset_tables_success(self, mock_pneuma_db):
+        mock_pneuma_db.list_dataset_tables.return_value = ["users", "orders"]
+
+        response = self.client.get("/chat/dataset_tables/procurement")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["tables"], ["orders", "users"])
+        mock_pneuma_db.list_dataset_tables.assert_called_once_with("procurement")
+
+    @patch("pneuma_seeker.routers.chat.pneuma_db")
+    def test_list_dataset_tables_missing_dataset_returns_404(self, mock_pneuma_db):
+        mock_pneuma_db.list_dataset_tables.side_effect = Exception("not found")
+
+        response = self.client.get("/chat/dataset_tables/ghost_dataset")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("ghost_dataset", response.json()["detail"])
+
+    @patch("pneuma_seeker.routers.chat.require_dataset_access")
+    @patch("pneuma_seeker.routers.chat.pneuma_db")
+    def test_list_dataset_tables_denied_returns_403(
+        self, mock_pneuma_db, mock_require_dataset_access
+    ):
+        from fastapi import HTTPException
+
+        mock_require_dataset_access.side_effect = HTTPException(
+            status_code=403, detail="Access to dataset 'other' is not permitted."
+        )
+
+        response = self.client.get("/chat/dataset_tables/other")
+
+        self.assertEqual(response.status_code, 403)
+
+    @patch("pneuma_seeker.routers.chat.pneuma_db")
+    def test_query_dataset_table_basic_success(self, mock_pneuma_db):
+        rows_df = pd.DataFrame({"id": [1, 2], "name": ["Alice", "Bob"]})
+        mock_pneuma_db.query_dataset_table.return_value = (rows_df, 100, ["id", "name"])
+
+        response = self.client.get(
+            "/chat/dataset_table_query/procurement?table_id=users"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["total_count"], 100)
+        self.assertEqual(body["columns"], ["id", "name"])
+        self.assertEqual(len(body["rows"]), 2)
+        self.assertEqual(body["rows"][0]["name"], "Alice")
+
+    @patch("pneuma_seeker.routers.chat.pneuma_db")
+    def test_query_dataset_table_invalid_table_id_returns_400(self, mock_pneuma_db):
+        response = self.client.get(
+            "/chat/dataset_table_query/procurement?table_id=bad;drop+table"
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Invalid table_id", response.json()["detail"])
+
+    @patch("pneuma_seeker.routers.chat.pneuma_db")
+    def test_query_dataset_table_missing_table_returns_404(self, mock_pneuma_db):
+        mock_pneuma_db.query_dataset_table.side_effect = Exception(
+            "table does not exist"
+        )
+
+        response = self.client.get(
+            "/chat/dataset_table_query/procurement?table_id=nonexistent"
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("nonexistent", response.json()["detail"])
+        self.assertIn("procurement", response.json()["detail"])
+
+    @patch("pneuma_seeker.routers.chat.pneuma_db")
+    def test_query_dataset_table_passes_params_through(self, mock_pneuma_db):
+        rows_df = pd.DataFrame({"id": [1]})
+        mock_pneuma_db.query_dataset_table.return_value = (rows_df, 1, ["id"])
+
+        self.client.get(
+            "/chat/dataset_table_query/procurement"
+            "?table_id=users&limit=9999&offset=10&order_by=id&order_dir=DROP&search=al"
+        )
+
+        mock_pneuma_db.query_dataset_table.assert_called_once_with(
+            "procurement", "users", 500, 10, "id", "asc", "al"
+        )
+
+    @patch("pneuma_seeker.routers.chat.require_dataset_access")
+    @patch("pneuma_seeker.routers.chat.pneuma_db")
+    def test_query_dataset_table_denied_returns_403(
+        self, mock_pneuma_db, mock_require_dataset_access
+    ):
+        from fastapi import HTTPException
+
+        mock_require_dataset_access.side_effect = HTTPException(
+            status_code=403, detail="Access to dataset 'other' is not permitted."
+        )
+
+        response = self.client.get("/chat/dataset_table_query/other?table_id=users")
+
+        self.assertEqual(response.status_code, 403)
 
 
 class TestExplainScriptEndpoint(unittest.TestCase):

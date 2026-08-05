@@ -18,7 +18,6 @@ class RetrieverType(Enum):
     CONDUCTOR = "Conductor"
     ENUMERATOR = "Enumerator"
     MATERIALIZER = "Materializer"
-    DOCUMENT_DB = "Document DB"
     WEB_SEARCH = "Web Search"
     USER = "User"  # External tables
     WEB_CRAWL = "Web Crawl"
@@ -60,27 +59,6 @@ class AbstractDocument(ABC):
 
     def __str__(self) -> str:
         return f"ID: {self.doc_id} ; Content: {self.content}"
-
-
-class Knowledge(AbstractDocument):
-    """
-    Represents some form of knowledge from users.
-
-    - retriever_type: RetrieverType.KNOWLEDGE_BASE
-    - content: str
-    - metadata: {"type": "local/global", "user": "..."}
-    """
-
-    def __init__(
-        self,
-        doc_id: str,
-        retriever_type: RetrieverType,
-        content: str,
-        metadata: dict[str, str],
-        path: str | None = None,
-        last_node_id: str | None = None,
-    ):
-        super().__init__(doc_id, retriever_type, content, metadata, path, last_node_id)
 
 
 class Table(AbstractDocument):

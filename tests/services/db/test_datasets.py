@@ -313,7 +313,9 @@ class TestPostgresDatasetLinking(unittest.TestCase):
         """Helper to create a mock workspace DB connection that simulates attached databases."""
         mock_con = MagicMock()
         name_col = [already_attached_alias] if already_attached_alias else []
-        mock_con.execute.return_value.fetchdf.return_value = pd.DataFrame({"name": name_col})
+        mock_con.execute.return_value.fetchdf.return_value = pd.DataFrame(
+            {"name": name_col}
+        )
         return mock_con
 
     def test_register_stores_connection_string(self):
@@ -449,12 +451,14 @@ class TestGetAccessibleLocalDatasets(unittest.TestCase):
         """Tests that an admin user can see all datasets that have a matching .db file."""
         self._create_mock_dataset_db("ds_alpha")
         self._create_mock_dataset_db("ds_beta")
-        
+
         # Create an empty directory without a .db file to ensure it's filtered out
         (self.db.dataset_db_path / "empty_dir").mkdir(parents=True, exist_ok=True)
 
-        accessible = self.db.get_accessible_local_datasets(is_admin=True, group_permissions={})
-        
+        accessible = self.db.get_accessible_local_datasets(
+            is_admin=True, group_permissions={}
+        )
+
         self.assertEqual(len(accessible), 2)
         self.assertIn("ds_alpha", accessible)
         self.assertIn("ds_beta", accessible)
@@ -467,29 +471,142 @@ class TestGetAccessibleLocalDatasets(unittest.TestCase):
 
         group_perms = {
             f"{PermissionKey.DATASET_ACCESS_PREFIX.value}:ds_allowed": "read",
-            "other_unrelated_permission": "write"
+            "other_unrelated_permission": "write",
         }
 
-        accessible = self.db.get_accessible_local_datasets(is_admin=False, group_permissions=group_perms)
+        accessible = self.db.get_accessible_local_datasets(
+            is_admin=False, group_permissions=group_perms
+        )
 
         self.assertEqual(accessible, ["ds_allowed"])
 
     def test_non_admin_with_valid_permission_but_missing_db_file(self):
         """Tests that even if a user has a permission key, the dataset is omitted if the file doesn't exist."""
         # Permission exists, but the physical file does NOT
-        group_perms = {
-            f"{PermissionKey.DATASET_ACCESS_PREFIX.value}:ds_ghost": "read"
-        }
+        group_perms = {f"{PermissionKey.DATASET_ACCESS_PREFIX.value}:ds_ghost": "read"}
 
-        accessible = self.db.get_accessible_local_datasets(is_admin=False, group_permissions=group_perms)
+        accessible = self.db.get_accessible_local_datasets(
+            is_admin=False, group_permissions=group_perms
+        )
         self.assertEqual(accessible, [])
 
     def test_non_admin_with_no_permissions(self):
         """Tests that a non-admin user with empty permissions gets an empty list back."""
         self._create_mock_dataset_db("ds_alpha")
-        
-        accessible = self.db.get_accessible_local_datasets(is_admin=False, group_permissions={})
+
+        accessible = self.db.get_accessible_local_datasets(
+            is_admin=False, group_permissions={}
+        )
         self.assertEqual(accessible, [])
+
+
+class TestListAndQueryDatasetTable(unittest.TestCase):
+    """Tests for browsing a dataset's tables directly, without a chat session."""
+
+    def setUp(self):
+        self.config = Config()
+        self.logger = logging.getLogger("test")
+        self.tmpdir = tempfile.mkdtemp()
+        self.db = PneumaDB(logger=self.logger, config=self.config)
+        self.db.dataset_db_path = Path(self.tmpdir) / "datasets"
+        self.db.workspace_db_path = Path(self.tmpdir) / "workspaces"
+        self.db.dataset_db_path.mkdir(parents=True, exist_ok=True)
+        self.db.workspace_db_path.mkdir(parents=True, exist_ok=True)
+
+        self.dataset_dir = Path(self.tmpdir) / "test_data"
+        self.dataset_dir.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(
+            [
+                {"id": 1, "name": "Alice"},
+                {"id": 2, "name": "Bob"},
+                {"id": 3, "name": "Charlie"},
+            ]
+        ).to_csv(self.dataset_dir / "users.csv", index=False)
+        pd.DataFrame([{"product_id": 1, "title": "Widget"}]).to_csv(
+            self.dataset_dir / "products.csv", index=False
+        )
+        self.db.ingest_dataset("browse_ds", self.dataset_dir.as_posix())
+
+    def tearDown(self):
+        self.db.close_all_connections()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_list_dataset_tables_returns_all_table_names(self):
+        tables = self.db.list_dataset_tables("browse_ds")
+        self.assertCountEqual(tables, ["users", "products"])
+
+    def test_list_dataset_tables_missing_dataset_returns_empty(self):
+        """A dataset with no DB file yet gets one auto-vivified empty (matches
+        get_dataset_connection's read_only behavior), so listing returns no tables
+        rather than raising — access control (not this call) is what should keep
+        callers from reaching an unprovisioned dataset in the first place."""
+        tables = self.db.list_dataset_tables("no_such_ds")
+        self.assertEqual(tables, [])
+
+    def test_query_dataset_table_returns_all_columns_and_rows(self):
+        rows_df, total_count, columns = self.db.query_dataset_table(
+            "browse_ds",
+            "users",
+            limit=50,
+            offset=0,
+            order_by=None,
+            order_dir="asc",
+            search=None,
+        )
+        self.assertEqual(total_count, 3)
+        self.assertEqual(columns, ["id", "name"])
+        self.assertEqual(len(rows_df), 3)
+
+    def test_query_dataset_table_pagination(self):
+        rows_df, total_count, _ = self.db.query_dataset_table(
+            "browse_ds",
+            "users",
+            limit=2,
+            offset=2,
+            order_by="id",
+            order_dir="asc",
+            search=None,
+        )
+        self.assertEqual(total_count, 3)
+        self.assertEqual(len(rows_df), 1)
+        self.assertEqual(rows_df.iloc[0]["id"], 3)
+
+    def test_query_dataset_table_search_filters_rows(self):
+        rows_df, total_count, _ = self.db.query_dataset_table(
+            "browse_ds",
+            "users",
+            limit=50,
+            offset=0,
+            order_by=None,
+            order_dir="asc",
+            search="ali",
+        )
+        self.assertEqual(total_count, 1)
+        self.assertEqual(rows_df.iloc[0]["name"], "Alice")
+
+    def test_query_dataset_table_order_by_desc(self):
+        rows_df, _, _ = self.db.query_dataset_table(
+            "browse_ds",
+            "users",
+            limit=50,
+            offset=0,
+            order_by="id",
+            order_dir="desc",
+            search=None,
+        )
+        self.assertEqual(rows_df["id"].tolist(), [3, 2, 1])
+
+    def test_query_dataset_table_nonexistent_table_raises(self):
+        with self.assertRaises(Exception):
+            self.db.query_dataset_table(
+                "browse_ds",
+                "no_such_table",
+                limit=50,
+                offset=0,
+                order_by=None,
+                order_dir="asc",
+                search=None,
+            )
 
 
 if __name__ == "__main__":

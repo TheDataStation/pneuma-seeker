@@ -144,6 +144,63 @@ class DatasetManager:
         finally:
             dataset_con.close()
 
+    def list_tables(self, dataset_name: str) -> list[str]:
+        """Lists table names directly from the dataset's own DB file (no chat/workspace needed)."""
+        con = self.get_dataset_connection(dataset_name, read_only=True)
+        try:
+            return con.execute("SHOW TABLES").fetchdf()["name"].tolist()
+        finally:
+            con.close()
+
+    def query_table(
+        self,
+        dataset_name: str,
+        table_name: str,
+        limit: int,
+        offset: int,
+        order_by: str | None,
+        order_dir: str,
+        search: str | None,
+    ):
+        """
+        Queries a table directly from the dataset's own DB file, bypassing the
+        per-chat workspace connection used by `link_dataset_tables` — this lets
+        dataset browsing work without an active chat session.
+
+        Returns (rows_df, total_count, columns).
+        """
+        con = self.get_dataset_connection(dataset_name, read_only=True)
+        try:
+            columns = list(
+                con.execute(f'SELECT * FROM "{table_name}" LIMIT 0').fetchdf().columns
+            )
+
+            where_sql = ""
+            params: list[str] = []
+            if search and columns:
+                conditions = " OR ".join(
+                    f'CAST("{col}" AS VARCHAR) ILIKE ?' for col in columns
+                )
+                where_sql = f" WHERE {conditions}"
+                params = [f"%{search}%"] * len(columns)
+
+            total_count = con.execute(
+                f'SELECT COUNT(*) FROM "{table_name}"{where_sql}', params
+            ).fetchone()[0] # type: ignore
+
+            order_sql = ""
+            if order_by and order_by in columns:
+                order_sql = f' ORDER BY "{order_by}" {order_dir.upper()}'
+
+            rows_df = con.execute(
+                f'SELECT * FROM "{table_name}"{where_sql}{order_sql} LIMIT {limit} OFFSET {offset}',
+                params,
+            ).fetchdf()
+
+            return rows_df, int(total_count), columns
+        finally:
+            con.close()
+
     def get_table_description(self, dataset_name: str, table_name: str) -> str:
         """Returns the description of a table in the dataset."""
         os.makedirs(self.dataset_db_path / dataset_name, exist_ok=True)
