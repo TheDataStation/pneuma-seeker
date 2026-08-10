@@ -783,6 +783,127 @@ class TestDatasetTableEndpoints(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
 
 
+class TestDatasetQuerySQLEndpoint(unittest.TestCase):
+    """Unit tests for POST /chat/dataset_query/{dataset_name} — the general
+    read-only SQL counterpart to dataset_table_query."""
+
+    def setUp(self):
+        self.app = FastAPI()
+        self.app.include_router(chat.router)
+        self.fake_user = UserRecord(
+            user_id="user_999",
+            email="developer@pneuma.io",
+            username="developer@pneuma.io",
+            group_id="developer",
+            is_active=True,
+        )
+        self.app.dependency_overrides[get_current_user] = lambda: self.fake_user
+        self.client = TestClient(self.app)
+
+    def tearDown(self):
+        self.app.dependency_overrides.clear()
+
+    @patch("pneuma_seeker.routers.chat.pneuma_db")
+    def test_query_dataset_sql_basic_success(self, mock_pneuma_db):
+        rows_df = pd.DataFrame({"total": [60]})
+        mock_pneuma_db.query_dataset_sql.return_value = (rows_df, 1, ["total"])
+
+        response = self.client.post(
+            "/chat/dataset_query/procurement",
+            json={"sql": "SELECT SUM(amount) AS total FROM orders"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["total_count"], 1)
+        self.assertEqual(body["columns"], ["total"])
+        self.assertEqual(body["rows"][0]["total"], 60)
+        mock_pneuma_db.query_dataset_sql.assert_called_once_with(
+            "procurement", "SELECT SUM(amount) AS total FROM orders", (), 500
+        )
+
+    @patch("pneuma_seeker.routers.chat.pneuma_db")
+    def test_query_dataset_sql_passes_params_through(self, mock_pneuma_db):
+        rows_df = pd.DataFrame({"id": [1]})
+        mock_pneuma_db.query_dataset_sql.return_value = (rows_df, 1, ["id"])
+
+        self.client.post(
+            "/chat/dataset_query/procurement",
+            json={
+                "sql": "SELECT * FROM orders WHERE id = ?",
+                "params": [1],
+                "limit": 10,
+            },
+        )
+
+        mock_pneuma_db.query_dataset_sql.assert_called_once_with(
+            "procurement", "SELECT * FROM orders WHERE id = ?", (1,), 10
+        )
+
+    @patch("pneuma_seeker.routers.chat.pneuma_db")
+    def test_query_dataset_sql_limit_clamped_to_500(self, mock_pneuma_db):
+        rows_df = pd.DataFrame({"id": [1]})
+        mock_pneuma_db.query_dataset_sql.return_value = (rows_df, 1, ["id"])
+
+        self.client.post(
+            "/chat/dataset_query/procurement",
+            json={"sql": "SELECT * FROM orders", "limit": 999999},
+        )
+
+        mock_pneuma_db.query_dataset_sql.assert_called_once_with(
+            "procurement", "SELECT * FROM orders", (), 500
+        )
+
+    @patch("pneuma_seeker.routers.chat.pneuma_db")
+    def test_query_dataset_sql_rejects_non_select_returns_400(self, mock_pneuma_db):
+        mock_pneuma_db.query_dataset_sql.side_effect = ValueError(
+            "sql must be a SELECT/WITH...SELECT statement."
+        )
+
+        response = self.client.post(
+            "/chat/dataset_query/procurement",
+            json={"sql": "DROP TABLE orders"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("SELECT", response.json()["detail"])
+
+    @patch("pneuma_seeker.routers.chat.pneuma_db")
+    def test_query_dataset_sql_missing_table_returns_400(self, mock_pneuma_db):
+        mock_pneuma_db.query_dataset_sql.side_effect = Exception("table does not exist")
+
+        response = self.client.post(
+            "/chat/dataset_query/procurement",
+            json={"sql": "SELECT * FROM nonexistent"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    @patch("pneuma_seeker.routers.chat.require_dataset_access")
+    @patch("pneuma_seeker.routers.chat.pneuma_db")
+    def test_query_dataset_sql_denied_returns_403(
+        self, mock_pneuma_db, mock_require_dataset_access
+    ):
+        from fastapi import HTTPException
+
+        mock_require_dataset_access.side_effect = HTTPException(
+            status_code=403, detail="Access to dataset 'other' is not permitted."
+        )
+
+        response = self.client.post(
+            "/chat/dataset_query/other",
+            json={"sql": "SELECT 1"},
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_query_dataset_sql_empty_body_returns_422(self):
+        response = self.client.post("/chat/dataset_query/procurement", json={})
+        self.assertEqual(
+            response.status_code, 422
+        )  # sql is required by DatasetQueryRequest
+
+
 class TestExplainScriptEndpoint(unittest.TestCase):
     """Unit tests for GET /chat/explain_script/{chat_id}."""
 

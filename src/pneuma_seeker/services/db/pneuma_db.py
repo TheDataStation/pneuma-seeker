@@ -160,6 +160,16 @@ class PneumaDB:
             dataset_name, table_name, limit, offset, order_by, order_dir, search
         )
 
+    def query_dataset_sql(
+        self,
+        dataset_name: str,
+        sql: str,
+        params: tuple = (),
+        limit: int = 500,
+    ):
+        """Runs a single read-only SQL statement against a dataset directly, without needing a chat session."""
+        return self.dataset_manager.query_sql(dataset_name, sql, params, limit)
+
     def get_table_description(self, dataset_name: str, table_name: str) -> str:
         """
         Gets the description of a table in the specified dataset.

@@ -19,7 +19,9 @@ class PermissionKey(Enum):
     DATASET_ACCESS_PREFIX = "dataset:access"
     USER_MANAGEMENT = "user:management"
     INDEXING_MANAGEMENT = "indexing:management"
-    MEMORY_MANAGEMENT = "memory:management"  # Gates admin-only actions like metadata CSV upload
+    MEMORY_MANAGEMENT = (
+        "memory:management"  # Gates admin-only actions like metadata CSV upload
+    )
 
 
 class ChatHistoryResponse(BaseModel):
@@ -45,6 +47,17 @@ class IndexDatasetResponse(BaseModel):
 class DatasetMetadataResponse(BaseModel):
     dataset_name: str
     latest_metadata: dict[str, Any]
+
+
+class DatasetQueryRequest(BaseModel):
+    """Body for POST /chat/dataset_query/{dataset_name} — a single read-only
+    SELECT/WITH...SELECT against exactly one dataset's own DB file. See
+    DatasetManager.query_sql for the safety checks (single statement,
+    read-only connection, capped rows)."""
+
+    sql: str = Field(min_length=1)
+    params: list[Any] | None = None
+    limit: int = 500
 
 
 class RegisterRequest(BaseModel):
@@ -147,12 +160,14 @@ class MemoryEntryListResponse(BaseModel):
 
 class CreateMemoryEntryRequest(BaseModel):
     memory_type: str = Field(
-        ..., description="tribal_knowledge | user_preference | table_metadata | column_metadata"
+        ...,
+        description="tribal_knowledge | user_preference | table_metadata | column_metadata",
     )
     content: str = Field(min_length=1)
     dataset_name: str | None = None
     key_text: str | None = Field(
-        None, description="Required for table_metadata (table name) / column_metadata (table.column)"
+        None,
+        description="Required for table_metadata (table name) / column_metadata (table.column)",
     )
 
 
