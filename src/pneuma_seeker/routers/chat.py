@@ -36,6 +36,7 @@ from pneuma_seeker.services.db.users.manager import UserDB
 from pneuma_seeker.services.db.users.models import UserRecord
 from pneuma_seeker.session_manager import SessionManager
 from pneuma_seeker.shared.config import Config
+from pneuma_seeker.shared.schemas.core.ir_system import RetrieverType
 from pneuma_seeker.shared.logger import setup_logger
 from pneuma_seeker.shared.parser import parse_json
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
@@ -423,6 +424,77 @@ def query_dataset_table(
             "rows": serialize_dataframe(rows_df, limit),
             "total_count": total_count,
             "columns": columns,
+        }
+    )
+
+
+@router.get("/retrieve_tables/{chat_id}", response_class=JSONResponse)
+async def retrieve_tables(
+    chat_id: str,
+    query: str,
+    dataset_name: str | None = None,
+    top_k: int = 10,
+    sample_only: bool = True,
+    sample_size: int = 5,
+    current_user: UserRecord = Depends(get_current_user),
+):
+    """
+    Directly invokes Pneuma-Retriever's table discovery for a given chat
+    session and returns the results. Does not mutate the session's own
+    retrieval state (conductor.retrieved_tables) — this is a standalone
+    inspection/debugging call, separate from the agent's own retrieval
+    during a turn.
+    """
+    if not query.strip():
+        raise HTTPException(status_code=400, detail="Missing query")
+    top_k = max(1, min(top_k, 50))
+    sample_size = max(1, min(sample_size, 500))
+
+    user_id = current_user.user_id
+    try:
+        chat_session = await session_manager.get_chat_session_async(user_id, chat_id)
+    except Exception:
+        raise HTTPException(
+            status_code=404, detail=f"Chat session '{chat_id}' not found."
+        )
+
+    resolved_dataset_name = dataset_name or chat_session.dataset_name
+    if not resolved_dataset_name:
+        raise HTTPException(
+            status_code=400,
+            detail="No dataset associated with this chat session; pass dataset_name explicitly.",
+        )
+    require_dataset_access(resolved_dataset_name, current_user)
+
+    conductor = chat_session.conductor
+    try:
+        retrieved_docs = await to_thread.run_sync(
+            lambda: conductor.action_set.retrieve_documents(
+                query,
+                RetrieverType.PNEUMA_RETRIEVER,
+                resolved_dataset_name,
+                top_k,
+                sample_only,
+                sample_size,
+            )
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Retrieval failed: {exc}")
+
+    tables = [
+        {
+            "doc_id": doc.doc_id,
+            "metadata": doc.metadata,
+            "rows": serialize_dataframe(doc.content, config.TABLE_MAX_ROWS_DISPLAY),
+        }
+        for doc in retrieved_docs
+    ]
+    return JSONResponse(
+        content={
+            "query": query,
+            "dataset_name": resolved_dataset_name,
+            "top_k": top_k,
+            "tables": tables,
         }
     )
 
