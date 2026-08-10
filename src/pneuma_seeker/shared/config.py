@@ -46,7 +46,6 @@ class Config:
         # Core Configuration Settings
         self.MAX_CONDUCTOR_STEPS = int(getenv("MAX_CONDUCTOR_STEPS", "10"))
         self.MAX_MATERIALIZER_STEPS = int(getenv("MAX_MATERIALIZER_STEPS", "10"))
-        self.USE_SKILLS_AGENT = getenv("USE_SKILLS_AGENT", "false").lower() == "true"
         self.ENABLE_MEMORY_PROFILING = (
             getenv("ENABLE_MEMORY_PROFILING", "false").lower() == "true"
         )

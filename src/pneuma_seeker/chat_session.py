@@ -10,7 +10,6 @@ from pneuma_seeker.services.core.conductor.models import (
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
 from pneuma_seeker.services.core.conductor.main import Conductor
-from pneuma_seeker.services.skill_based_core.agent import SkillsAgent
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import formatted_log
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
@@ -60,8 +59,7 @@ class ChatSession:
         self.messages = messages
         self.dataset_name = persisted_dataset_name or dataset_name or ""
 
-        _agent_cls = SkillsAgent if config.USE_SKILLS_AGENT else Conductor
-        self.conductor = _agent_cls(
+        self.conductor = Conductor(
             self.user_id,
             self.chat_id,
             self.config,
