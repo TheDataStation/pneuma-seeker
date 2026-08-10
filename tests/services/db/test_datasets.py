@@ -609,5 +609,92 @@ class TestListAndQueryDatasetTable(unittest.TestCase):
             )
 
 
+class TestQueryDatasetSQL(unittest.TestCase):
+    """Tests for the general read-only SQL query path (query_dataset_sql)."""
+
+    def setUp(self):
+        self.config = Config()
+        self.logger = logging.getLogger("test")
+        self.tmpdir = tempfile.mkdtemp()
+        self.db = PneumaDB(logger=self.logger, config=self.config)
+        self.db.dataset_db_path = Path(self.tmpdir) / "datasets"
+        self.db.workspace_db_path = Path(self.tmpdir) / "workspaces"
+        self.db.dataset_db_path.mkdir(parents=True, exist_ok=True)
+        self.db.workspace_db_path.mkdir(parents=True, exist_ok=True)
+
+        self.dataset_dir = Path(self.tmpdir) / "sql_data"
+        self.dataset_dir.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(
+            [
+                {"id": 1, "name": "Alice", "amount": 10},
+                {"id": 2, "name": "Bob", "amount": 20},
+                {"id": 3, "name": "Charlie", "amount": 30},
+            ]
+        ).to_csv(self.dataset_dir / "orders.csv", index=False)
+        self.db.ingest_dataset("sql_ds", self.dataset_dir.as_posix())
+
+    def tearDown(self):
+        self.db.close_all_connections()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_query_dataset_sql_runs_select_with_aggregation(self):
+        rows_df, total_count, columns = self.db.query_dataset_sql(
+            "sql_ds", "SELECT SUM(amount) AS total FROM orders"
+        )
+        self.assertEqual(total_count, 1)
+        self.assertEqual(columns, ["total"])
+        self.assertEqual(rows_df.iloc[0]["total"], 60)
+
+    def test_query_dataset_sql_supports_information_schema_for_column_types(self):
+        rows_df, _, _ = self.db.query_dataset_sql(
+            "sql_ds",
+            "SELECT column_name, data_type FROM information_schema.columns "
+            "WHERE table_name = 'orders' ORDER BY ordinal_position",
+        )
+        self.assertEqual(rows_df["column_name"].tolist(), ["id", "name", "amount"])
+
+    def test_query_dataset_sql_with_params(self):
+        rows_df, total_count, _ = self.db.query_dataset_sql(
+            "sql_ds", "SELECT * FROM orders WHERE amount > ?", params=(15,)
+        )
+        self.assertEqual(total_count, 2)
+        self.assertCountEqual(rows_df["name"].tolist(), ["Bob", "Charlie"])
+
+    def test_query_dataset_sql_respects_limit(self):
+        rows_df, total_count, _ = self.db.query_dataset_sql("sql_ds", "SELECT * FROM orders", limit=1)
+        self.assertEqual(total_count, 3)  # total_count reflects the full result, not the capped page
+        self.assertEqual(len(rows_df), 1)
+
+    def test_query_dataset_sql_rejects_non_select(self):
+        with self.assertRaises(ValueError):
+            self.db.query_dataset_sql("sql_ds", "DROP TABLE orders")
+
+    def test_query_dataset_sql_rejects_multiple_statements(self):
+        with self.assertRaises(ValueError):
+            self.db.query_dataset_sql("sql_ds", "SELECT * FROM orders; DROP TABLE orders")
+
+    def test_query_dataset_sql_rejects_empty_string(self):
+        with self.assertRaises(ValueError):
+            self.db.query_dataset_sql("sql_ds", "   ")
+
+    def test_query_dataset_sql_cannot_write_even_if_it_slips_past_the_select_check(self):
+        """Belt-and-suspenders: the connection itself is read_only=True, so even a
+        SELECT-shaped statement that smuggles a write (e.g. via a CTE calling a
+        writing function) is rejected by DuckDB itself, not just the text check."""
+        with self.assertRaises(Exception):
+            self.db.query_dataset_sql(
+                "sql_ds", "WITH x AS (SELECT * FROM orders) SELECT * FROM x, (COPY orders TO '/tmp/x.csv') AS y"
+            )
+
+    def test_query_dataset_sql_cannot_reach_other_datasets(self):
+        other_dir = Path(self.tmpdir) / "other_data"
+        other_dir.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame([{"secret": 1}]).to_csv(other_dir / "secrets.csv", index=False)
+        self.db.ingest_dataset("other_ds", other_dir.as_posix())
+
+        with self.assertRaises(Exception):
+            self.db.query_dataset_sql("sql_ds", "SELECT * FROM other_ds.secrets")
+
+
 if __name__ == "__main__":
     unittest.main()

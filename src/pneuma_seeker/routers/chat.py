@@ -25,7 +25,12 @@ from fastapi.responses import (
     StreamingResponse,
 )
 
-from pneuma_seeker.models import ChatHistoryResponse, EndpointTag, PermissionKey
+from pneuma_seeker.models import (
+    ChatHistoryResponse,
+    DatasetQueryRequest,
+    EndpointTag,
+    PermissionKey,
+)
 from pneuma_seeker.routers.auth import get_current_user, get_current_user_permissions
 from pneuma_seeker.services.core.conductor.models import (
     ConductorResponse,
@@ -418,6 +423,45 @@ def query_dataset_table(
             status_code=404,
             detail=f"Table '{table_id}' not found in dataset '{dataset_name}'.",
         )
+
+    return JSONResponse(
+        content={
+            "rows": serialize_dataframe(rows_df, limit),
+            "total_count": total_count,
+            "columns": columns,
+        }
+    )
+
+
+@router.post("/dataset_query/{dataset_name}", response_class=JSONResponse)
+def query_dataset_sql(
+    dataset_name: str,
+    body: DatasetQueryRequest,
+    current_user: UserRecord = Depends(get_current_user),
+):
+    """
+    General read-only SQL against a single dataset, directly from its own DB
+    file — the general-query counterpart to dataset_table_query (which only
+    supports a fixed paginate/sort/search template, no arbitrary predicates,
+    joins, or aggregations). POST (not GET) since the query text can be long
+    and contain characters awkward in a query string.
+
+    Scoped to exactly one dataset's own file (no ATTACH of any other
+    dataset), opened read-only, and restricted to a single SELECT/WITH...
+    SELECT statement — see DatasetManager.query_sql for the full safety
+    rationale. Response rows are capped (default/max 500), same as
+    dataset_table_query.
+    """
+    require_dataset_access(dataset_name, current_user)
+    limit = max(1, min(body.limit, 500))
+    try:
+        rows_df, total_count, columns = pneuma_db.query_dataset_sql(
+            dataset_name, body.sql, tuple(body.params or ()), limit
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Query failed: {exc}")
 
     return JSONResponse(
         content={

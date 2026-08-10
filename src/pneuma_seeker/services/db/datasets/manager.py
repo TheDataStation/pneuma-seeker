@@ -186,7 +186,9 @@ class DatasetManager:
 
             total_count = con.execute(
                 f'SELECT COUNT(*) FROM "{table_name}"{where_sql}', params
-            ).fetchone()[0] # type: ignore
+            ).fetchone()[  # type: ignore
+                0
+            ]
 
             order_sql = ""
             if order_by and order_by in columns:
@@ -200,6 +202,58 @@ class DatasetManager:
             return rows_df, int(total_count), columns
         finally:
             con.close()
+
+    def query_sql(
+        self,
+        dataset_name: str,
+        sql: str,
+        params: tuple = (),
+        limit: int = 500,
+    ):
+        """
+        Runs a single read-only SELECT/WITH...SELECT against exactly one
+        dataset's own DB file — the general-query counterpart to query_table
+        (which only supports a fixed paginate/sort/search template). This is
+        deliberately scoped to one dataset: get_dataset_connection opens only
+        that dataset's .db file (no ATTACH of any other dataset), so even
+        arbitrary SQL text can't reach data outside it. The connection is
+        opened read_only=True, so DuckDB itself rejects any write regardless
+        of query text — the statement-shape check below (single statement,
+        must start with SELECT/WITH) is a second, independent layer on top of
+        that, not the only guard.
+
+        Returns (rows_df, total_count, columns). Raises ValueError for a
+        malformed/non-read statement, propagates DuckDB errors otherwise.
+        """
+        cleaned = self.__require_single_read_statement(sql)
+        con = self.get_dataset_connection(dataset_name, read_only=True)
+        try:
+            total_count = con.execute(
+                f"SELECT COUNT(*) FROM ({cleaned}) AS _agentic_catalog_count", params
+            ).fetchone()[  # type: ignore
+                0
+            ]
+            rows_df = con.execute(
+                f"SELECT * FROM ({cleaned}) AS _agentic_catalog_rows LIMIT {limit}",
+                params,
+            ).fetchdf()
+            columns = list(rows_df.columns)
+            return rows_df, int(total_count), columns
+        finally:
+            con.close()
+
+    @staticmethod
+    def __require_single_read_statement(sql: str) -> str:
+        stripped = sql.strip()
+        if not stripped:
+            raise ValueError("sql must be a non-empty string.")
+        if stripped.endswith(";"):
+            stripped = stripped[:-1].strip()
+        if ";" in stripped:
+            raise ValueError("sql must be a single SQL statement (no embedded ';').")
+        if not stripped.upper().startswith(("SELECT", "WITH")):
+            raise ValueError("sql must be a SELECT/WITH...SELECT statement.")
+        return stripped
 
     def get_table_description(self, dataset_name: str, table_name: str) -> str:
         """Returns the description of a table in the dataset."""
