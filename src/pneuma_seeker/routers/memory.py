@@ -16,7 +16,7 @@ from pneuma_seeker.models import (
 from pneuma_seeker.routers.auth import get_current_user, get_current_user_permissions
 from pneuma_seeker.services.db.memory.manager import MemoryManager
 from pneuma_seeker.services.db.memory.models import MemoryEntryRecord, MemoryType
-from pneuma_seeker.services.db.users.manager import UserDB
+from pneuma_seeker.services.db.users.factory import get_user_db
 from pneuma_seeker.services.db.users.models import UserRecord
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import setup_logger
@@ -28,7 +28,7 @@ router = APIRouter(
 
 config = Config("../../../.env")
 logger = setup_logger("Memory Router")
-user_db = UserDB(config, logger)
+user_db = get_user_db(config, logger)
 
 # A Postgres hiccup at import time must not take down the entire app (auth,
 # chat, indexing routers are all imported in the same statement in main.py) —
