@@ -49,6 +49,14 @@ services:
         condition: service_healthy
     networks:
       - backend-net
+    # host.docker.internal doesn't resolve by default on Linux (only on
+    # Docker Desktop) — needed once AUTH_BACKEND=external points
+    # AUTH_BACKEND_EXTERNAL_URL at http://host.docker.internal:<port>
+    # (Agentic Catalog running on the host). Mirrors the same entry in
+    # Agentic Catalog's own docker-compose.yml (added there for the
+    # opposite direction, reaching Pneuma-Seeker).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./src/pneuma_seeker/services/db/datasets:/app/src/pneuma_seeker/services/db/datasets
       - ./src/pneuma_seeker/services/db/workspaces:/app/src/pneuma_seeker/services/db/workspaces
