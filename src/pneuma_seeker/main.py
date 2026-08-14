@@ -18,8 +18,24 @@ async def lifespan(app: FastAPI):
     config = Config("../../.env")
     logger = setup_logger("App Bootstrapping")
 
+    if config.AUTH_BACKEND not in ("local", "external"):
+        raise RuntimeError(f"AUTH_BACKEND must be 'local' or 'external', got {config.AUTH_BACKEND!r}")
+    if config.AUTH_BACKEND == "external" and not (
+        config.AUTH_BACKEND_EXTERNAL_URL and config.AGENTIC_CATALOG_SERVICE_TOKEN
+    ):
+        raise RuntimeError(
+            "AUTH_BACKEND_EXTERNAL_URL and AGENTIC_CATALOG_SERVICE_TOKEN must both be set "
+            "when AUTH_BACKEND=external."
+        )
+
     logger.info("Ensuring database schema is initialized...")
 
+    # Always runs against THIS service's own local Postgres, regardless of
+    # AUTH_BACKEND — deliberately unconditional (see users/manager.py's
+    # UserDB, never modified by this feature) so the local path stays ready
+    # to serve immediately if AUTH_BACKEND is ever flipped back to "local"
+    # from "external" — a real rollback shouldn't also require re-running
+    # bootstrap by hand.
     db_initializer = UserDB(config, logger)
     db_initializer.init_db()  # Initializes schema safely before any requests arrive
 

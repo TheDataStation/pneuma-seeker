@@ -137,6 +137,22 @@ class Config:
         self.AUTH_PASSWORD_HASH_ITERATIONS = int(
             getenv("AUTH_PASSWORD_HASH_ITERATIONS", "200000")
         )
+        # "local" (default): identity lives here, in this Postgres, exactly
+        # as before this setting existed. "external": delegate every
+        # users.py/UserDB call to Agentic Catalog's own identity subsystem
+        # instead — see services/db/users/factory.py/external_client.py and
+        # the migration plan. UserDB itself is never touched by this
+        # setting — the local path stays byte-identical to production
+        # regardless, so "local" is always a zero-risk no-op and switching
+        # back from "external" is always just "flip this, restart."
+        self.AUTH_BACKEND = getenv("AUTH_BACKEND", "local")
+        self.AUTH_BACKEND_EXTERNAL_URL = getenv("AUTH_BACKEND_EXTERNAL_URL", "")
+        # Static shared secret proving this service (not an arbitrary
+        # caller) is the one talking to Agentic Catalog's admin-gated
+        # identity endpoints — must match AGENTIC_CATALOG_SERVICE_TOKEN in
+        # Agentic Catalog's own .env exactly. Only required when
+        # AUTH_BACKEND=external.
+        self.AGENTIC_CATALOG_SERVICE_TOKEN = getenv("AGENTIC_CATALOG_SERVICE_TOKEN", "")
 
         # Memory Layer Settings
         self.ENABLE_MEMORY_LAYER = (

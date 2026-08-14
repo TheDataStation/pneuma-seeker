@@ -37,7 +37,7 @@ from pneuma_seeker.services.core.conductor.models import (
     ConductorResponseType,
 )
 from pneuma_seeker.services.db.pneuma_db import PneumaDB
-from pneuma_seeker.services.db.users.manager import UserDB
+from pneuma_seeker.services.db.users.factory import get_user_db
 from pneuma_seeker.services.db.users.models import UserRecord
 from pneuma_seeker.session_manager import SessionManager
 from pneuma_seeker.shared.config import Config
@@ -57,7 +57,7 @@ router = APIRouter(
 config = Config("../../../.env")
 logger = setup_logger("Chat Router")
 pneuma_db = PneumaDB(config, logger)
-user_db = UserDB(config, logger)
+user_db = get_user_db(config, logger)
 session_manager = SessionManager(
     config,
     logger,

@@ -18,6 +18,8 @@ from pneuma_seeker.models import (
     UpdateUserRequest,
     UserResponse,
 )
+from pneuma_seeker.services.db.users.external_client import ExternalUserDB
+from pneuma_seeker.services.db.users.factory import get_user_db
 from pneuma_seeker.services.db.users.manager import GroupRecord, UserDB, UserRecord
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import setup_logger
@@ -31,7 +33,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 config = Config("../../../.env")
 logger = setup_logger("Auth Router")
-user_db = UserDB(config, logger)
+user_db = get_user_db(config, logger)
 
 
 def _group_to_response(group: GroupRecord | None) -> GroupResponse | None:
@@ -135,15 +137,29 @@ def register(
 def login(
     payload: LoginRequest,
 ):
-    """Authenticates the user and returns a session token if successful, or raises an HTTPException if invalid."""
-    user = user_db.verify_user(payload.email, payload.password)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-        )
+    """Authenticates the user and returns a session token if successful, or raises an HTTPException if invalid.
 
-    token_payload = user_db.create_session_token(user.user_id)
+    External mode uses ExternalUserDB.login() (one combined call) instead of
+    verify_user()+create_session_token() (two local primitives) — see
+    external_client.py's module docstring for why those can't compose the
+    same way across the service boundary.
+    """
+    if isinstance(user_db, ExternalUserDB):
+        token_payload = user_db.login(payload.email, payload.password)
+        if not token_payload:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials",
+            )
+    else:
+        user = user_db.verify_user(payload.email, payload.password)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials",
+            )
+        token_payload = user_db.create_session_token(user.user_id)
+
     return TokenResponse(
         access_token=token_payload["token"],
         token_type=token_payload["token_type"],
