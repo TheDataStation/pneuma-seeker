@@ -447,7 +447,7 @@ class PneumaDB:
         exists (exact key match, then BM25-similarity match above
         MEMORY_AGENT_LEARNING_SIMILARITY_THRESHOLD); otherwise calls `resolve_fn()`
         to compute the answer, caches it, and returns it. Shared by every
-        CONTEXT_EXTRACTION call site (Conductor, Materializer, DS-Skeptic).
+        CONTEXT_EXTRACTION call site (Conductor, Materializer).
         """
         if self.memory_manager is None:
             return resolve_fn()

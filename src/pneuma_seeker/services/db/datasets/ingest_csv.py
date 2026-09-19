@@ -41,6 +41,30 @@ def dedupe_columns(cols):
     return result
 
 
+def sniff_csv_dialect_options(dataset_con, file_path: str) -> str:
+    """Returns explicit DELIM/QUOTE/ESCAPE options to pin a CSV's dialect.
+
+    STRICT_MODE=FALSE is needed so a few malformed rows don't abort a whole
+    file, but it also relaxes DuckDB's dialect sniffer, which can then settle
+    on a quoting scheme that silently mis-parses a correctly-quoted file and
+    drops large contiguous blocks of rows. Sniffing separately (sniff_csv runs
+    strict) and pinning the result keeps the tolerant row handling without
+    letting the dialect drift.
+    """
+    try:
+        delim, quote, escape = dataset_con.execute(
+            "SELECT Delimiter, Quote, Escape FROM sniff_csv(?)", [file_path]
+        ).fetchone()
+    except Exception:
+        return ""
+    options = []
+    for name, value in (("DELIM", delim), ("QUOTE", quote), ("ESCAPE", escape)):
+        # sniff_csv reports absent settings as a multi-char marker, e.g. "(empty)"
+        if isinstance(value, str) and len(value) == 1:
+            options.append(f"""{name}='{value.replace("'", "''")}'""")
+    return ("," + ", ".join(options)) if options else ""
+
+
 DATASET_NAME = "proc_spend"
 DATASET_PATH = f"../../../../../data_src/{DATASET_NAME}/dataset"
 OVERWRITE_DB = True
@@ -74,6 +98,8 @@ else:
                 # Fallback: let DuckDB auto-detect and ingest (still fine)
                 original_cols = None
 
+            dialect_options = sniff_csv_dialect_options(dataset_con, file_path)
+
             if original_cols:
                 cleaned_cols = dedupe_columns(
                     [clean_column_table_name(c) for c in original_cols]
@@ -100,6 +126,7 @@ else:
                         NULL_PADDING=TRUE,
                         SAMPLE_SIZE=100_000,
                         PARALLEL=FALSE
+                        {dialect_options}
                     );
                     """
                 )
@@ -116,6 +143,7 @@ else:
                         NULL_PADDING=TRUE,
                         SAMPLE_SIZE=100_000,
                         PARALLEL=FALSE
+                        {dialect_options}
                     );
                     """
                 )

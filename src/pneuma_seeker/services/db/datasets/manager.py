@@ -12,6 +12,30 @@ from pneuma_seeker.models import PermissionKey
 from pneuma_seeker.shared.str_processor import clean_column_table_name
 
 
+def sniff_csv_dialect_options(dataset_con, file_path: str) -> str:
+    """Returns explicit DELIM/QUOTE/ESCAPE options to pin a CSV's dialect.
+
+    STRICT_MODE=FALSE is needed so a few malformed rows don't abort a whole
+    file, but it also relaxes DuckDB's dialect sniffer, which can then settle
+    on a quoting scheme that silently mis-parses a correctly-quoted file and
+    drops large contiguous blocks of rows. Sniffing separately (sniff_csv runs
+    strict) and pinning the result keeps the tolerant row handling without
+    letting the dialect drift.
+    """
+    try:
+        delim, quote, escape = dataset_con.execute(
+            "SELECT Delimiter, Quote, Escape FROM sniff_csv(?)", [file_path]
+        ).fetchone()
+    except Exception:
+        return ""
+    options = []
+    for name, value in (("DELIM", delim), ("QUOTE", quote), ("ESCAPE", escape)):
+        # sniff_csv reports absent settings as a multi-char marker, e.g. "(empty)"
+        if isinstance(value, str) and len(value) == 1:
+            options.append(f"""{name}='{value.replace("'", "''")}'""")
+    return ("," + ", ".join(options)) if options else ""
+
+
 class DatasetManager:
     """Manages dataset databases and dataset linking into workspaces."""
 
@@ -91,11 +115,17 @@ class DatasetManager:
 
                 original_cols = None
                 try:
-                    with open(file_path, "r") as f:
+                    # utf-8-sig so a leading BOM does not end up glued to the
+                    # first column name (DuckDB strips it, so the names must match)
+                    with open(file_path, "r", encoding="utf-8-sig") as f:
                         header_line = f.readline().strip()
                         original_cols = list(csv.reader([header_line]))[0]
                 except Exception:
                     original_cols = None
+
+                dialect_options = sniff_csv_dialect_options(
+                    dataset_con, file_path
+                )
 
                 if original_cols:
                     cleaned_cols = self.__dedupe_columns(
@@ -117,6 +147,7 @@ class DatasetManager:
                             NULL_PADDING=TRUE,
                             SAMPLE_SIZE=100_000,
                             PARALLEL=FALSE
+                            {dialect_options}
                         );
                         """)
                 else:
@@ -130,6 +161,7 @@ class DatasetManager:
                             NULL_PADDING=TRUE,
                             SAMPLE_SIZE=100_000,
                             PARALLEL=FALSE
+                            {dialect_options}
                         );
                         """)
             dataset_con.commit()

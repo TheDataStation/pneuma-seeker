@@ -104,9 +104,6 @@ class Config:
             getenv("MAX_CONTEXT_EXTRACTION_LOOP_STEPS", "3")
         )
         self.MAX_RESULT_PREVIEW_ROWS = int(getenv("MAX_RESULT_PREVIEW_ROWS", "100"))
-        self.ENABLE_DS_SKEPTIC = getenv("ENABLE_DS_SKEPTIC", "true").lower() == "true"
-        self.MAX_DS_SKEPTIC_ROUNDS = int(getenv("MAX_DS_SKEPTIC_ROUNDS", "1"))
-        self.MAX_DS_SKEPTIC_CE_CALLS = int(getenv("MAX_DS_SKEPTIC_CE_CALLS", "3"))
         self.ENABLE_PLAN_MODE = getenv("ENABLE_PLAN_MODE", "true").lower() == "true"
 
         ## Column Compaction Settings
