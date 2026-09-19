@@ -1,23 +1,23 @@
 table_name,description
 a_global_proteomics,"Global proteomics data, median polishing and log2 transformed, no missing value filtering"
 b_phospho_proteomics,"Phosphoproteomics site level data, median polishing and log2 transformed, no missing value filtering"
-a_msi,"MSI-H determination"
-b_se_proteomics,"Significant genes by global proteomics in Figure 1"
-c_se_phospho,"Significant genes by phosphoproteomics in Figure 1"
-d_se_acetyl,"Significant genes by acetylproteomics in Figure 1"
-e_mutation_adjacent,"Mutation calling results for adjacent tissue"
-f_ss_phospho,"Significant phospho sites for pairwise comparison"
-a_variants,"Both single amino acid variants (SAAVs) and insertions/deletions (indels)"
-b_novel_splice_junctions,"Splice junctions where neither boundary was at a known splice site"
+a_msi,MSI-H determination
+b_se_proteomics,Significant genes by global proteomics in Figure 1
+c_se_phospho,Significant genes by phosphoproteomics in Figure 1
+d_se_acetyl,Significant genes by acetylproteomics in Figure 1
+e_mutation_adjacent,Mutation calling results for adjacent tissue
+f_ss_phospho,Significant phospho sites for pairwise comparison
+a_variants,Both single amino acid variants (SAAVs) and insertions/deletions (indels)
+b_novel_splice_junctions,Splice junctions where neither boundary was at a known splice site
 c_alternate_splice_junctions,"Splice junctions in known genes where either the donor splice site is a canonical donor, or both the donor and acceptor sites are canonical (but at least one exon is skipped)"
-a_se_in_scna_hotspots,"Genes located in SCNA hotspots with significant trans effects"
-b_circrna_and_rbp_correlation,"Correlations between circRNA expression and RNA binding protein abundance"
-a_se_protein_between_serous_and_endo,"Significantly expressed proteins between Serous and Endometrioid tumors"
-b_se_phospho_site_between_serous_and_endo,"Significantly expressed phospho sites between Serous and Endometrioid tumors"
-c_se_scetyl_site_between_serous_and_endo,"Significantly expressed acetyl sites between Serous and Endometrioid tumors"
-d_se_protein_between_msi_h_and_mss,"Significantly expressed proteins between MSI-H and MSS tumors"
-e_se_phospho_site_between_msi_h_and_mss,"Significantly expressed phospho sites between MSI-H and MSS tumors"
-f_se_scetyl_site_between_msi_h_and_mss,"Significantly expressed acetyl sites between MSI-H and MSS tumors"
-g_fda_approved_drugs,"FDA approved drugs for highly expressed genes"
-a_predicted_neoantigen,"Predicted neoantigens with mrna and protein evidence"
-b_apm_subtypes,"APM subtypes and immune scores"
+a_se_in_scna_hotspots,Genes located in SCNA hotspots with significant trans effects
+b_circrna_and_rbp_correlation,Correlations between circRNA expression and RNA binding protein abundance
+a_se_protein_between_serous_and_endo,Significantly expressed proteins between Serous and Endometrioid tumors
+b_se_phospho_site_between_serous_and_endo,Significantly expressed phospho sites between Serous and Endometrioid tumors
+c_se_scetyl_site_between_serous_and_endo,Significantly expressed acetyl sites between Serous and Endometrioid tumors
+d_se_protein_between_msi_h_and_mss,Significantly expressed proteins between MSI-H and MSS tumors
+e_se_phospho_site_between_msi_h_and_mss,Significantly expressed phospho sites between MSI-H and MSS tumors
+f_se_scetyl_site_between_msi_h_and_mss,Significantly expressed acetyl sites between MSI-H and MSS tumors
+g_fda_approved_drugs,FDA approved drugs for highly expressed genes
+a_predicted_neoantigen,Predicted neoantigens with mrna and protein evidence
+b_apm_subtypes,APM subtypes and immune scores

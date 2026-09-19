@@ -9,7 +9,6 @@ from pneuma_seeker.provenance.graph import ProvenanceGraph
 from pneuma_seeker.services.core.action_set.main import ActionSet
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
-from pneuma_seeker.services.core.conductor.ds_skeptic import DSSkeptic
 from pneuma_seeker.services.core.conductor.models import (
     ConductorResponse,
     ConductorResponseType,
@@ -78,7 +77,6 @@ class Conductor:
                 ConductorResponse(ConductorResponseType.LOG, msg)
             ),
         )
-        self.ds_skeptic = DSSkeptic(self.language_model_api, self.config, self.logger)
 
         self.state = ConductorState()
         self.retrieved_tables: list[AbstractDocument] = []
@@ -94,11 +92,11 @@ class Conductor:
         self.llm_messages: list[LLMMessage] = []
         self.interaction_history: list[LLMMessage] = []
 
-        self._skeptic_rounds = 0
-        self._pending_skeptic_feedback: str | None = None
-        self._skeptic_pushed_back: bool = False
         self._pending_plan_feedback: str | None = None
         self._plan_mode: bool = False
+        self._degenerate_result_flagged: bool = False
+        self._information_needs: str | None = None
+        self._information_needs_grounded: bool = False
 
         self._action_handlers: dict[str, Any] = {
             ActionNames.SITUATIONAL_ANALYSIS.value: self._handle_situational_analysis,
@@ -173,10 +171,11 @@ class Conductor:
                 )
             )
 
+        self._plan_information_needs(user_message, dataset_name)
         current_step = 0
-        prev_accumulated_in_tokens = 0
-        prev_accumulated_out_tokens = 0
-        prev_accumulated_llm_time = 0.0
+        prev_accumulated_in_tokens = self.language_model_api.llm.total_input_tokens
+        prev_accumulated_out_tokens = self.language_model_api.llm.total_output_tokens
+        prev_accumulated_llm_time = self.language_model_api.llm.total_llm_time
 
         while (
             self.user_facing_response == ""
@@ -205,6 +204,7 @@ class Conductor:
                     self.web_search_result,
                     self.web_crawl_result,
                     self.join_paths,
+                    information_needs=self._information_needs,
                 ),
             )
 
@@ -286,19 +286,6 @@ class Conductor:
                     user_message, action_name, action_args, dataset_name
                 )
 
-                if self._pending_skeptic_feedback is not None:
-                    self.llm_messages.append(
-                        LLMMessage(
-                            role=Role.USER.value,
-                            content=self._pending_skeptic_feedback,
-                        )
-                    )
-                    pushed_back = self._skeptic_pushed_back
-                    self._pending_skeptic_feedback = None
-                    self._skeptic_pushed_back = False
-                    if pushed_back:
-                        break  # abort remaining plan actions
-
                 if status == ActionExecutionStatus.ERROR:
                     self.llm_messages.append(
                         LLMMessage(
@@ -313,6 +300,13 @@ class Conductor:
                     break
 
             self.actions.append(str(executed_plan))
+            if (
+                self._information_needs
+                and not self._information_needs_grounded
+                and self.retrieved_tables
+                and self.user_facing_response == ""
+            ):
+                self._ground_information_needs(user_message, dataset_name)
 
             step_end_time = time()
             llm = self.language_model_api.llm
@@ -354,6 +348,113 @@ class Conductor:
 
         chat_end_time = time()
         self._log_overall_profiling(chat_start_time, chat_end_time)
+
+    def _plan_information_needs(self, user_message: str, dataset_name: str) -> None:
+        message = "Planning information needs..."
+        self.frontend_callback(ConductorResponse(ConductorResponseType.LOG, message))
+        self._log(message)
+        planning_start_time = time()
+        try:
+            needs = "".join(
+                self.language_model_api.chat(
+                    [
+                        LLMMessage(
+                            role=Role.SYSTEM.value,
+                            content=self.prompt_factory.get_information_needs_sys_prompt(),
+                        ),
+                        LLMMessage(
+                            role=Role.USER.value,
+                            content=self.prompt_factory.get_information_needs_user_prompt(
+                                user_message, self.interaction_history
+                            ),
+                        ),
+                    ],
+                    LLMOption(stream=True, top_p=0.1),
+                )
+            ).strip()
+        except Exception as exc:
+            self._log(f"Information-needs planning failed, continuing without it: {exc}")
+            return
+        if not needs:
+            self._log("Information-needs planning returned nothing, continuing without it.")
+            return
+        self._information_needs = needs
+
+        action_plan = {
+            "action": ActionNames.SITUATIONAL_ANALYSIS.value,
+            "args": {
+                "message": (
+                    "Initial information-needs plan (provisional; revise as the "
+                    f"data reveals more):\n{needs}"
+                )
+            },
+        }
+        self._log(f"Executing action: {action_plan}")
+        self._execute_action(
+            user_message, action_plan["action"], action_plan["args"], dataset_name
+        )
+        self.actions.append(str([action_plan]))
+
+        llm = self.language_model_api.llm
+        self._log_step_profiling(
+            llm.total_input_tokens,
+            llm.total_output_tokens,
+            time() - planning_start_time,
+            llm.total_llm_time,
+        )
+
+    def _ground_information_needs(self, user_message: str, dataset_name: str) -> None:
+        """Adds hedged leads into the retrieved tables under each planned need.
+
+        Runs once per turn. The leads only point Conductor at what to check; the
+        gate in the state prompt still requires it to verify them against the data.
+        """
+        self._information_needs_grounded = True
+        message = "Linking information needs to retrieved tables..."
+        self.frontend_callback(ConductorResponse(ConductorResponseType.LOG, message))
+        self._log(message)
+        try:
+            leads = "".join(
+                self.language_model_api.chat(
+                    [
+                        LLMMessage(
+                            role=Role.SYSTEM.value,
+                            content=self.prompt_factory.get_needs_grounding_sys_prompt(),
+                        ),
+                        LLMMessage(
+                            role=Role.USER.value,
+                            content=self.prompt_factory.get_needs_grounding_user_prompt(
+                                user_message,
+                                self._information_needs or "",
+                                self.retrieved_tables,
+                            ),
+                        ),
+                    ],
+                    LLMOption(stream=True, top_p=0.1),
+                )
+            ).strip()
+        except Exception as exc:
+            self._log(f"Linking information needs failed, continuing without it: {exc}")
+            return
+        if not leads:
+            self._log("Linking information needs returned nothing, continuing without it.")
+            return
+        self._information_needs = leads
+
+        action_plan = {
+            "action": ActionNames.SITUATIONAL_ANALYSIS.value,
+            "args": {
+                "message": (
+                    "Leads for each information need in the retrieved tables "
+                    f"(hypotheses to verify, not conclusions):\n{leads}"
+                )
+            },
+        }
+        self._log(f"Executing action: {action_plan}")
+        self._execute_action(
+            user_message, action_plan["action"], action_plan["args"], dataset_name
+        )
+        self.actions.append(str([action_plan]))
 
     def _validate_plan(self, plan: Any) -> list[dict[str, Any]]:
         if not isinstance(plan, list):
@@ -794,61 +895,6 @@ class Conductor:
             return error_msg, ActionExecutionStatus.ERROR
 
         self._log(success_msg)
-
-        if (
-            self.config.ENABLE_DS_SKEPTIC
-            and self._skeptic_rounds < self.config.MAX_DS_SKEPTIC_ROUNDS
-        ):
-            self._skeptic_rounds += 1
-            message = "DS-Skeptic reviewing analysis plan..."
-            self._log(message)
-            self.frontend_callback(
-                ConductorResponse(ConductorResponseType.LOG, message)
-            )
-
-            _DS_SKEPTIC_TABLE = "ds_skeptic_check"
-
-            def _run_ds_skeptic_ce(uncertainties: list[dict]) -> str:
-                summary, log_msgs = self.action_set.run_context_extraction(
-                    uncertainties,
-                    self.retrieved_tables + self.external_tables,
-                    _DS_SKEPTIC_TABLE,
-                    dataset_name,
-                )
-                for log_msg in log_msgs:
-                    self.frontend_callback(
-                        ConductorResponse(ConductorResponseType.LOG, log_msg)
-                    )
-                for cleanup_stmt in (
-                    f"DROP TABLE IF EXISTS {_DS_SKEPTIC_TABLE};",
-                    f"DROP VIEW IF EXISTS {_DS_SKEPTIC_TABLE};",
-                ):
-                    try:
-                        self.db_api.execute_query(
-                            self.user_id, self.chat_id, cleanup_stmt
-                        )
-                    except Exception as cleanup_exc:
-                        self._log(f"DS-Skeptic CE cleanup warning: {cleanup_exc}")
-                return summary
-
-            push_back, feedback = self.ds_skeptic.review(
-                user_message,
-                self.state.T,
-                self.state.column_descriptions,
-                self.state.S or "",
-                self.retrieved_tables,
-                run_ce_fn=_run_ds_skeptic_ce,
-            )
-            self._pending_skeptic_feedback = feedback
-            self._skeptic_pushed_back = push_back
-            if push_back:
-                self.frontend_callback(
-                    ConductorResponse(
-                        ConductorResponseType.LOG,
-                        "DS-Skeptic has concerns — Conductor will reconsider in the next step.",
-                    )
-                )
-
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_materializer(
@@ -924,6 +970,24 @@ class Conductor:
             )
             execution_result_str = dataframe_to_preview_str(execution_result)
             self._log(f"Script (S) execution result: {execution_result_str}")
+            # An empty or all-NULL result is almost always a defect in S, but the
+            # accelerated plan would answer the user in this same step. Hand control
+            # back once so Conductor can inspect it; a second one is accepted.
+            if not self._degenerate_result_flagged and (
+                execution_result.empty or execution_result.isna().all().all()
+            ):
+                self._degenerate_result_flagged = True
+                kind = "no rows" if execution_result.empty else "only NULL/NaN values"
+                warning = (
+                    f"S ran but produced {kind}:\n{execution_result_str}\n"
+                    "This is almost always a defect in S or T (e.g., a filter or pattern "
+                    "that matched nothing, a failed cast, or a join on mismatched keys), "
+                    "not a finding about the data. Investigate what your filters actually "
+                    "match and fix S before answering. If you confirm the empty result is "
+                    "genuinely correct, you may answer."
+                )
+                self._log(f"=> {warning}")
+                return warning, ActionExecutionStatus.ERROR
             self.state.is_S_executed = True
             return (
                 f"Executed S, which resulted in this output: {execution_result_str}",
@@ -977,7 +1041,14 @@ class Conductor:
             self._log(f"=> {error_msg}")
             return error_msg, ActionExecutionStatus.ERROR
 
-        available_tables = self.retrieved_tables + self.external_tables
+        # Enumerated tables are handed to Materializer too, so they must be
+        # probeable here; otherwise tables found by enumeration can't be verified.
+        retrieved_ids = {doc.doc_id for doc in self.retrieved_tables}
+        available_tables = (
+            self.retrieved_tables
+            + [doc for doc in self.enumerated_tables if doc.doc_id not in retrieved_ids]
+            + self.external_tables
+        )
         summary, log_msgs = self.action_set.run_context_extraction(
             uncertainties, available_tables, "conductor_assumption_check", dataset_name
         )
@@ -1003,11 +1074,11 @@ class Conductor:
         self.user_facing_response = ""
         self.actions = []
         self.llm_messages = []
-        self._skeptic_rounds = 0
-        self._pending_skeptic_feedback = None
-        self._skeptic_pushed_back = False
         self._pending_plan_feedback = None
         self._plan_mode = False
+        self._degenerate_result_flagged = False
+        self._information_needs = None
+        self._information_needs_grounded = False
 
         self.language_model_api.llm.reset_metrics()
 

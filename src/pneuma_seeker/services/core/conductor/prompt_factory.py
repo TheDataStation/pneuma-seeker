@@ -90,6 +90,93 @@ Return **one JSON object** describing your planned actions for this step, e.g.:
 }}
 """.strip()
 
+    def get_information_needs_sys_prompt(self) -> str:
+        """Gets the system prompt for the up-front information-needs planning call.
+
+        Runs once per turn before any data is retrieved, so it decomposes the
+        request into what must be known rather than into actions on data.
+        """
+        return """
+# Role
+You are the planning stage of **Conductor** in **Pneuma-Seeker**. Before any data has been retrieved, decompose the user's request into the **information needs** that must be resolved to answer it.
+
+# What to produce
+A short numbered list of information needs. Each need is a question the analysis must answer, not an action to take. Cover:
+- **The target output and its exact definition** — what the requested quantity means (e.g., what counts as an "average rate", a "count", "the most common"), and its form (units, rounding, number vs. list).
+- **Every constraint and qualifier in the request** — scope, subgroup, time window, thresholds, tie-breaks. Give each its own need, so none is silently dropped.
+- **The population in scope** — which entities or records the answer is about, how they are identified, and whether some records should be excluded — including whether the data itself marks records as excluded, failed QC, replicates, or not part of the analysis. When the answer counts entities, ask whether one entity can appear under several identifiers (e.g., as several parts or sub-units of it), so the count is taken at the level the request names. When it counts or sums across several source tables or partitions, ask whether the same entity can be listed in more than one of them (e.g., an entity spanning partitions appears in each), so it is not double-counted unless the request says to count it in each.
+- **Ambiguous terms** — the plausible readings, and which one you provisionally adopt or will resolve from the data or the user.
+- **Evaluative or dataset-defined terms** (e.g., "eligible", "compliant", "at risk") — the need is to find whether the data already records its own judgment of the term (a flag, label, category, or a table named for it). Prefer that over constructing your own metric or threshold. Likewise, when the answer depends on a derived quantity the data may already report (a percentage, share, or rate), the need is to find that reported value: recomputing it requires knowing the right denominator, which the source already applied.
+
+# Rules
+- You have **not** seen the data. Do not name tables, columns, or values, and do not assume what exists. Phrase each need so it can be resolved once the data is inspected.
+- Do not plan actions or write queries.
+- **Unit of counting**: the unit is the individual record as stored, unless the request names a different unit. Do not propose collapsing records into coarser units (e.g., per day or per site) or "all must pass" rules the request does not ask for.
+- Keep it concise: typically 3-8 needs.
+- This plan is provisional and will be revised when the data shows something different.
+
+# Output
+Plain text: the numbered list only.
+""".strip()
+
+    def get_information_needs_user_prompt(
+        self, user_input: str, interaction_history: list[LLMMessage]
+    ) -> str:
+        """Gets the user message for the information-needs planning call."""
+        history = self.__convert_interactions_to_str(interaction_history)
+        return f"""
+Recent user interactions:
+{history if history else "(none)"}
+
+Current user input: {user_input}
+""".strip()
+
+    def get_needs_grounding_sys_prompt(self) -> str:
+        """Gets the system prompt for linking the information-needs plan to retrieved tables.
+
+        Runs once per turn, after the first retrieval, so the plan written blind gets
+        pointers into the data without committing Conductor to any of them.
+        """
+        return f"""
+# Role
+You are a stage of **Conductor** in **Pneuma-Seeker**. An information-needs plan was written before any data was seen, and tables have now been retrieved. For each need, point to where in these tables it could be resolved, so Conductor knows what to check. Your job is to say **where to look**, not how to read the request: Conductor has the rules for interpreting it.
+
+# What to produce
+Under each need, one to three short leads. You have only seen schemas and sample rows, so every lead is a hypothesis: word it as one ("probably", "possibly", "unclear"). A lead can be:
+- A column or table that probably bears on the need, and what to check in it (its value set, format, coding, or coverage).
+- A column that may already record the answer to the need itself: a flag, label, category, or reported value (e.g., a percentage or status column), which would be preferable to computing it.
+- Several candidates that compete, when you cannot tell which fits.
+- That the retrieved tables cover the need only partly or not at all, so more tables are probably needed. Compare the request's scope (e.g., a range of years, several places or categories) with what the retrieved tables cover; when tables are split into partitions by a naming pattern (e.g., one table per year or per place) and some the request needs are missing, say so and name the pattern, so Conductor can find the rest with {ActionNames.TABLE_ENUMERATION.value}.
+- For a need the data cannot settle, because it is about how to read the request (how to measure, sign, or bound a quantity, which records a phrase covers), write only "not settled by the data; Conductor's call".
+
+# Rules
+- Do not interpret the request: do not choose between its readings, propose formulas, distance measures, signs, or thresholds, or suggest which records to keep or drop.
+- Do not declare any need resolved and do not pick a final design. Conductor will verify the leads by inspecting the data and may discard them.
+- Scan every column of every retrieved table, not only the obvious ones: a flag or a pre-computed value in an unexpected column often bears on a need.
+- Name tables and columns exactly as they appear. Do not invent any.
+- Do not write queries or plan actions.
+
+# Output
+Plain text: each need from the plan, numbered as in the plan, followed by its leads. Nothing else.
+""".strip()
+
+    def get_needs_grounding_user_prompt(
+        self,
+        user_input: str,
+        information_needs: str,
+        retrieved_tables: list[AbstractDocument],
+    ) -> str:
+        """Gets the user message for linking the information-needs plan to retrieved tables."""
+        return f"""
+Current user input: {user_input}
+
+Information-needs plan:
+{information_needs}
+
+Retrieved tables:
+{convert_retrieval_results_to_str(retrieved_tables)}
+""".strip()
+
     def get_memory_context_prompt(self, entries: list[dict]) -> str:
         """
         Renders retrieved tribal-knowledge/user-preference entries as a short system
@@ -170,6 +257,7 @@ You maintain and update a shared state (T,S) that formalizes the user's active i
 - **Information Need**: The set of states of nature required to solve a data-driven task.
 - **Latent Information Need**: The true set of states needed to solve a task, often initially unknown to the user.
 - **Active Information Need**: The user's working hypothesis about what data is needed, which evolves through interaction and exploration to approximate the latent one.
+- **Information-needs plan**: Your first recorded action is a provisional list of the information needs the answer depends on, written before any data was seen. Treat it as a checklist, not a script: when the data contradicts an assumption in it, revise the need and say so in a `{ActionNames.SITUATIONAL_ANALYSIS.value}`, rather than forcing the original. In the step where you finalize S, your `{ActionNames.SITUATIONAL_ANALYSIS.value}` must go through each need and cite the evidence that resolves it (the column, value, or probe result you saw) and how T and S address it, or state how it was revised or why it cannot be met. A need is resolved by what the data records: if a qualifier has no explicit marker in the data (no column, flag, or category for it) and the data as a whole already matches it (e.g., the table covers exactly that period or population), treat it as satisfied. Never invent a boundary, such as a date range or threshold, that neither the user nor the data specifies.
 - **Shared State (T,S)**: A state object that represents the user's active information need.
   - **T**: A set of tables that specify what are needed to address the information need.
     - *Format:*
@@ -179,7 +267,7 @@ You maintain and update a shared state (T,S) that formalizes the user's active i
       - Define tables and their columns in **T** based on the user's information need and the data available in the environment (`{ActionNames.MATERIALIZER.value}` will later populate these tables).
       - Use descriptive, **semantically clear table IDs** and **self-explanatory column names** that reflect their contents or purpose.
       - **Prefer a single unified table in T.** Multiple tables in T are only justified when the analysis genuinely requires separate, independently meaningful views (e.g., a before/after comparison, two parallel fact domains). Do NOT define multiple T tables just because the source data spans multiple source tables — joining or unioning sources is Materializer's job.
-      - **Include only columns that S directly uses** to answer the user's question. Do not add "reference" or "context" columns speculatively.
+      - **Include only columns that S directly uses** to answer the user's question. Do not add "reference" or "context" columns speculatively. Two kinds of columns always count as "used" even though they never appear in the final output: (1) an identifier S needs to count or dedupe entities, and (2) any exclusion / QC flag on a source table (see below), because S must filter on it. Before finalizing T, scan each source table's columns for such a flag.
   - **S**: A Python script that constrains, transforms, or manipulates the (materialized) tables in T to more specifically address the user's need.
     - *Format:*
       - `S: str` (Python code operating on tables in `T`)
@@ -218,10 +306,24 @@ You maintain and update a shared state (T,S) that formalizes the user's active i
           - When a user asks for a **percentage/fraction of entities** (e.g., "what % of orders/incidents/customers…?"), the denominator should reflect **all entities that meet the scope constraints** (timeframe, geography, etc.), including entities with zero contribution to the measured quantity, unless the user explicitly asks to exclude them.
           - Be explicit in S about what the denominator counts. Avoid computing denominators (e.g., `COUNT(*)`) *after* filtering out zero-valued rows unless the question explicitly defines the denominator that way.
           - For Pareto-style questions (e.g., "what % of customers account for >= X% of total revenue"), you may rank by the measured quantity and ignore zero-valued rows for the cumulative-sum thresholding, but the percentage of entities should still be computed against the intended denominator (typically all in-scope entities).
+        - **Exclusion / QC flags define the analyzed population**:
+          - If a source table carries an explicit flag marking records as excluded, failed QC, or otherwise out of the analysis (e.g., a boolean or yes/no "excluded" column), the dataset's own analyzed population is the non-excluded records. Carry the flag into T and apply that filter in S by default for any question about the study's or dataset's subjects, and disclose it. Include flagged records only when the user explicitly asks for them.
+        - **Counting distinct entities**:
+          - Count entities on a key that is genuinely unique. A human-readable name (label, title, display name) is **not** an identity — the same name routinely denotes different entities under different parents (different countries, regions, owners, periods), so `COUNT(DISTINCT <name>)` silently merges them and undercounts. When the source carries an identifier column, count that instead.
+          - When S counts or dedupes entities, the identifier belongs in T even though it never appears in the final output, because S cannot recover it once T is materialized without it.
         - **Column value verification (filtering & computation)**:
           - Before applying a filter on any categorical column, you **must** use `{ActionNames.CONTEXT_EXTRACTION.value}` to understand the value distribution of the column. Do not assume what values exist or guess which one matches the user's intent based on column name alone.
           - After inspecting the distribution, **commit to the most semantically specific value(s)** that match the user's intent — do not default to a permissive filter (e.g., all non-null rows) as a hedge against ambiguity. When multiple values could plausibly apply, reason about which is the closest match to the user's language and pick that one. Always disclose your interpretation later in `{ActionNames.USER_FACING_COMMUNICATION.value}` so the user can correct it if needed.
           - Similarly, before writing computation or parsing logic on any column whose values may have non-trivial formats (e.g., a numeric-looking column that may actually contain strings like "a or b", encoded flags, or mixed types), you **must** use `{ActionNames.CONTEXT_EXTRACTION.value}` to sample actual values and confirm the format. Do not assume the format from the column name or description alone.
+        - **Casting text-typed columns that hold numbers or dates**:
+          - A column typed VARCHAR but semantically numeric or temporal is usually *not* directly castable: real data carries thousands separators, units, currency symbols, footnote markers, ranges, or uncertainty qualifiers. Sample it with `{ActionNames.CONTEXT_EXTRACTION.value}` and strip those *before* casting.
+          - `TRY_CAST` fails **silently** — every unparsed value becomes NULL, and those rows then disappear from averages, joins, and counts without an error. So after any cast, have S also report how many values survived it and compare that to the source row count. If the survivor count is far below the source, your parse is wrong; fix the parse instead of computing on whatever remains.
+        - **Average rates of change**:
+          - "Average rate of change of X over a period" means (X at end − X at start) / elapsed time. Do not average the rates between consecutive observations: that weights short and long intervals equally and is biased whenever sampling is uneven.
+        - **NULL / NaN results**:
+          - A NULL or NaN in the output is a symptom, not a finding. Before reporting that data is missing, find the cause, commonly duplicate records or zero-length intervals (0/0) in differencing, or a filter that excluded everything. Fix it or state the actual cause; never describe present-but-mishandled data as absent.
+        - **Proximity and tolerance conditions**:
+          - "within X of" / "distance less than X" between points in a coordinate space (or any multi-dimensional space) means a **distance radius**, Euclidean in the stated units unless the user names a metric. `ABS(dx) <= X AND ABS(dy) <= X` is a bounding box, not a radius: it covers a strictly larger region and yields a different count. Use a per-axis box only when the user states a tolerance per axis.
         - **Binary encodings & sign interpretation**:
           - When answering "does X increase/decrease Y" questions (especially with regressions or causal models), **define the treatment variable carefully** so that `1` always corresponds to the *more* of X (e.g., higher tier, feature enabled, more aggressive policy, premium plan, automated workflow).
           - If both a human-readable label column (e.g., plan_tier) and a numeric indicator column (often suffixed with _ind, e.g., premium_ind) exist for the same concept:
@@ -252,6 +354,7 @@ Both you and **{ActionNames.MATERIALIZER.value}** share the same data layer. You
   - Do **not** enumerate/search for more tables for this purpose. Only use this if such a companion table is already present in the retrieved set.
   - If present, use {ActionNames.CONTEXT_EXTRACTION.value} to sample/inspect just enough to decide whether the original table is relevant.
   - If the user requests for tables on some specific timeframe and you only retrieved tables on a subset of that timeframe, use {ActionNames.TABLE_ENUMERATION.value} to find other tables with similar names that may fill the gaps. If no more tables are available, you can still proceed with the available tables but be mindful of the missing data and its implications on the analysis.
+- If a retrieved table is named for the exact concept the question asks about, it is the primary candidate: probe it with {ActionNames.CONTEXT_EXTRACTION.value} before deriving that concept yourself from a proxy (e.g., thresholding a score or measurement in another table). A table that records the concept directly encodes the dataset's own definition of it; re-deriving it substitutes yours. If a proxy source cannot enforce every qualifier in the question (a required subgroup, condition, or scope), treat that as evidence it is the wrong source.
 - If a second call to {ActionNames.TABLE_RETRIEVE.value} returns the same set of tables as the first, **stop retrieving and pivot to {ActionNames.CONTEXT_EXTRACTION.value}** to explore what you already have. Repeated retrieval with rephrased prompts rarely surfaces new tables; probing existing ones does.""".strip()
 
     def __get_actions_section(
@@ -277,6 +380,7 @@ Both you and **{ActionNames.MATERIALIZER.value}** share the same data layer. You
         web_search_result: AbstractDocument | None = None,
         web_crawl_result: AbstractDocument | None = None,
         join_paths: str | None = None,
+        information_needs: str | None = None,
     ) -> str:
         """Gets the environment state prompt for Conductor."""
         last_ce_idx = -1
@@ -312,6 +416,21 @@ Both you and **{ActionNames.MATERIALIZER.value}** share the same data layer. You
                     f"Do NOT use {ActionNames.USER_FACING_COMMUNICATION.value} to indicate data is "
                     f"unavailable without first exhausting option (b).\n"
                 )
+        needs_gate = ""
+        if retrieved_tables and information_needs:
+            needs_gate = (
+                f"\nREQUIRED — resolve your information needs from the data, not from assumptions:\n"
+                f"{information_needs}\n"
+                f"Any leads under a need are unverified hypotheses from schemas and sample rows. Use them as "
+                f"places to look, check them, and discard those the data does not bear out.\n"
+                f"Before you define or change T/S, each need above must be resolved by evidence you have "
+                f"actually seen: a column you can name in a retrieved table's schema, or a "
+                f"{ActionNames.CONTEXT_EXTRACTION.value} result. What a table or column name suggests, or "
+                f"what data like this usually contains, is not evidence. Look through every column of the "
+                f"tables you use, not only the ones your design already needs. Put each need you cannot "
+                f"yet cite evidence for into your next {ActionNames.CONTEXT_EXTRACTION.value} call (one "
+                f"call can carry several questions).\n"
+            )
         return f"""
 Step {current_step} (out of maximum {self.config.MAX_CONDUCTOR_STEPS} steps)
 
@@ -333,7 +452,7 @@ Retrieved Tables:
 {f"\nExternal tables:\n{convert_retrieval_results_to_str(external_tables)}\n" if len(external_tables) > 0 else ""}
 {f"\nWeb search result:\n{web_search_result}\n" if self.config.ENABLE_WEB_SEARCH and web_search_result else ""}
 {f"\nWeb crawl result:\n{web_crawl_result}\n" if self.config.ENABLE_WEB_CRAWL and web_crawl_result else ""}
-{ce_gate}{PLAN_INSTRUCTION}""".strip()
+{needs_gate}{ce_gate}{PLAN_INSTRUCTION}""".strip()
 
     def get_skeleton_curr_state_prompt(
         self,

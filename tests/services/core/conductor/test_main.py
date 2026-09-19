@@ -59,6 +59,10 @@ class ConductorTests(unittest.TestCase):
             language_model_api=LanguageModelAPI(config, self.logger),
             frontend_callback=lambda _: None,
         )
+        # The up-front information-needs call would consume the first scripted
+        # LLM response; tests of the step loop stub it out. It has its own
+        # tests below, which call the real method.
+        self.conductor._plan_information_needs = MagicMock()  # type: ignore
 
     def tearDown(self):
         patch.stopall()
@@ -564,6 +568,49 @@ class ConductorTests(unittest.TestCase):
         self.conductor.action_set.execute_code.assert_called_once()
         self.conductor.materializer.materialize_T.assert_called_once()
 
+    def test_degenerate_s_result_returns_control_before_answering(self):
+        """An all-NULL S result must not be answered in the same step: the queued
+        final communication is skipped and Conductor gets another planning step.
+        A second degenerate result in the same turn is accepted."""
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
+                {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"S":"x"}}}},
+                {{"action":"{ActionNames.MATERIALIZER.value}","args":{{"note":""}}}}
+            ]}}""",
+            f"""{{"plan": [{{"action":"{ActionNames.PYTHON_EXECUTOR.value}","args":{{}}}}]}}""",
+            "answered after second look",
+        ]
+        self.conductor.materializer.materialize_T = MagicMock(
+            return_value=([], None, None, None, {"t1": pd.DataFrame({"a": [1]})})
+        )
+        self.conductor.action_set.execute_code = MagicMock(
+            return_value=pd.DataFrame({"total": [float("nan")]})
+        )
+
+        responses = list(
+            self.conductor.chat("q", interaction_history=[], external_table_paths=[])
+        )
+
+        self.assertEqual(self.conductor.action_set.execute_code.call_count, 2)
+        self.assertEqual(responses[-1].message, "answered after second look")
+        self.assertNotIn(
+            ActionNames.USER_FACING_COMMUNICATION.value,
+            self.conductor.actions[0],
+            "The answer queued after the first (degenerate) execution must be skipped.",
+        )
+        self.assertTrue(
+            any(
+                "only NULL/NaN values" in m["content"]
+                for m in self.conductor.llm_messages
+                if isinstance(m["content"], str)
+            )
+        )
+
+    def test_degenerate_s_result_flag_resets_between_turns(self):
+        self.conductor._degenerate_result_flagged = True
+        self.conductor._reset_conductor()
+        self.assertFalse(self.conductor._degenerate_result_flagged)
+
     def test_python_executor_self_trigger_chain_executes_s_once(self):
         """python_executor with T undefined-but-materializable is intercepted by
         _accelerate_plan, which substitutes materializer for this step and requeues
@@ -711,32 +758,8 @@ class ConductorTests(unittest.TestCase):
         self.assertIn(ActionNames.USER_FACING_COMMUNICATION.value, action_names)
         self.assertIsNone(self.conductor._pending_plan_feedback)
 
-    def test_ds_skeptic_pushback_aborts_remaining_plan(self):
-        """DS-Skeptic pushback causes actions after state_manipulation to be skipped in that step."""
-        self.conductor.config.ENABLE_DS_SKEPTIC = True
-        self.conductor.config.MAX_DS_SKEPTIC_ROUNDS = 1
-        self.conductor.language_model_api.llm._responses = [  # type: ignore
-            f"""{{"plan": [
-                {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"S":"result=1"}}}},
-                {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{}}}}
-            ]}}""",
-            f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{}}}}]}}""",
-            "reconsidered",
-        ]
-        self.conductor.ds_skeptic.review = MagicMock(
-            return_value=(True, "Skeptic has concerns")
-        )
-
-        responses = list(
-            self.conductor.chat("test", interaction_history=[], external_table_paths=[])
-        )
-
-        self.assertEqual(responses[-1].message, "reconsidered")
-        self.conductor.ds_skeptic.review.assert_called_once()
-
     def test_action_error_aborts_remaining_plan(self):
-        """An ordinary action error aborts remaining actions in the same step, mirroring
-        the existing DS-Skeptic pushback behavior."""
+        """An ordinary action error aborts remaining actions in the same step."""
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
                 {{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{}}}},
@@ -917,6 +940,33 @@ class ConductorTests(unittest.TestCase):
         self.assertIn("done", responses[-1].message)
         self.conductor.action_set.run_context_extraction.assert_called_once()
 
+    def test_context_extraction_can_probe_enumerated_tables(self):
+        """Tables found by enumeration are probeable, without duplicating ones
+        that were also retrieved."""
+
+        def table(doc_id: str) -> Table:
+            return Table(
+                doc_id=doc_id,
+                retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+                content=pd.DataFrame({"A": [1]}),
+                metadata={},
+            )
+
+        self.conductor.retrieved_tables = [table("t_2019")]
+        self.conductor.enumerated_tables = [table("t_2019"), table("t_2020")]
+        self.conductor.action_set.run_context_extraction = MagicMock(
+            return_value=("ok", [])
+        )
+
+        self.conductor._handle_context_extraction(
+            "q",
+            {"uncertainties": [{"table_ids": ["t_2020"], "question": "rows?"}]},
+            "ds",
+        )
+
+        available = self.conductor.action_set.run_context_extraction.call_args[0][1]
+        self.assertEqual([t.doc_id for t in available], ["t_2019", "t_2020"])
+
     def test_plan_mode_rejects_materializer_and_python_executor(self):
         """_validate_plan rejects MATERIALIZER/PYTHON_EXECUTOR in plan mode, and the
         corresponding handler is never invoked."""
@@ -1055,6 +1105,113 @@ class ConductorTests(unittest.TestCase):
             f"call {ActionNames.USER_FACING_COMMUNICATION.value} directly",
             plan_prompt,
         )
+
+
+    def test_information_needs_recorded_as_first_situational_analysis(self):
+        """Planning runs before the step loop and lands as the first recorded
+        action, so it is visible in every later step's "Recent actions"."""
+        del self.conductor._plan_information_needs  # use the real method
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            "1. What is the target quantity?\n2. Which records are in scope?",
+            f"""{{"plan": [
+            {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
+        ]}}""",
+            "done",
+        ]
+
+        list(
+            self.conductor.chat(
+                user_message="How many X are in Y?",
+                interaction_history=[],
+                external_table_paths=[],
+            )
+        )
+
+        self.assertGreaterEqual(len(self.conductor.actions), 2)
+        first = self.conductor.actions[0]
+        self.assertIn(ActionNames.SITUATIONAL_ANALYSIS.value, first)
+        self.assertIn("Initial information-needs plan", first)
+        self.assertIn("Which records are in scope?", first)
+        self.assertEqual(self.conductor.user_facing_response, "done")
+
+    def test_information_needs_failure_does_not_block_turn(self):
+        """If the planning call fails, the turn proceeds with no plan recorded."""
+        with patch.object(
+            self.conductor.language_model_api,
+            "chat",
+            side_effect=RuntimeError("LLM unavailable"),
+        ):
+            Conductor._plan_information_needs(self.conductor, "question", "ds")
+
+        self.assertEqual(self.conductor.actions, [])
+        self.assertEqual(self.conductor.llm_messages, [])
+
+    def test_information_needs_grounding_records_leads_for_the_gate(self):
+        """Grounding records hedged leads as a situational analysis and hands them
+        to the gate in place of the bare plan, once per turn."""
+        self.conductor._information_needs = "1. Which records are in scope?"
+        self.conductor.retrieved_tables = [MagicMock()]
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            "1. Which records are in scope?\n   - probably t.excluded_flag"
+        ]
+        with patch(
+            "pneuma_seeker.services.core.conductor.prompt_factory.convert_retrieval_results_to_str",
+            return_value="",
+        ):
+            self.conductor._ground_information_needs("question", "ds")
+
+        self.assertTrue(self.conductor._information_needs_grounded)
+        self.assertIn("probably t.excluded_flag", self.conductor._information_needs)
+        self.assertEqual(len(self.conductor.actions), 1)
+        self.assertIn(ActionNames.SITUATIONAL_ANALYSIS.value, self.conductor.actions[0])
+        self.assertIn("hypotheses to verify", self.conductor.actions[0])
+
+    def test_information_needs_grounding_failure_keeps_plan(self):
+        """If grounding fails, the bare plan stays in the gate and it is not retried."""
+        self.conductor._information_needs = "1. Which records are in scope?"
+        with patch.object(
+            self.conductor.language_model_api,
+            "chat",
+            side_effect=RuntimeError("LLM unavailable"),
+        ):
+            self.conductor._ground_information_needs("question", "ds")
+
+        self.assertTrue(self.conductor._information_needs_grounded)
+        self.assertEqual(
+            self.conductor._information_needs, "1. Which records are in scope?"
+        )
+        self.assertEqual(self.conductor.actions, [])
+
+    def test_information_needs_prompt_forbids_assuming_data(self):
+        """The planning prompt must frame needs as data-blind and provisional,
+        and both conductor modes must treat the plan as a revisable checklist."""
+        factory = self.conductor.prompt_factory
+        needs_prompt = factory.get_information_needs_sys_prompt()
+        self.assertIn("You have **not** seen the data", needs_prompt)
+        self.assertIn("provisional", needs_prompt)
+        for prompt in (factory.get_sys_prompt(), factory.get_plan_mode_sys_prompt()):
+            self.assertIn("Treat it as a checklist, not a script", prompt)
+
+    def test_information_needs_resurfaced_once_tables_are_retrieved(self):
+        """The plan's needs are repeated in the state prompt, with the demand to
+        resolve them from data, only after there are tables to check against."""
+        factory = self.conductor.prompt_factory
+        needs = "1. Does the data mark some records as excluded?"
+        args = (1, self.conductor.state, [], [], [], "q", [], [])
+
+        without_tables = factory.get_curr_state_prompt(*args, information_needs=needs)
+        self.assertNotIn(needs, without_tables)
+
+        args_with_tables = (1, self.conductor.state, [], [], [MagicMock()], "q", [], [])
+        with patch(
+            "pneuma_seeker.services.core.conductor.prompt_factory.convert_retrieval_results_to_str",
+            return_value="",
+        ):
+            with_tables = factory.get_curr_state_prompt(
+                *args_with_tables, information_needs=needs
+            )
+        self.assertIn(needs, with_tables)
+        self.assertIn("resolve your information needs from the data", with_tables)
 
 
 if __name__ == "__main__":
