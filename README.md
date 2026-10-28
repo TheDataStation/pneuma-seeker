@@ -31,7 +31,7 @@ docker compose up -d
 
 ## Frontend Development
 
-For frontend development guidelines, refer to the [pneuma-seeker-ui README](./pneuma-seeker-ui/README.md).
+For frontend development guidelines, refer to the [pneuma-seeker-ui README](https://github.com/TheDataStation/pneuma-seeker-ui/blob/main/README.md).
 
 ## Backend Development
 
