@@ -21,3 +21,7 @@ The following preprocessing steps were applied to the datasets relative to the o
 - Extract sheets in XLSX files into CSV files, including metadata when available (for example, README sheets within XLSX files).
 - Remove non-CSV files and add missing column names to certain tables (for example, the `C-SE-phospho` sheet in `1-s2.0-S0092867420301070-mmc3.xlsx`).
 - Some CSV files contain multiple logical tables. These were split into individual tables. For example, `2024_CSN_Fraud, Identity Theft, and Other Reports by Military Consumers.csv` contains separate breakdowns by military status, branch, and rank.
+
+# Evaluation Metrics
+
+- Answer Quality: best-of-3 (max score of 3 runs per question, averaged across questions; extends pass@3 to fractional scores)

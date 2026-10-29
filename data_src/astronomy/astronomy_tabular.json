@@ -3,7 +3,6 @@
         "id": "astronomy-easy-2",
         "query": "Calculate the ratio of peak atmospheric mass density experienced by Swarm A satellite during March 14th-17th 2014 vs July 18th-21st 2018.",
         "answer": 7.52,
-        "answer_type": "numeric_exact",
         "data_sources": [
             "swarma-wu016-20140314_to_20140317.csv",
             "swarma-wu545-20180718_to_20180721.csv"
@@ -13,7 +12,6 @@
         "id": "astronomy-easy-3",
         "query": "Using Swarm Alpha satellite data available by the warmup dataset, find the average atmospheric density measured between 450km and 500km altitude during in 2015 for availiable data points at 00:00 of each day in the initial state file. Clean up the density measurement data (n/a values or 9.99E32).",
         "answer": 7.95e-13,
-        "answer_type": "numeric_exact",
         "data_sources": [
             "wu001_to_wu715-initial_states.csv",
             "swarma-*2015*.csv"
@@ -23,7 +21,6 @@
         "id": "astronomy-easy-4",
         "query": "Determine the approximate period of solar activity cycles and identify the top five years of minimum and maximum activity between 1960 and 2020 using historical yearly mean sunspot numbers. To be considered as a maximum, a peak needs to have a prominence of 20 and distance of 5. Similar rules apply for the minimum.",
         "answer": "The average period is 11 years, with maxima in 1968, 1979, 1989, 2000, and 2014, and minima in 1964, 1976, 1986, 1996, and 2008.",
-        "answer_type": "string_approximate",
         "data_sources": [
             "SILSO/SN_y_tot_V2.0.csv"
         ]
@@ -35,7 +32,6 @@
             0.0193,
             -0.002
         ],
-        "answer_type": "list_approximate",
         "data_sources": [
             "space-track_58214_storm.csv",
             "space-track_58214_quiet.csv"

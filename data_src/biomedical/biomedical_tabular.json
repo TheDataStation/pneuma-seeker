@@ -3,7 +3,6 @@
         "id": "biomedical-hard-1",
         "query": "What is the Spearman correlation between the abundance of the protein PLK1 and the abundance of CHEK2-S163 in tumor samples? Exclude samples not in the study and with missing values. Round the result to 4 decimal places.",
         "answer": 0.4765,
-        "answer_type": "numeric_exact",
         "data_sources": [
             "UCEC_CPTAC3_meta_table_V2.1.csv",
             "A-global-proteomics.csv",
@@ -14,7 +13,6 @@
         "id": "biomedical-easy-2",
         "query": "What is the average age of patients with serous tumor samples analyzed in the study?",
         "answer": 68.5,
-        "answer_type": "numeric_exact",
         "data_sources": [
             "UCEC_CPTAC3_meta_table_V2.1.csv"
         ]
@@ -23,7 +21,6 @@
         "id": "biomedical-hard-3",
         "query": "What is the age of the patient with the lowest APP-Z score?",
         "answer": 60,
-        "answer_type": "numeric_exact",
         "data_sources": [
             "UCEC_CPTAC3_meta_table_V2.1.csv",
             "B-APM subtypes.csv"
@@ -35,7 +32,6 @@
         "answer": [
             "FIGO Grade 2"
         ],
-        "answer_type": "list_exact",
         "data_sources": [
             "UCEC_CPTAC3_meta_table_V2.1.csv",
             "C-Alternate Splice Junctions.csv"
@@ -45,7 +41,6 @@
         "id": "biomedical-hard-5",
         "query": "What is the median number of variants per Mbp for the serous tumor samples in the study? Round the result to 4 decimal places.",
         "answer": 2.6563,
-        "answer_type": "numeric_exact",
         "data_sources": [
             "UCEC_CPTAC3_meta_table_V2.1.csv",
             "B-APM subtypes.csv"
@@ -55,7 +50,6 @@
         "id": "biomedical-easy-6",
         "query": "What the most common histology grade (i.e., FIGO_stage) of the samples taken amongst patients in the study that are above 70?",
         "answer": "IA",
-        "answer_type": "string_exact",
         "data_sources": [
             "UCEC_CPTAC3_meta_table_V2.1.csv"
         ]
@@ -64,7 +58,6 @@
         "id": "biomedical-hard-7",
         "query": "How many are the significant genes by acetylproteomics?",
         "answer": 16,
-        "answer_type": "numeric_exact",
         "data_sources": [
             "D-SE-acetyl.csv"
         ]
@@ -76,7 +69,6 @@
             "CDK12",
             "SMARCA4"
         ],
-        "answer_type": "list_exact",
         "data_sources": [
             "UCEC_CPTAC3_meta_table_V2.1.csv",
             "G-FDA approved drugs.csv",
@@ -87,7 +79,6 @@
         "id": "biomedical-easy-9",
         "query": "What is the difference between the average false discovery rate (FDR) in CBX3 genes and the average FDR for the rest of the genes?",
         "answer": -0.008003975,
-        "answer_type": "numeric_exact",
         "data_sources": [
             "F-SS-Phospho.csv"
         ]
