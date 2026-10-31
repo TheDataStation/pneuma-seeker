@@ -36,6 +36,7 @@ from pneuma_seeker.services.core.conductor.models import (
     ConductorResponse,
     ConductorResponseType,
 )
+from pneuma_seeker.provenance.provenance_helper import quote_ident
 from pneuma_seeker.services.db.pneuma_db import PneumaDB
 from pneuma_seeker.services.db.users.manager import UserDB
 from pneuma_seeker.services.db.users.models import UserRecord
@@ -660,7 +661,7 @@ def get_target_views(
                 df = conductor.db_api.execute_query(
                     user_id,
                     chat_id,
-                    f"SELECT * FROM {table_id};",
+                    f"SELECT * FROM {quote_ident(table_id)};",
                 )
             except Exception as exc:
                 raise HTTPException(

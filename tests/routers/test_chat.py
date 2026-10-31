@@ -2,7 +2,9 @@ import json
 import os
 import sys
 import unittest
+from io import BytesIO
 from unittest.mock import AsyncMock, MagicMock, patch
+from zipfile import ZipFile
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -292,6 +294,26 @@ class TestChatRouter(unittest.TestCase):
         # Assert
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["detail"], "No target tables found")
+
+    @patch("pneuma_seeker.routers.chat.session_manager")
+    def test_get_target_views_quotes_table_names(self, mock_session_manager):
+        """Target tables (and script snapshots) named with uppercase letters or
+        spaces are queried as quoted identifiers and included in the ZIP."""
+        mock_conductor = MagicMock()
+        mock_conductor.state.T = {"Sales Summary": MagicMock()}
+        mock_conductor.materializer.prov_graph.get_snapshot_table_ids.return_value = ["big_join"]
+        mock_conductor.db_api.execute_query.return_value = pd.DataFrame({"a": [1]})
+        mock_session_manager.get_chat_session.return_value.conductor = mock_conductor
+
+        response = self.client.get("/chat/target_views/session_001")
+
+        self.assertEqual(response.status_code, 200)
+        queries = [c.args[2] for c in mock_conductor.db_api.execute_query.call_args_list]
+        self.assertEqual(
+            queries, ['SELECT * FROM "Sales Summary";', 'SELECT * FROM "big_join";']
+        )
+        with ZipFile(BytesIO(response.content)) as zipf:
+            self.assertEqual(sorted(zipf.namelist()), ["Sales Summary.csv", "big_join.csv"])
 
     @patch("pneuma_seeker.routers.chat.session_manager")
     def test_get_e2e_script_success(self, mock_session_manager):
