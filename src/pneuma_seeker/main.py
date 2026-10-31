@@ -57,6 +57,18 @@ async def lifespan(app: FastAPI):
             raise RuntimeError(
                 "Admin user was not created successfully during initialization"
             )
+    elif not admin_user.is_active:
+        logger.warning(
+            f"Admin user {admin_email} is deactivated, so it cannot log in."
+        )
+    elif db_initializer.verify_user(admin_email, admin_password) is None:
+        # ADMIN_PASSWORD is only used to create the admin user; changing it
+        # afterwards does not update the stored password.
+        logger.warning(
+            f"ADMIN_PASSWORD does not match the stored password of admin user "
+            f"{admin_email}. It is only used when the admin user is first created, "
+            "so the stored password still applies."
+        )
 
     yield
 

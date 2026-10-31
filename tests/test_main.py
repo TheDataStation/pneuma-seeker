@@ -90,5 +90,51 @@ class TestMainApplication(unittest.TestCase):
         self.assertIn("/api/chat/{chat_id}", registered_paths)
 
 
+class TestAdminBootstrap(unittest.TestCase):
+    """Startup checks of the admin user configured via ADMIN_EMAIL/ADMIN_PASSWORD."""
+
+    def _run_lifespan(self, existing_admin, password_matches: bool) -> MagicMock:
+        """Runs the app's startup against a stubbed UserDB; returns the logger."""
+        import asyncio
+
+        from pneuma_seeker import main
+
+        user_db = MagicMock()
+        user_db.get_user_by_email.return_value = existing_admin
+        user_db.verify_user.return_value = existing_admin if password_matches else None
+        logger = MagicMock()
+
+        async def run():
+            async with main.lifespan(main.app):
+                pass
+
+        with patch.object(main, "UserDB", return_value=user_db), patch.object(
+            main, "MemoryManager"
+        ), patch.object(main, "Config"), patch.object(
+            main, "setup_logger", return_value=logger
+        ), patch.dict(
+            os.environ, {"ADMIN_EMAIL": "admin@x.com", "ADMIN_PASSWORD": "from-env"}
+        ):
+            asyncio.run(run())
+        self.user_db = user_db
+        return logger
+
+    def _warnings(self, logger: MagicMock) -> str:
+        return " ".join(str(c.args[0]) for c in logger.warning.call_args_list)
+
+    def test_warns_when_admin_password_does_not_match_stored_one(self):
+        logger = self._run_lifespan(MagicMock(is_active=True), password_matches=False)
+        self.assertIn("ADMIN_PASSWORD does not match", self._warnings(logger))
+        self.user_db.create_user.assert_not_called()
+
+    def test_warns_when_admin_user_is_deactivated(self):
+        logger = self._run_lifespan(MagicMock(is_active=False), password_matches=False)
+        self.assertIn("is deactivated", self._warnings(logger))
+
+    def test_no_warning_when_admin_password_matches(self):
+        logger = self._run_lifespan(MagicMock(is_active=True), password_matches=True)
+        logger.warning.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
