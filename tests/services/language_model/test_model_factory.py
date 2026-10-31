@@ -10,6 +10,9 @@ from pneuma_seeker.services.language_model.impl.azure_openai_embed_model import 
 )
 from pneuma_seeker.services.language_model.impl.azure_openai_llm import AzureOpenAILLM
 from pneuma_seeker.services.language_model.impl.embed_model import EmbeddingModel
+from pneuma_seeker.services.language_model.impl.openai_embed_model import (
+    OpenAIEmbedModel,
+)
 from pneuma_seeker.services.language_model.impl.openai_llm import OpenAILLM
 from pneuma_seeker.shared.config import Config
 
@@ -36,11 +39,19 @@ class ModelFactoryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             model_factory.get_llm(cfg)
 
-    def test_get_embed_model_returns_azure_embed_for_default(self):
+    def test_get_embed_model_returns_azure_embed_when_use_azure_true(self):
         cfg = Config()
         cfg.EMBED_MODEL_PATH = "text-embedding-3-small"
+        cfg.USE_AZURE_EMBED_MODEL = True
         cls = model_factory.get_embed_model(cfg)
         self.assertIs(cls, AzureOpenAIEmbedModel)
+
+    def test_get_embed_model_returns_openai_embed_when_use_azure_false(self):
+        cfg = Config()
+        cfg.EMBED_MODEL_PATH = "text-embedding-3-small"
+        cfg.USE_AZURE_EMBED_MODEL = False
+        cls = model_factory.get_embed_model(cfg)
+        self.assertIs(cls, OpenAIEmbedModel)
 
     def test_get_embed_model_returns_generic_for_other(self):
         cfg = Config()
