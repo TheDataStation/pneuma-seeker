@@ -60,7 +60,7 @@ class WebCrawler(AbstractRetriever):
                     "web_crawl",
                     RetrieverType.WEB_CRAWL,
                     f"Access to {query} is disallowed by robots.txt.",
-                    {},
+                    {"url": query},
                 )
             ]
 
@@ -68,7 +68,7 @@ class WebCrawler(AbstractRetriever):
             web_content = self.__fetch_content(query)
         except Exception as e:
             web_content = f"Error fetching content from {query}: {e}"
-        return [Text("web_crawl", RetrieverType.WEB_CRAWL, web_content, {})]
+        return [Text("web_crawl", RetrieverType.WEB_CRAWL, web_content, {"url": query})]
 
     def __get_robots_url(self, url: str) -> str:
         """Constructs robots.txt URL based on the given page URL."""

@@ -340,6 +340,61 @@ class MaterializerTests(unittest.TestCase):
             script,
         )
 
+    def test_steps_using_values_from_a_web_result_are_linked_to_it(self):
+        """A web search result pre-fetched by the Conductor (no provenance node
+        yet) gets a node, and steps transcribing its values are linked to it."""
+        web_text = Text(
+            doc_id="web_search",
+            retriever_type=RetrieverType.WEB_SEARCH,
+            content="Paris has 2,140,526 inhabitants and Marseille has 873,076.",
+            metadata={"query": "population of French cities"},
+        )
+        plan = [
+            {
+                "action": ActionNames.QUERY_EXECUTOR.value,
+                "args": {
+                    "query": "SELECT * FROM (VALUES ('Paris', 2140526), ('Marseille', 873076)) AS v(city, population)",
+                    "assign_to": "cities",
+                },
+            },
+            {
+                "action": ActionNames.QUERY_EXECUTOR.value,
+                "args": {
+                    "query": "SELECT city FROM cities WHERE population > 1000 ORDER BY city",
+                    "assign_to": "t1",
+                },
+            },
+        ]
+        self.lm_api.llm._responses = [json.dumps({"plan": plan})]  # type: ignore
+        os.makedirs(Path(self.tmpdir) / "test_ds", exist_ok=True)
+        pd.DataFrame({"a": [1]}).to_csv(Path(self.tmpdir) / "test_ds" / "unused.csv", index=False)
+        self.db_api.ingest_dataset("test_ds", str(Path(self.tmpdir) / "test_ds"))
+
+        self.materializer.materialize_T(
+            T={"t1": pd.DataFrame(columns=["city"])},
+            column_descriptions={},
+            S="",
+            dataset_name=self.dataset_name,
+            prefetched_web_search_result=web_text,
+        )
+
+        web_node = self.prov_graph.get_node_by_id(web_text.last_node_id or "")
+        assert web_node is not None
+        self.assertEqual(web_node.kind, NodeKind.CONTEXT)
+        self.assertIn("population of French cities", web_node.description)
+        cities_node = web_node.children[0]
+        self.assertEqual(cities_node.output_table_id, "cities")
+        self.assertIn("Uses values from the web search result", cities_node.description)
+        t1_node = next(n for n in self.prov_graph.nodes.values() if n.output_table_id == "t1")
+        # t1 only reads `cities`; it transcribes nothing from the web result.
+        self.assertEqual(t1_node.parents, [cities_node])
+
+        script = self._assert_script_reproduces(["t1"])
+        self.assertIn("web_search_result = r", script)
+        steps = self.prov_graph.get_graph_explanation(["t1"])
+        self.assertEqual(len(steps), 3)
+        self.assertIn("population of French cities", steps[0])
+
     def test_failed_replay_recording_does_not_fail_the_step(self):
         """If recording a model-driven step for replay fails, materialization
         still succeeds; the script stops at that step with an explanation."""

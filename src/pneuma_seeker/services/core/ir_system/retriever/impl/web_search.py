@@ -49,7 +49,14 @@ class WebSearch(AbstractRetriever):
         response = self.client.responses.create(
             model="o4-mini", tools=[{"type": "web_search"}], input=query
         )
-        return [Text("web_search", RetrieverType.WEB_SEARCH, response.output_text, {})]
+        return [
+            Text(
+                "web_search",
+                RetrieverType.WEB_SEARCH,
+                response.output_text,
+                {"query": query},
+            )
+        ]
 
     def index(self, documents: list[AbstractDocument]):
         """

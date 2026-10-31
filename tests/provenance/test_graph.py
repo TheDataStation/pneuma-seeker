@@ -146,9 +146,12 @@ class ProvenanceGraphTests(unittest.TestCase):
         self.assertGreaterEqual(len(explanation), 1)
         step_1 = explanation[0]
 
-        # The materializer node should be listed as a processing step
+        # The web result comes first, then the materializer step that used it
+        self.assertEqual(len(explanation), 2)
         self.assertIn("Step 1", step_1)
-        self.assertIn(materializer_node.python_code, step_1)
+        self.assertIn(used_node.python_code, step_1)
+        self.assertIn("Step 2", explanation[1])
+        self.assertIn(materializer_node.python_code, explanation[1])
 
         # The default root node code should not be listed under used data
         self.assertNotIn(self.graph.ROOT_NODE_CODE, step_1)

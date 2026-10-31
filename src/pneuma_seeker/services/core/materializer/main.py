@@ -26,6 +26,7 @@ from pneuma_seeker.shared.schemas.language_model.role import Role
 from pneuma_seeker.shared.schemas.language_model.option import LLMOption
 from pneuma_seeker.provenance.graph import NodeKind, ProvenanceGraph, ProvenanceNode
 from pneuma_seeker.provenance.provenance_helper import quote_ident, table_ref
+from pneuma_seeker.provenance.text_usage import uses_document
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import formatted_log
 from pneuma_seeker.shared.parser import parse_code, parse_json
@@ -386,16 +387,8 @@ class Materializer:
         self.state.web_search_result = web_search_results[0]
         success_msg = f'Successfully retrieved information from {ActionNames.WEB_SEARCH.value}. Notice that the "{ActionNames.WEB_SEARCH.value} result" have been filled. Join paths have also been updated accordingly."'
         self._log(f"==> {success_msg}")
-        new_node = ProvenanceNode(
-            source_retriever=RetrieverType.WEB_SEARCH,
-            python_code=self.action_set.generate_view_textual_document_code(
-                "web_search_result", self.state.web_search_result.content
-            ),
-            description=f"Searches the web using this query:\n{prompt}",
-            kind=NodeKind.CONTEXT,
-        )
-        self.prov_graph.add_node(new_node, True)
-        self.state.web_search_result.last_node_id = new_node.id
+        self.state.web_search_result.metadata.setdefault("query", prompt)
+        self._context_node_for(self.state.web_search_result)
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_web_crawl(
@@ -420,16 +413,8 @@ class Materializer:
         self.state.web_crawl_result = web_crawl_results[0]
         success_msg = f'Successfully retrieved information from {ActionNames.WEB_CRAWL.value}. Notice that the "{ActionNames.WEB_CRAWL.value} result" have been filled.'
         self._log(f"==> {success_msg}")
-        new_node = ProvenanceNode(
-            source_retriever=RetrieverType.WEB_CRAWL,
-            python_code=self.action_set.generate_view_textual_document_code(
-                "web_crawl_result", self.state.web_crawl_result.content
-            ),
-            description=f"Crawls this web page:\n{prompt}",
-            kind=NodeKind.CONTEXT,
-        )
-        self.prov_graph.add_node(new_node, True)
-        self.state.web_crawl_result.last_node_id = new_node.id
+        self.state.web_crawl_result.metadata.setdefault("url", prompt)
+        self._context_node_for(self.state.web_crawl_result)
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _handle_table_enumeration(
@@ -791,6 +776,7 @@ class Materializer:
             table_id,
             [self._source_node_for(conditioned_table_doc, dataset_name)],
             kind=replay_kind,
+            step_text=repr(instruction),
         )
         conditioned_table_doc.last_node_id = new_node.id
         return success_msg, ActionExecutionStatus.SUCCESS
@@ -950,6 +936,7 @@ class Materializer:
                 ),
                 assign_to,
                 parent_nodes,
+                step_text=executed_code,
             )
             self.state.add_intermediate_table(
                 Table(
@@ -999,6 +986,7 @@ class Materializer:
                 ),
                 assign_to,
                 parent_nodes,
+                step_text=executed_sql,
             )
             self.state.add_intermediate_table(
                 Table(
@@ -1182,6 +1170,7 @@ class Materializer:
                 output_mapping_table_id,
                 [self._source_node_for(source_doc, dataset_name) if source_doc else None],
                 kind=replay_kind,
+                step_text=repr(canonical_entities or []),
             )
             self.state.add_intermediate_table(
                 Table(
@@ -1246,6 +1235,57 @@ class Materializer:
         doc.last_node_id = node.id
         return node
 
+    def _context_node_for(self, doc: AbstractDocument) -> ProvenanceNode:
+        """Returns the node of a non-tabular document (web search/crawl result),
+        creating it on first use (e.g., for results pre-fetched by the Conductor)."""
+        existing = self.prov_graph.get_node_by_id(doc.last_node_id or "")
+        if existing is not None:
+            return existing
+        if doc.retriever_type == RetrieverType.WEB_CRAWL:
+            var_name = "web_crawl_result"
+            source = doc.metadata.get("url")
+            description = f"Crawls this web page:\n{source}" if source else "Crawls a web page."
+        else:
+            var_name = "web_search_result"
+            source = doc.metadata.get("query")
+            description = (
+                f"Searches the web using this query:\n{source}" if source else "Searches the web."
+            )
+        node = ProvenanceNode(
+            source_retriever=doc.retriever_type,
+            python_code=self.action_set.generate_view_textual_document_code(
+                var_name, doc.content
+            ),
+            description=description
+            + "\n\nThe content is embedded in the script; later steps transcribe values from it.",
+            kind=NodeKind.CONTEXT,
+        )
+        self.prov_graph.add_node(node, True)
+        doc.last_node_id = node.id
+        return node
+
+    def _web_documents_used_in(
+        self, step_text: str
+    ) -> list[tuple[AbstractDocument, list[str]]]:
+        """Web results whose values were transcribed into `step_text` (the
+        step's code or arguments), with the values found."""
+        identifiers: set[str] = set()
+        for doc in self._available_tables():
+            identifiers.add(doc.doc_id)
+            if isinstance(doc.content, DataFrame):
+                identifiers.update(str(c) for c in doc.content.columns)
+        for target_df in self.state.T.values():
+            identifiers.update(str(c) for c in target_df.columns)
+
+        used: list[tuple[AbstractDocument, list[str]]] = []
+        for doc in (self.state.web_search_result, self.state.web_crawl_result):
+            if doc is None or not isinstance(doc.content, str):
+                continue
+            values = uses_document(step_text, doc.content, identifiers)
+            if values:
+                used.append((doc, values))
+        return used
+
     def _dataset_alias_of(self, doc: AbstractDocument, dataset_name: str) -> str | None:
         """Catalog name under which a source table is attached in the workspace."""
         if doc.retriever_type == RetrieverType.USER:
@@ -1291,8 +1331,19 @@ class Materializer:
         output_table_id: str,
         parents: list[ProvenanceNode | None],
         kind: str = NodeKind.TRANSFORM,
+        step_text: str = "",
     ) -> ProvenanceNode:
-        """Adds a materialization step that produces `output_table_id`."""
+        """Adds a materialization step that produces `output_table_id`.
+
+        `step_text` (the step's code or arguments) is checked for values
+        transcribed from web results; those results become parents too.
+        """
+        parents = list(parents)
+        for doc, values in self._web_documents_used_in(step_text):
+            parents.append(self._context_node_for(doc))
+            source = "web crawl" if doc.retriever_type == RetrieverType.WEB_CRAWL else "web search"
+            examples = ", ".join(f"`{v}`" for v in values[:3])
+            description += f"\n\nUses values from the {source} result (e.g., {examples})."
         node = ProvenanceNode(
             source_retriever=RetrieverType.MATERIALIZER,
             python_code=python_code,

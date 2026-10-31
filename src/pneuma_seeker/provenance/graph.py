@@ -307,8 +307,8 @@ class ProvenanceGraph:
     ) -> list[str]:
         """Return a list of step explanations for the provenance graph.
 
-        Each list item represents one step (loading a source table or a
-        materialization step) in Markdown, in the same order and with the same
+        Each list item represents one step (loading a source table, a web
+        result used by later steps, or a materialization step) in Markdown, in the same order and with the same
         code as the end-to-end script. This format is friendlier for UIs that
         want to page/carousel through steps horizontally instead of rendering a
         single long document.
@@ -316,7 +316,7 @@ class ProvenanceGraph:
         steps_nodes = [
             node
             for node in self.get_pipeline_nodes(target_table_ids)
-            if node.kind in (NodeKind.LOAD, NodeKind.TRANSFORM, NodeKind.SNAPSHOT)
+            if node.kind != NodeKind.SETUP
         ]
 
         steps: list[str] = []
