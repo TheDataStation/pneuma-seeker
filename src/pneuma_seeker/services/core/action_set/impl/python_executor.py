@@ -154,6 +154,7 @@ class PythonExecutor(Action, Executable):
             "chat_id": self.chat_id,
         }
         exec(code, env)
+        self.last_executed_code = code
 
         return self.db_api.execute_query(
             self.user_id,

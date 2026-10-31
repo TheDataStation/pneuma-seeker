@@ -104,6 +104,12 @@ class Config:
             getenv("MAX_CONTEXT_EXTRACTION_LOOP_STEPS", "3")
         )
         self.MAX_RESULT_PREVIEW_ROWS = int(getenv("MAX_RESULT_PREVIEW_ROWS", "100"))
+        # Max rows of model decisions (e.g., semantic join matches) embedded in
+        # the end-to-end script per step; above it, the script loads the step's
+        # result from a CSV snapshot instead.
+        self.PROVENANCE_REPLAY_MAX_ROWS = int(
+            getenv("PROVENANCE_REPLAY_MAX_ROWS", "100000")
+        )
         self.ENABLE_PLAN_MODE = getenv("ENABLE_PLAN_MODE", "true").lower() == "true"
 
         ## Column Compaction Settings

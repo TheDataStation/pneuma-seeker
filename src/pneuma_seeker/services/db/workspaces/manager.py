@@ -115,6 +115,16 @@ class WorkspaceManager:
                         FOREIGN KEY (state_id) REFERENCES conductor_state(state_id)
                     );
                 """)
+            # Idempotent migration: columns needed to rebuild the end-to-end
+            # script (step kind, produced table, and execution order)
+            for column_def in (
+                "kind VARCHAR",
+                "output_table_id VARCHAR",
+                "node_order INTEGER",
+            ):
+                con.execute(
+                    f"ALTER TABLE provenance_nodes ADD COLUMN IF NOT EXISTS {column_def};"
+                )
 
             con.execute("""
                     CREATE TABLE IF NOT EXISTS documents (
@@ -372,8 +382,11 @@ class WorkspaceManager:
                         node.source_retriever.value,
                         node.python_code,
                         node.description,
+                        node.kind,
+                        node.output_table_id,
+                        node_order,
                     )
-                    for node in provenance_graph.nodes.values()
+                    for node_order, node in enumerate(provenance_graph.nodes.values())
                 ]
 
                 con.executemany(
@@ -383,8 +396,11 @@ class WorkspaceManager:
                         node_id,
                         source_retriever,
                         python_code,
-                        description
-                    ) VALUES (?, ?, ?, ?, ?);
+                        description,
+                        kind,
+                        output_table_id,
+                        node_order
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
                     """,
                     node_data,
                 )
@@ -637,20 +653,23 @@ class WorkspaceManager:
         provenance_graph = ProvenanceGraph(self.logger, create_default_root=False)
         node_rows = con.execute(
             """
-            SELECT node_id, source_retriever, python_code, description
+            SELECT node_id, source_retriever, python_code, description, kind, output_table_id
             FROM provenance_nodes
             WHERE state_id = ?
+            ORDER BY node_order NULLS LAST
             """,
             (state_id,),
-        ).fetchdf()
+        ).fetchall()
         nodes_dict: dict[str, ProvenanceNode] = {}
-        for _, node_row in node_rows.iterrows():
+        for node_id, source_retriever, python_code, description, kind, output_table_id in node_rows:
             node = ProvenanceNode(
-                source_retriever=RetrieverType(node_row["source_retriever"]),
-                python_code=node_row["python_code"],
-                description=node_row["description"],
+                source_retriever=RetrieverType(source_retriever),
+                python_code=python_code,
+                description=description,
+                kind=kind,
+                output_table_id=output_table_id,
             )
-            node.id = str(node_row["node_id"])
+            node.id = str(node_id)
             nodes_dict[node.id] = node
             provenance_graph.add_node(node)
 

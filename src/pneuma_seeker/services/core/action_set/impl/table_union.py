@@ -122,11 +122,9 @@ class TableUnion(Action, Applicable):
 
         union_sql = "\nUNION ALL\n".join(select_statements)
 
-        self.db_api.execute_query(
-            self.user_id,
-            self.chat_id,
-            f"CREATE OR REPLACE TABLE {self.__quote_ident(result_table_id)} AS\n{union_sql};",
-        )
+        sql = f"CREATE OR REPLACE TABLE {self.__quote_ident(result_table_id)} AS\n{union_sql};"
+        self.db_api.execute_query(self.user_id, self.chat_id, sql)
+        self.last_executed_code = sql
 
         return self.db_api.execute_query(
             self.user_id,

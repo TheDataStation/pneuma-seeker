@@ -593,7 +593,9 @@ async def get_state(chat_id: str, current_user: UserRecord = Depends(get_current
     prov_steps: list[str] = []
     if conductor.state.is_T_materialized:
         prov_explanation_steps_markdown = (
-            conductor.materializer.prov_graph.get_graph_explanation()  # type: ignore
+            conductor.materializer.prov_graph.get_graph_explanation(  # type: ignore
+                list(conductor.state.T.keys())
+            )
         )
         if prov_explanation_steps_markdown:
             prov_steps = [str(step_md) for step_md in prov_explanation_steps_markdown]
@@ -634,6 +636,8 @@ def get_target_views(
 ):
     """
     Download target views (CSV files) for a given user and chat as a ZIP file.
+    Also includes the snapshots the end-to-end script loads for steps too
+    large to embed in it (see ProvenanceGraph.get_snapshot_table_ids).
     Example: /tables/u123/c45/all
     """
     user_id = current_user.user_id
@@ -642,6 +646,11 @@ def get_target_views(
 
     if not target_table_ids:
         raise HTTPException(status_code=404, detail="No target tables found")
+
+    snapshot_table_ids = conductor.materializer.prov_graph.get_snapshot_table_ids(  # type: ignore
+        target_table_ids
+    )
+    target_table_ids += [t for t in snapshot_table_ids if t not in target_table_ids]
 
     # Create a ZIP file in memory (no temp file needed)
     zip_buffer = BytesIO()
@@ -678,11 +687,17 @@ def get_target_views(
 @router.get("/e2e_script/{chat_id}")
 def get_e2e_script(chat_id: str, current_user: UserRecord = Depends(get_current_user)):
     """
-    Downloads Materializer code (.py) generated for a given user and chat.
+    Downloads the end-to-end materialization script (.py) for a given user and
+    chat. Running it next to the source tables' CSV files rebuilds the target
+    tables (see the script's header for usage).
     """
     user_id = current_user.user_id
     chat_session = session_manager.get_chat_session(user_id, chat_id)
-    materializer_code = chat_session.conductor.materializer.prov_graph.get_graph_code()  # type: ignore
+    conductor = chat_session.conductor
+    target_table_ids = list(conductor.state.T.keys()) if conductor.state.T else []
+    materializer_code = conductor.materializer.prov_graph.get_graph_code(  # type: ignore
+        target_table_ids
+    )
 
     file_stream = BytesIO()
     file_stream.write(materializer_code.encode("utf-8"))

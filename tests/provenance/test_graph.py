@@ -9,7 +9,12 @@ sys.path.insert(
 )
 
 from pneuma_seeker.shared.schemas.core.ir_system import RetrieverType
-from pneuma_seeker.provenance.graph import ProvenanceGraph, ProvenanceNode
+from pneuma_seeker.provenance.graph import (
+    ROOT_NODE_DESCRIPTION,
+    NodeKind,
+    ProvenanceGraph,
+    ProvenanceNode,
+)
 
 
 class ProvenanceGraphTests(unittest.TestCase):
@@ -160,9 +165,14 @@ class ProvenanceGraphTests(unittest.TestCase):
         self.graph.add_node(n2)
         self.graph.add_node(n3)
 
-        concat = self.graph.get_graph_code()
-        expected = "code_a\n\ncode_b\n\ncode_c"
-        self.assertTrue(concat.endswith(expected))
+        script = self.graph.get_graph_code()
+        # Header, then the runtime preamble, then one section per step in order
+        self.assertTrue(script.startswith("# End-to-end materialization script"))
+        self.assertLess(script.index(self.graph.ROOT_NODE_CODE), script.index("code_a"))
+        self.assertLess(script.index("# Step 1:"), script.index("code_a"))
+        self.assertLess(script.index("code_a"), script.index("# Step 2:"))
+        self.assertLess(script.index("code_b"), script.index("# Step 3:"))
+        self.assertTrue(script.rstrip().endswith("code_c"))
 
     def test_get_graph_code_concatenation_skips_empty_and_preserves_order(self):
         """Tests that empty python_code nodes are skipped and order is preserved."""
@@ -197,12 +207,79 @@ class ProvenanceGraphTests(unittest.TestCase):
         self.graph.add_node(n2)
         self.graph.add_node(n3)
 
-        concat = self.graph.get_graph_code()
+        script = self.graph.get_graph_code()
         # The default root node is still present and will be included even
         # when the rest of the graph forms a cycle. Kahn's algorithm will
         # process the root then detect the cycle among the remaining nodes.
-        self.assertTrue(concat.endswith("tables: dict[str, pd.DataFrame] = {}"))
+        self.assertTrue(script.rstrip().endswith(self.graph.ROOT_NODE_CODE.rstrip()))
         self.logger.warning.assert_called()
+
+    def test_topological_sort_follows_insertion_order_for_independent_nodes(self):
+        """Steps without edges between them keep their execution order, even
+        when a later step is shallower in the graph."""
+        load = ProvenanceNode(RetrieverType.PNEUMA_RETRIEVER, "load", "")
+        deep = ProvenanceNode(RetrieverType.MATERIALIZER, "deep", "")
+        shallow = ProvenanceNode(RetrieverType.MATERIALIZER, "shallow", "")
+        for node in (load, deep, shallow):
+            self.graph.add_node(node)
+        self.graph.connect(load, deep)
+
+        codes = [n.python_code for n in self.graph.topological_sort()]
+        self.assertEqual(codes[1:], ["load", "deep", "shallow"])
+
+    def test_get_graph_code_keeps_only_steps_needed_by_targets(self):
+        """The script only includes ancestors of the last writer of each target,
+        and exports the targets."""
+        used = ProvenanceNode(
+            RetrieverType.PNEUMA_RETRIEVER, "load_used", "", kind=NodeKind.LOAD, output_table_id="ds.used"
+        )
+        unused = ProvenanceNode(
+            RetrieverType.PNEUMA_RETRIEVER, "load_unused", "", kind=NodeKind.LOAD, output_table_id="ds.unused"
+        )
+        create_t1 = ProvenanceNode(RetrieverType.MATERIALIZER, "create_t1", "Creates t1", output_table_id="t1")
+        rewrite_t1 = ProvenanceNode(RetrieverType.MATERIALIZER, "rewrite_t1", "Rewrites t1", output_table_id="t1")
+        other = ProvenanceNode(RetrieverType.MATERIALIZER, "other", "", output_table_id="t2")
+        for node in (used, unused, create_t1, rewrite_t1, other):
+            self.graph.add_node(node)
+        self.graph.connect(used, create_t1)
+        self.graph.connect(create_t1, rewrite_t1)
+        self.graph.connect(unused, other)
+
+        script = self.graph.get_graph_code(["t1"])
+        for code in ("load_used", "create_t1", "rewrite_t1", "export_tables(['t1'])"):
+            self.assertIn(code, script)
+        for code in ("load_unused", "other"):
+            self.assertNotIn(code, script)
+        self.assertIn("#     - used.csv  (table `used` of dataset `ds`)", script)
+
+        steps = self.graph.get_graph_explanation(["t1"])
+        self.assertEqual(len(steps), 3)
+        self.assertIn("Rewrites t1", steps[2])
+
+    def test_get_graph_code_without_output_info_keeps_all_nodes(self):
+        """Graphs persisted before nodes recorded their output table still
+        produce a script with every step."""
+        node = ProvenanceNode(RetrieverType.MATERIALIZER, "legacy_step", "")
+        self.graph.add_node(node)
+        self.assertIn("legacy_step", self.graph.get_graph_code(["t1"]))
+
+    def test_node_kind_is_inferred(self):
+        """Nodes without an explicit kind (e.g., loaded from older sessions) get one."""
+        self.assertEqual(ProvenanceNode(RetrieverType.MATERIALIZER, "", "").kind, NodeKind.TRANSFORM)
+        self.assertEqual(ProvenanceNode(RetrieverType.WEB_SEARCH, "", "").kind, NodeKind.CONTEXT)
+        self.assertEqual(ProvenanceNode(RetrieverType.PNEUMA_RETRIEVER, "", "").kind, NodeKind.LOAD)
+        legacy_root = ProvenanceNode(RetrieverType.USER, "import pandas as pd", ROOT_NODE_DESCRIPTION)
+        self.assertEqual(legacy_root.kind, NodeKind.SETUP)
+
+    def test_legacy_root_code_is_replaced_by_current_preamble(self):
+        """Old sessions stored a pandas-only root; the script uses the current preamble."""
+        graph = ProvenanceGraph(self.logger, create_default_root=False)
+        graph.add_node(
+            ProvenanceNode(RetrieverType.USER, "import pandas as pd\n\ntables = {}", ROOT_NODE_DESCRIPTION)
+        )
+        script = graph.get_graph_code()
+        self.assertIn(graph.ROOT_NODE_CODE, script)
+        self.assertNotIn("tables = {}", script)
 
     def test_add_node_invalid_type_raises(self):
         """Adding a non-ProvenanceNode should raise ValueError."""

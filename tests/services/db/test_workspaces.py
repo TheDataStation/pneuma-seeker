@@ -12,10 +12,11 @@ sys.path.insert(
     0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../src"))
 )
 
-from pneuma_seeker.provenance.graph import ProvenanceGraph
+from pneuma_seeker.provenance.graph import NodeKind, ProvenanceGraph, ProvenanceNode
 from pneuma_seeker.services.core.conductor.state import ConductorState
 from pneuma_seeker.services.db.pneuma_db import PneumaDB
 from pneuma_seeker.shared.config import Config
+from pneuma_seeker.shared.schemas.core.ir_system import RetrieverType
 
 
 class TestWorkspaceSessionDiscovery(unittest.TestCase):
@@ -403,6 +404,38 @@ class TestWorkspaceSessionPersistence(unittest.TestCase):
 
         self.assertEqual(state.S, "x = 2")
         self.assertEqual(len(history), 4)
+
+    def test_load_session_round_trips_provenance_for_e2e_script(self):
+        """Node kind, output table and execution order survive persistence, so a
+        reloaded chat produces the same end-to-end script."""
+        graph = ProvenanceGraph(self.logger)
+        load = ProvenanceNode(
+            RetrieverType.PNEUMA_RETRIEVER,
+            "load_csv_table('table_1', dataset='ds')",
+            "Loads table_1",
+            kind=NodeKind.LOAD,
+            output_table_id="ds.table_1",
+        )
+        steps = [
+            ProvenanceNode(RetrieverType.MATERIALIZER, f"step_{i}", f"Step {i}", output_table_id="t1")
+            for i in range(5)
+        ]
+        graph.add_node(load)
+        for step in steps:
+            graph.add_node(step)
+            graph.connect(load, step)
+        self.db.persist_session(
+            "user_1", "chat_1", "test_dataset", "hello", "hi", ConductorState(), graph, [], []
+        )
+
+        _, _, loaded_graph, *_ = self.db.load_session("user_1", "chat_1")
+
+        self.assertEqual(list(loaded_graph.nodes), list(graph.nodes))
+        loaded_load = loaded_graph.get_node_by_id(load.id)
+        assert loaded_load is not None
+        self.assertEqual(loaded_load.kind, NodeKind.LOAD)
+        self.assertEqual(loaded_load.output_table_id, "ds.table_1")
+        self.assertEqual(loaded_graph.get_graph_code(["t1"]), graph.get_graph_code(["t1"]))
 
 
 class TestWorkspaceSessionSearch(unittest.TestCase):

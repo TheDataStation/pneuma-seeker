@@ -86,11 +86,9 @@ class QueryExecutor(Action, Executable):
             raise ValueError("Input 'result_table_id' must be a non-empty string.")
 
         quoted_table = _quote_ident(result_table_id)
-        self.db_api.execute_query(
-            self.user_id,
-            self.chat_id,
-            f"CREATE OR REPLACE TABLE {quoted_table} AS {query}",
-        )
+        sql = f"CREATE OR REPLACE TABLE {quoted_table} AS\n{query}"
+        self.db_api.execute_query(self.user_id, self.chat_id, sql)
+        self.last_executed_code = sql
         return self.db_api.execute_query(
             self.user_id,
             self.chat_id,

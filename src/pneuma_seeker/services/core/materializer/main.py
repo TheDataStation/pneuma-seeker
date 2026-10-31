@@ -1,4 +1,5 @@
 # src/pneuma_seeker/core/materializer/main.py
+import re
 from logging import Logger
 from time import time
 from typing import Any, Callable
@@ -23,14 +24,14 @@ from pneuma_seeker.services.core.materializer.state import MaterializerState
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.schemas.language_model.role import Role
 from pneuma_seeker.shared.schemas.language_model.option import LLMOption
-from pneuma_seeker.provenance.graph import ProvenanceGraph, ProvenanceNode
+from pneuma_seeker.provenance.graph import NodeKind, ProvenanceGraph, ProvenanceNode
+from pneuma_seeker.provenance.provenance_helper import quote_ident, table_ref
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.logger import formatted_log
 from pneuma_seeker.shared.parser import parse_code, parse_json
 from pneuma_seeker.shared.str_processor import (
+    clean_column_table_name,
     dataframe_to_preview_str,
-    extract_table_ids_from_code,
-    extract_tables_from_sql_regex,
 )
 
 
@@ -362,16 +363,6 @@ class Materializer:
         self._log(
             f"Retrieved tables:\n {[i.doc_id for i in self.state.retrieved_tables]}"
         )
-        for doc in self.state.retrieved_tables:
-            if doc.path is not None:
-                node_id = self._create_or_get_read_node(
-                    doc,
-                    RetrieverType.PNEUMA_RETRIEVER,
-                    self.action_set.generate_pandas_read_csv_code(doc),
-                    "Retrieves an internal table from Pneuma-Retriever.",
-                )
-                if node_id is not None:
-                    doc.last_node_id = node_id
         self._log_table_repr_tokens(self.state.retrieved_tables)
         return success_msg, ActionExecutionStatus.SUCCESS
 
@@ -398,9 +389,10 @@ class Materializer:
         new_node = ProvenanceNode(
             source_retriever=RetrieverType.WEB_SEARCH,
             python_code=self.action_set.generate_view_textual_document_code(
-                self.state.web_search_result
+                "web_search_result", self.state.web_search_result.content
             ),
             description=f"Searches the web using this query:\n{prompt}",
+            kind=NodeKind.CONTEXT,
         )
         self.prov_graph.add_node(new_node, True)
         self.state.web_search_result.last_node_id = new_node.id
@@ -431,9 +423,10 @@ class Materializer:
         new_node = ProvenanceNode(
             source_retriever=RetrieverType.WEB_CRAWL,
             python_code=self.action_set.generate_view_textual_document_code(
-                self.state.web_crawl_result
+                "web_crawl_result", self.state.web_crawl_result.content
             ),
             description=f"Crawls this web page:\n{prompt}",
+            kind=NodeKind.CONTEXT,
         )
         self.prov_graph.add_node(new_node, True)
         self.state.web_crawl_result.last_node_id = new_node.id
@@ -465,20 +458,6 @@ class Materializer:
             return error_msg, ActionExecutionStatus.ERROR
         success_msg = f'Successfully retrieved all tables that match the pattern(s) {pattern_desc}. You can use them to materialize T, even if you have not called {ActionNames.TABLE_RETRIEVE.value} before, as these tables have been included to "retrieved internal tables".'
         self._log(f"==> {success_msg}")
-        read_code = self.action_set.generate_pandas_read_multi_doc_code(extra_tables)
-        new_node = ProvenanceNode(
-            source_retriever=RetrieverType.ENUMERATOR,
-            python_code=read_code,
-            description=f"Enumerates all tables whose names match this regular expression (RegEx) pattern:\n{pattern_desc}.",
-        )
-        self.prov_graph.add_node(new_node, True)
-        for extra_table in extra_tables:
-            last_id = getattr(extra_table, "last_node_id", None)
-            if last_id is not None:
-                existing_node = self.prov_graph.get_node_by_id(last_id)
-                if existing_node is not None:
-                    continue
-            extra_table.last_node_id = new_node.id
         self.state.retrieved_tables = list(
             set(self.state.retrieved_tables).union(set(extra_tables))
         )
@@ -567,15 +546,6 @@ class Materializer:
                 error_msg = f"Failed projecting columns {column_mapping!r} from table {table_id_to_project!r}: {e}"
                 self._log(f"==> {error_msg}")
                 return error_msg, ActionExecutionStatus.ERROR
-            select_code = self.action_set.generate_table_select_code(
-                target_table_id, table_id_to_project, source_columns
-            )
-            parent_node_id = self._create_or_get_read_node(
-                matches[0],
-                matches[0].retriever_type,
-                self.action_set.generate_pandas_read_csv_code(matches[0]),
-                "",
-            )
             child_node_desc = (
                 f"Projects a table\n\n"
                 f"- ID: `{table_id_to_project}`\n"
@@ -587,16 +557,12 @@ class Materializer:
                 if set(output_columns) != set(self.state.T[target_table_id].columns)
                 else "."
             )
-            child_node = ProvenanceNode(
-                source_retriever=RetrieverType.MATERIALIZER,
-                python_code=select_code,
-                description=child_node_desc,
+            child_node = self._add_step_node(
+                self._executed_sql_code(ActionNames.TABLE_PROJECTION),
+                child_node_desc,
+                target_table_id,
+                [self._source_node_for(matches[0], dataset_name)],
             )
-            self.prov_graph.add_node(child_node, True)
-            if parent_node_id is not None:
-                parent_node = self.prov_graph.get_node_by_id(parent_node_id)
-                if parent_node is not None:
-                    self.prov_graph.connect(parent_node, child_node)
             self.state.add_intermediate_table(
                 Table(
                     doc_id=target_table_id,
@@ -655,17 +621,19 @@ class Materializer:
             error_msg = f"Failed equality_join: {e}"
             self._log(f"==> {error_msg}")
             return error_msg, ActionExecutionStatus.ERROR
-        child_node = ProvenanceNode(
-            source_retriever=RetrieverType.MATERIALIZER,
-            python_code="",
-            description=(
+        join_sql = self.action_set.get_last_executed_code(ActionNames.EQUALITY_JOIN) or ""
+        child_node = self._add_step_node(
+            self.action_set.generate_sql_step_code(join_sql),
+            (
                 f"Equality-joins tables\n\n"
                 f"- left: `{left_table_id}` on {left_keys}\n"
                 f"- right: `{right_table_id}` on {right_keys}\n"
-                f"- result: `{result_table_id}`"
+                f"- result: `{result_table_id}`\n\n"
+                "Columns are prefixed with `left_` / `right_`."
             ),
+            result_table_id,
+            self._parent_nodes_for_code(join_sql, dataset_name),
         )
-        self.prov_graph.add_node(child_node, True)
         self.state.add_intermediate_table(
             Table(
                 doc_id=result_table_id,
@@ -720,16 +688,19 @@ class Materializer:
             error_msg = f"Failed table_union: {e}"
             self._log(f"==> {error_msg}")
             return error_msg, ActionExecutionStatus.ERROR
-        child_node = ProvenanceNode(
-            source_retriever=RetrieverType.MATERIALIZER,
-            python_code="",
-            description=(
+        union_sql = self.action_set.get_last_executed_code(ActionNames.TABLE_UNION) or ""
+        child_node = self._add_step_node(
+            self.action_set.generate_sql_step_code(union_sql),
+            (
                 f"Unions tables into `{result_table_id}`\n\n"
                 f"- sources: {table_ids}\n"
-                f"- provenance: `{provenance_column_name}` via regex"
+                f"- provenance: `{provenance_column_name}` extracted from each "
+                f"source table name with the regex `{provenance_regex}`\n\n"
+                "Columns missing from a source table are filled with NULL."
             ),
+            result_table_id,
+            self._parent_nodes_for_code(union_sql, dataset_name),
         )
-        self.prov_graph.add_node(child_node, True)
         self.state.add_intermediate_table(
             Table(
                 doc_id=result_table_id,
@@ -793,28 +764,34 @@ class Materializer:
         conditioned_table_doc.content = augmented_table_sample_rows
         success_msg = f"Successfully added a new column named {new_column_name} to table with ID {table_id}."
         self._log(f"==> {success_msg}")
-        sem_col_code = self.action_set.generate_semantic_col_generator_code(
-            src_table_columns,
-            conditioned_table_doc,
-            new_column_name,
-            list(augmented_table_sample_rows[new_column_name]),
+        # Record the value the LLM generated for each combination of source
+        # values, so the script can replay the column without the LLM.
+        src_cols_sql = ", ".join(
+            f"CAST({quote_ident(c)} AS VARCHAR)" for c in src_table_columns
         )
-        parent_node_id = self._create_or_get_read_node(
-            conditioned_table_doc,
-            conditioned_table_doc.retriever_type,
-            self.action_set.generate_pandas_read_csv_code(conditioned_table_doc),
-            "",
+        replay_code, replay_kind = self._replay_code(
+            lambda: (
+                f"SELECT {src_cols_sql}, any_value(CAST({quote_ident(new_column_name)} AS VARCHAR)) "
+                f"FROM {quote_ident(table_id)} GROUP BY ALL ORDER BY ALL"
+            ),
+            lambda rows: self.action_set.generate_semantic_column_replay_code(
+                table_id, src_table_columns, new_column_name, rows
+            ),
+            table_id,
+            f"semantic column generation of `{new_column_name}` in `{table_id}`",
         )
-        new_node = ProvenanceNode(
-            source_retriever=RetrieverType.MATERIALIZER,
-            python_code=sem_col_code,
-            description=f"Uses an LLM to generate column named `{new_column_name}` in the table `{table_id}`, conditioned on the following columns: {', '.join(f'`{col}`' for col in src_table_columns)}.",
+        new_node = self._add_step_node(
+            replay_code,
+            (
+                f"Uses an LLM to generate column named `{new_column_name}` in the table `{table_id}`, "
+                f"conditioned on the following columns: {', '.join(f'`{col}`' for col in src_table_columns)}.\n\n"
+                f"Instruction: {instruction}\n\n"
+                + self._replay_note(replay_kind, table_id, "the values the LLM generated")
+            ),
+            table_id,
+            [self._source_node_for(conditioned_table_doc, dataset_name)],
+            kind=replay_kind,
         )
-        self.prov_graph.add_node(new_node, True)
-        if parent_node_id is not None:
-            parent_node = self.prov_graph.get_node_by_id(parent_node_id)
-            if parent_node is not None:
-                self.prov_graph.connect(parent_node, new_node)
         conditioned_table_doc.last_node_id = new_node.id
         return success_msg, ActionExecutionStatus.SUCCESS
 
@@ -901,35 +878,38 @@ class Materializer:
             top_k=self.config.SEMANTIC_JOIN_TOP_K,
             dataset_name=dataset_name,
         )
-        join_code = self.action_set.generate_semantic_join_generator_code(
-            left_table_doc,  # type: ignore
-            right_table_doc,  # type: ignore
-            relevant_left_cols,
-            relevant_right_cols,
-            self.config.SEMANTIC_JOIN_TOP_K,
+
+        # Record the (left row, right row) matches that were kept, so the
+        # script can replay the join without recomputing similarities.
+        match_cols_sql = ", ".join(
+            [f"CAST({quote_ident('left_' + c)} AS VARCHAR)" for c in relevant_left_cols]
+            + [f"CAST({quote_ident('right_' + c)} AS VARCHAR)" for c in relevant_right_cols]
+            + ["similarity_score"]
         )
-        parent_node_1_id = self._create_or_get_read_node(
-            left_table_doc,  # type: ignore
-            left_table_doc.retriever_type,  # type: ignore
-            self.action_set.generate_pandas_read_csv_code(left_table_doc),  # type: ignore
-            "",
+        replay_code, replay_kind = self._replay_code(
+            lambda: f"SELECT DISTINCT {match_cols_sql} FROM {quote_ident(joined_table_id)} ORDER BY ALL",
+            lambda rows: self.action_set.generate_semantic_join_replay_code(
+                self._semantic_join_table_ref(left_table_id, dataset_name),
+                self._semantic_join_table_ref(right_table_id, dataset_name),
+                relevant_left_cols,
+                relevant_right_cols,
+                joined_table_id,
+                rows,
+            ),
+            joined_table_id,
+            f"semantic join into `{joined_table_id}`",
         )
-        parent_node_2_id = self._create_or_get_read_node(
-            right_table_doc,  # type: ignore
-            right_table_doc.retriever_type,  # type: ignore
-            self.action_set.generate_pandas_read_csv_code(right_table_doc),  # type: ignore
-            "",
+        new_node = self._add_step_node(
+            replay_code,
+            f"Semantically joins `{left_table_id}` and `{right_table_id}` into `{joined_table_id}`. For each row in the left table, keeps the `top-{self.config.SEMANTIC_JOIN_TOP_K}` matches from the right table (i.e., the most similar rows based on syntactic and semantic similarity). Similarity is computed based on these columns:\n- Left table: {', '.join(f'`{col}`' for col in relevant_left_cols)}\n- Right table: {', '.join(f'`{col}`' for col in relevant_right_cols)}\n\n"
+            + self._replay_note(replay_kind, joined_table_id, "the matches that were kept"),
+            joined_table_id,
+            [
+                self._source_node_for(left_table_doc, dataset_name),  # type: ignore[arg-type]
+                self._source_node_for(right_table_doc, dataset_name),  # type: ignore[arg-type]
+            ],
+            kind=replay_kind,
         )
-        new_node = ProvenanceNode(
-            source_retriever=RetrieverType.MATERIALIZER,
-            python_code=join_code,
-            description=f"Semantically joins `{left_table_id}` and `{right_table_id}`. For each row in the left table, keeps the `top-{self.config.SEMANTIC_JOIN_TOP_K}` matches from the right table (i.e., the most similar rows based on syntactic and semantic similarity). Similarity is computed based on these columns:\n- Left table: {', '.join(f'`{col}`' for col in relevant_left_cols)}\n- Right table: {', '.join(f'`{col}`' for col in relevant_right_cols)}",
-        )
-        self.prov_graph.add_node(new_node, True)
-        for pid in [parent_node_1_id, parent_node_2_id]:
-            node = self.prov_graph.get_node_by_id(pid) if pid else None
-            if node is not None:
-                self.prov_graph.connect(node, new_node)
         self.state.add_intermediate_table(
             Table(
                 doc_id=joined_table_id,
@@ -946,12 +926,6 @@ class Materializer:
     def _handle_python_executor(
         self, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
-        all_tables = (
-            self.state.retrieved_tables
-            + self.state.external_tables
-            + list(self.state.intermediate_tables)
-        )
-        id_docs: dict[str, AbstractDocument] = {t.doc_id: t for t in all_tables}
         assign_to: str | None = action_args.get("assign_to")
         if assign_to is None or assign_to.strip() == "":
             error_msg = "'assign_to' argument is missing or empty."
@@ -960,43 +934,23 @@ class Materializer:
         try:
             python_code: str = parse_code(action_args.get("code", ""))
             exec_res = self.action_set.execute_code(python_code, assign_to)
-            used_table_ids = extract_table_ids_from_code(python_code)
-            parent_nodes: list[ProvenanceNode] = []
-            for used_table_id in used_table_ids:
-                try:
-                    used_table_id = used_table_id.split(".")[-1].strip('"')
-                    used_table_doc = id_docs[used_table_id]
-                    parent_node = self.prov_graph.get_node_by_id(
-                        used_table_doc.last_node_id or ""
-                    )
-                    if parent_node is not None:
-                        parent_nodes.append(parent_node)
-                except Exception as e:
-                    self._log(
-                        f"Warning: Failed to extract retriever type or provenance node for used table ID {used_table_id}: {e}"
-                    )
-                    continue
-            code_nl_summary = f"Executes Python code to produce a new table named {assign_to} by performing operations on the following tables: {', '.join(f'`{tid}`' for tid in used_table_ids)}. The code uses these tables as inputs and produces a new table as output."
-            new_node = ProvenanceNode(
-                source_retriever=RetrieverType.MATERIALIZER,
-                python_code=self.action_set.append_comment_to_existing_code(
-                    python_code, f"Result: {assign_to}"
-                ),
-                description=code_nl_summary,
+            executed_code = (
+                self.action_set.get_last_executed_code(ActionNames.PYTHON_EXECUTOR)
+                or python_code
             )
-            self.prov_graph.add_node(new_node, True)
-            for parent_node in parent_nodes:
-                if parent_node is None:
-                    continue
-                try:
-                    self.prov_graph.connect(parent_node, new_node)
-                except Exception:
-                    fallback = self.prov_graph.get_node_by_id(parent_node.id)
-                    if fallback is not None:
-                        try:
-                            self.prov_graph.connect(fallback, new_node)
-                        except Exception:
-                            continue
+            parent_nodes = self._parent_nodes_for_code(executed_code, dataset_name)
+            used_table_ids = self._referenced_table_ids(executed_code)
+            new_node = self._add_step_node(
+                executed_code,
+                f"Executes Python code to produce the table `{assign_to}`"
+                + (
+                    f" from these tables: {', '.join(f'`{tid}`' for tid in used_table_ids)}."
+                    if used_table_ids
+                    else "."
+                ),
+                assign_to,
+                parent_nodes,
+            )
             self.state.add_intermediate_table(
                 Table(
                     doc_id=assign_to,
@@ -1017,12 +971,6 @@ class Materializer:
     def _handle_query_executor(
         self, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
-        all_tables = (
-            self.state.retrieved_tables
-            + self.state.external_tables
-            + list(self.state.intermediate_tables)
-        )
-        id_docs: dict[str, AbstractDocument] = {t.doc_id: t for t in all_tables}
         assign_to: str | None = action_args.get("assign_to")
         if assign_to is None or assign_to.strip() == "":
             error_msg = "'assign_to' argument is missing or empty."
@@ -1035,48 +983,23 @@ class Materializer:
             return error_msg, ActionExecutionStatus.ERROR
         try:
             exec_res = self.action_set.execute_query(query, assign_to)
-            used_table_ids = extract_tables_from_sql_regex(query)
-            parent_nodes: list[ProvenanceNode] = []
-            for used_table_id in used_table_ids:
-                try:
-                    used_table_key = used_table_id.split(".")[-1].strip('"')
-                    used_table_doc = id_docs.get(used_table_key)
-                    if used_table_doc is None:
-                        continue
-                    parent_node = self.prov_graph.get_node_by_id(
-                        used_table_doc.last_node_id or ""
-                    )
-                    if parent_node is not None:
-                        parent_nodes.append(parent_node)
-                except Exception as e:
-                    self._log(
-                        f"Warning: Failed to resolve provenance for used table ID {used_table_id}: {e}"
-                    )
-                    continue
-            query_nl_summary = (
-                f"Executes a SQL query to produce a new table named {assign_to} "
-                f"from the following tables: {', '.join(f'`{tid}`' for tid in used_table_ids)}."
+            executed_sql = (
+                self.action_set.get_last_executed_code(ActionNames.QUERY_EXECUTOR)
+                or query
             )
-            new_node = ProvenanceNode(
-                source_retriever=RetrieverType.MATERIALIZER,
-                python_code=self.action_set.append_comment_to_existing_code(
-                    query, f"Result: {assign_to}"
+            parent_nodes = self._parent_nodes_for_code(executed_sql, dataset_name)
+            used_table_ids = self._referenced_table_ids(executed_sql)
+            new_node = self._add_step_node(
+                self.action_set.generate_sql_step_code(executed_sql),
+                f"Executes a SQL query to produce the table `{assign_to}`"
+                + (
+                    f" from these tables: {', '.join(f'`{tid}`' for tid in used_table_ids)}."
+                    if used_table_ids
+                    else "."
                 ),
-                description=query_nl_summary,
+                assign_to,
+                parent_nodes,
             )
-            self.prov_graph.add_node(new_node, True)
-            for parent_node in parent_nodes:
-                if parent_node is None:
-                    continue
-                try:
-                    self.prov_graph.connect(parent_node, new_node)
-                except Exception:
-                    fallback = self.prov_graph.get_node_by_id(parent_node.id)
-                    if fallback is not None:
-                        try:
-                            self.prov_graph.connect(fallback, new_node)
-                        except Exception:
-                            continue
             self.state.add_intermediate_table(
                 Table(
                     doc_id=assign_to,
@@ -1225,15 +1148,41 @@ class Materializer:
                 output_mapping_table_id=output_mapping_table_id,
                 canonical_entities=canonical_entities,
             )
-            new_node = ProvenanceNode(
-                source_retriever=RetrieverType.MATERIALIZER,
-                python_code="",
-                description=(
-                    f"Entity resolution on column `{target_column}` of table `{source_table_id}` "
-                    f"→ mapping table `{output_mapping_table_id}`"
+
+            # Record the resolved mapping so the script can replay it.
+            def mapping_sql() -> str:
+                mapping_cols = self._table_columns(output_mapping_table_id)
+                casts = ", ".join(f"CAST({quote_ident(c)} AS VARCHAR)" for c in mapping_cols)
+                return f"SELECT {casts} FROM {quote_ident(output_mapping_table_id)} ORDER BY ALL"
+
+            replay_code, replay_kind = self._replay_code(
+                mapping_sql,
+                lambda rows: self.action_set.generate_table_from_rows_code(
+                    output_mapping_table_id,
+                    self._table_columns(output_mapping_table_id),
+                    rows,
                 ),
+                output_mapping_table_id,
+                f"entity resolution into `{output_mapping_table_id}`",
             )
-            self.prov_graph.add_node(new_node, True)
+            source_doc = next(
+                (t for t in all_available if t.doc_id in (source_table_id, bare_id)),
+                None,
+            )
+            new_node = self._add_step_node(
+                replay_code,
+                (
+                    f"Resolves entities in column `{target_column}` of table `{source_table_id}` "
+                    f"into the mapping table `{output_mapping_table_id}` "
+                    "(`original_value` → `canonical_value`).\n\n"
+                    + self._replay_note(
+                        replay_kind, output_mapping_table_id, "the mapping that was resolved"
+                    )
+                ),
+                output_mapping_table_id,
+                [self._source_node_for(source_doc, dataset_name) if source_doc else None],
+                kind=replay_kind,
+            )
             self.state.add_intermediate_table(
                 Table(
                     doc_id=output_mapping_table_id,
@@ -1256,30 +1205,186 @@ class Materializer:
             self._log(f"==> {error_msg}")
             return error_msg, ActionExecutionStatus.ERROR
 
-    def _create_or_get_read_node(
+    def _source_node_for(
+        self, doc: AbstractDocument, dataset_name: str
+    ) -> ProvenanceNode | None:
+        """Returns the node that last produced `doc`.
+
+        Source tables (retrieved, enumerated, or user-provided) get a load node
+        the first time a step uses them, so the script only loads the tables
+        the pipeline actually needs.
+        """
+        existing = self.prov_graph.get_node_by_id(doc.last_node_id or "")
+        if existing is not None:
+            return existing
+        if doc.retriever_type == RetrieverType.MATERIALIZER or not isinstance(
+            doc.content, DataFrame
+        ):
+            return None
+
+        table_name = doc.doc_id
+        dataset_alias = self._dataset_alias_of(doc, dataset_name)
+        topic = doc.metadata.get("topic")
+        if doc.retriever_type == RetrieverType.USER:
+            description = f"Loads the user-provided table `{table_name}`"
+        else:
+            description = f"Loads the table `{table_name}` of dataset `{dataset_alias}`"
+            if doc.retriever_type == RetrieverType.ENUMERATOR:
+                description += ", enumerated" + (f" with the pattern `{topic}`" if topic else "")
+            elif doc.retriever_type == RetrieverType.PNEUMA_RETRIEVER:
+                description += ", retrieved by Pneuma-Retriever" + (f" for: {topic}" if topic else "")
+        description += f",\nfrom the file `{table_name}.csv`."
+
+        node = ProvenanceNode(
+            source_retriever=doc.retriever_type,
+            python_code=self.action_set.generate_load_table_code(table_name, dataset_alias),
+            description=description,
+            kind=NodeKind.LOAD,
+            output_table_id=f"{dataset_alias}.{table_name}" if dataset_alias else table_name,
+        )
+        self.prov_graph.add_node(node, True)
+        doc.last_node_id = node.id
+        return node
+
+    def _dataset_alias_of(self, doc: AbstractDocument, dataset_name: str) -> str | None:
+        """Catalog name under which a source table is attached in the workspace."""
+        if doc.retriever_type == RetrieverType.USER:
+            return None
+        name = doc.metadata.get("dataset_name") or ""
+        if not name and doc.path and "." in doc.path:
+            name = doc.path.split(".", 1)[0]
+        name = name or dataset_name
+        return clean_column_table_name(name) if name else None
+
+    def _available_tables(self) -> list[AbstractDocument]:
+        return (
+            self.state.retrieved_tables
+            + self.state.external_tables
+            + list(self.state.intermediate_tables)
+        )
+
+    def _referenced_tables(self, code: str) -> list[AbstractDocument]:
+        """Available tables whose IDs appear (as whole identifiers) in `code`."""
+        referenced: list[AbstractDocument] = []
+        for doc in self._available_tables():
+            pattern = rf"(?<![A-Za-z0-9_]){re.escape(doc.doc_id)}(?![A-Za-z0-9_])"
+            if doc.doc_id and re.search(pattern, code) and doc not in referenced:
+                referenced.append(doc)
+        return referenced
+
+    def _referenced_table_ids(self, code: str) -> list[str]:
+        return list(dict.fromkeys(doc.doc_id for doc in self._referenced_tables(code)))
+
+    def _parent_nodes_for_code(
+        self, code: str, dataset_name: str
+    ) -> list[ProvenanceNode | None]:
+        """Nodes that produced the tables referenced in a SQL/Python step."""
+        return [
+            self._source_node_for(doc, dataset_name)
+            for doc in self._referenced_tables(code)
+        ]
+
+    def _add_step_node(
         self,
-        doc: AbstractDocument,
-        source: RetrieverType,
         python_code: str,
         description: str,
-    ) -> str | None:
-        try:
-            last_id = getattr(doc, "last_node_id", None)
-            if last_id is not None:
-                existing = self.prov_graph.get_node_by_id(last_id)
-                if existing is not None:
-                    return last_id
+        output_table_id: str,
+        parents: list[ProvenanceNode | None],
+        kind: str = NodeKind.TRANSFORM,
+    ) -> ProvenanceNode:
+        """Adds a materialization step that produces `output_table_id`."""
+        node = ProvenanceNode(
+            source_retriever=RetrieverType.MATERIALIZER,
+            python_code=python_code,
+            description=description,
+            kind=kind,
+            output_table_id=output_table_id,
+        )
+        self.prov_graph.add_node(node, True)
+        for parent in parents:
+            if parent is not None and parent is not node:
+                self.prov_graph.connect(parent, node)
+        return node
 
-            read_node = ProvenanceNode(
-                source_retriever=source,
-                python_code=python_code,
-                description=description,
+    def _executed_sql_code(self, action_name: ActionNames) -> str:
+        return self.action_set.generate_sql_step_code(
+            self.action_set.get_last_executed_code(action_name) or ""
+        )
+
+    def _replay_code(
+        self,
+        record_sql: Callable[[], str],
+        build_code: Callable[[list[tuple[Any, ...]]], str],
+        output_table_id: str,
+        step: str,
+    ) -> tuple[str, str]:
+        """Returns (code, node kind) replaying a model-driven step.
+
+        The model's decisions (rows of `record_sql`) are embedded in the
+        script. When there are more than PROVENANCE_REPLAY_MAX_ROWS of them,
+        the script loads the step's result from a CSV snapshot instead.
+        Recording is best-effort: if it fails, the step itself still succeeds,
+        and the script stops at that step with an explanation.
+        """
+        try:
+            sql = record_sql()
+            row_count = int(
+                self.db_api.execute_query(
+                    self.user_id, self.chat_id, f"SELECT COUNT(*) AS n FROM ({sql})"
+                ).iloc[0]["n"]
             )
-            self.prov_graph.add_node(read_node, True)
-            return read_node.id
-        except Exception:
-            # On any error, do not crash materializer; return None so caller can handle
-            return None
+            if row_count > self.config.PROVENANCE_REPLAY_MAX_ROWS:
+                self._log(
+                    f"The {step} has {row_count} rows to record (cap: "
+                    f"{self.config.PROVENANCE_REPLAY_MAX_ROWS}); the script will load "
+                    f"`{output_table_id}` from a CSV snapshot."
+                )
+                return (
+                    self.action_set.generate_snapshot_load_code(output_table_id),
+                    NodeKind.SNAPSHOT,
+                )
+            return build_code(self._fetch_rows(sql)), NodeKind.TRANSFORM
+        except Exception as exc:
+            self._log(f"Warning: could not record the {step} for replay: {exc}")
+            return (
+                self.action_set.generate_unreplayable_step_code(
+                    f"The {step} could not be recorded for replay ({exc}). "
+                    "Re-run the materialization in Pneuma-Seeker to regenerate this script."
+                ),
+                NodeKind.TRANSFORM,
+            )
+
+    @staticmethod
+    def _replay_note(kind: str, table_id: str, what: str) -> str:
+        if kind == NodeKind.SNAPSHOT:
+            return (
+                f"Too large to embed in the script, so the script loads `{table_id}` "
+                f'from `{table_id}.csv` (included in "Download views").'
+            )
+        return f"The script replays {what}."
+
+    def _table_columns(self, table_id: str) -> list[str]:
+        return list(
+            self.db_api.execute_query(
+                self.user_id, self.chat_id, f"SELECT * FROM {quote_ident(table_id)} LIMIT 0;"
+            ).columns
+        )
+
+    def _fetch_rows(self, sql: str) -> list[tuple[Any, ...]]:
+        """Runs `sql` on the workspace and returns rows of plain Python values."""
+        df = self.db_api.execute_query(self.user_id, self.chat_id, sql)
+        df = df.astype(object).where(df.notna(), None)
+        return [tuple(row) for row in df.itertuples(index=False, name=None)]
+
+    def _semantic_join_table_ref(self, table_id: str, dataset_name: str) -> str:
+        """SQL reference the semantic join used for `table_id` (workspace table
+        if one exists with that name, else a table of the chat's dataset)."""
+        workspace_tables = self.db_api.execute_query(
+            self.user_id, self.chat_id, "SHOW TABLES;"
+        )
+        if "name" in workspace_tables.columns and table_id in workspace_tables["name"].tolist():
+            return quote_ident(table_id)
+        return table_ref(table_id, dataset_name)
 
     def _check_completion(self, T: dict[str, DataFrame]) -> bool:
         """Check if all target tables (T) have been materialized correctly."""

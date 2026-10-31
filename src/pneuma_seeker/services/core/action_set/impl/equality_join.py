@@ -101,17 +101,15 @@ class EqualityJoin(Action, Applicable):
         right_select = ", ".join(f'r."{col}" AS "right_{col}"' for col in right_cols)
 
         # Materialize join into a workspace table.
-        self.db_api.execute_query(
-            self.user_id,
-            self.chat_id,
-            f"""
-            CREATE OR REPLACE TABLE {self.__quote_ident(result_table_id)} AS
-            SELECT {left_select}, {right_select}
-            FROM {left_table_ref} AS l
-            JOIN {right_table_ref} AS r
-            ON {join_predicates};
-            """,
+        sql = (
+            f"CREATE OR REPLACE TABLE {self.__quote_ident(result_table_id)} AS\n"
+            f"SELECT {left_select}, {right_select}\n"
+            f"FROM {left_table_ref} AS l\n"
+            f"JOIN {right_table_ref} AS r\n"
+            f"ON {join_predicates};"
         )
+        self.db_api.execute_query(self.user_id, self.chat_id, sql)
+        self.last_executed_code = sql
 
         return self.db_api.execute_query(
             self.user_id,

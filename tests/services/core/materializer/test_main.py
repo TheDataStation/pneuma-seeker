@@ -1,6 +1,8 @@
 # tests/pneuma_seeker/core/materializer/test_main.py
+import json
 import logging
 import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -13,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
-from pneuma_seeker.provenance.graph import ProvenanceGraph
+from pneuma_seeker.provenance.graph import NodeKind, ProvenanceGraph
 from pneuma_seeker.services.core.action_set.main import ActionSet
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
@@ -72,6 +74,33 @@ class MaterializerTests(unittest.TestCase):
     def tearDown(self):
         patch.stopall()
 
+    def _assert_script_reproduces(self, target_table_ids: list[str]) -> str:
+        """Runs the end-to-end script next to the source CSVs (in a fresh
+        interpreter) and checks it rebuilds the workspace's target tables."""
+        script = self.prov_graph.get_graph_code(target_table_ids)
+        script_path = Path(self.tmpdir) / "e2e_script.py"
+        script_path.write_text(script)
+        run = subprocess.run(
+            [sys.executable, str(script_path)],
+            capture_output=True,
+            text=True,
+            cwd=self.tmpdir,
+        )
+        self.assertEqual(run.returncode, 0, f"{run.stderr}\n---\n{script}")
+        for table_id in target_table_ids:
+            expected_csv = Path(self.tmpdir) / f"expected_{table_id}.csv"
+            self.db_api.execute_query(
+                self.user_id, self.chat_id, f'SELECT * FROM "{table_id}"'
+            ).to_csv(expected_csv, index=False)
+            actual = pd.read_csv(Path(self.tmpdir) / "output" / f"{table_id}.csv")
+            expected = pd.read_csv(expected_csv)
+            # Row order of unordered SQL results is not part of the contract.
+            pd.testing.assert_frame_equal(
+                actual.sort_values(list(actual.columns)).reset_index(drop=True),
+                expected.sort_values(list(expected.columns)).reset_index(drop=True),
+            )
+        return script
+
     def test_table_retrieve_and_table_projection_materializes_T(self):
         # LLM will ask to call table_retrieve then table_projection to materialize t1
         plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}'
@@ -104,18 +133,18 @@ class MaterializerTests(unittest.TestCase):
         self.assertIn("t1", result)
         pd.testing.assert_frame_equal(result["t1"].reset_index(drop=True), table_df)
 
+        # root -> load test_ds.table_1 -> projection into t1
         self.assertTrue(len(self.materializer.prov_graph.nodes) == 3)
-        prov_graph_code_lines = [
-            self.materializer.prov_graph.ROOT_NODE_CODE,
-            self.action_set.generate_pandas_read_csv_code(table_doc),
-            self.action_set.generate_table_select_code(
-                "t1", "test_ds.table_1", ["a", "b"]
-            ),
-        ]
-        self.assertEqual(
-            "\n\n".join(prov_graph_code_lines),
-            self.materializer.prov_graph.get_graph_code(),
+        script = self._assert_script_reproduces(["t1"])
+        self.assertIn("table_1.csv  (table `table_1` of dataset `test_ds`)", script)
+        self.assertIn(
+            self.action_set.generate_load_table_code("table_1", "test_ds"), script
         )
+        self.assertIn('CREATE OR REPLACE TABLE "t1" AS SELECT', script)
+        steps = self.prov_graph.get_graph_explanation(["t1"])
+        self.assertEqual(len(steps), 2)
+        self.assertIn("Loads the table `table_1` of dataset `test_ds`", steps[0])
+        self.assertIn("Projects a table", steps[1])
 
     def test_web_search_sets_web_search_result(self):
         # LLM will call table_retrieve, web_search, then table_projection to finish
@@ -168,29 +197,19 @@ class MaterializerTests(unittest.TestCase):
         self.assertIn("t1", result)
 
         self.assertTrue(len(self.materializer.prov_graph.nodes) == 4)
-        prov_graph_code_lines_1 = [
-            self.materializer.prov_graph.ROOT_NODE_CODE,
-            self.action_set.generate_pandas_read_csv_code(table_doc),
-            self.action_set.generate_view_textual_document_code(web_text),
-            self.action_set.generate_table_select_code(
-                "t1", "test_ds.table_1", ["a", "b"]
-            ),
+        context_nodes = [
+            n for n in self.prov_graph.nodes.values() if n.kind == NodeKind.CONTEXT
         ]
-        prov_graph_code_lines_2 = [
-            self.materializer.prov_graph.ROOT_NODE_CODE,
-            self.action_set.generate_view_textual_document_code(web_text),
-            self.action_set.generate_pandas_read_csv_code(table_doc),
-            self.action_set.generate_table_select_code(
-                "t1", "test_ds.table_1", ["a", "b"]
-            ),
-        ]
-        self.assertIn(
-            self.materializer.prov_graph.get_graph_code(),
-            (
-                "\n\n".join(prov_graph_code_lines_1),
-                "\n\n".join(prov_graph_code_lines_2),
+        self.assertEqual(len(context_nodes), 1)
+        self.assertEqual(
+            context_nodes[0].python_code,
+            self.action_set.generate_view_textual_document_code(
+                "web_search_result", 'This is a web search result.'
             ),
         )
+        # The web result does not feed t1, so the script leaves it out.
+        script = self._assert_script_reproduces(["t1"])
+        self.assertNotIn('This is a web search result.', script)
 
     def test_web_crawl_sets_web_crawl_result(self):
         # LLM will call table_retrieve, web_crawl, then table_projection to finish
@@ -241,29 +260,19 @@ class MaterializerTests(unittest.TestCase):
         self.assertIn("t1", result)
 
         self.assertTrue(len(self.materializer.prov_graph.nodes) == 4)
-        prov_graph_code_lines_1 = [
-            self.materializer.prov_graph.ROOT_NODE_CODE,
-            self.action_set.generate_pandas_read_csv_code(table_doc),
-            self.action_set.generate_view_textual_document_code(web_text),
-            self.action_set.generate_table_select_code(
-                "t1", "test_ds.table_1", ["a", "b"]
-            ),
+        context_nodes = [
+            n for n in self.prov_graph.nodes.values() if n.kind == NodeKind.CONTEXT
         ]
-        prov_graph_code_lines_2 = [
-            self.materializer.prov_graph.ROOT_NODE_CODE,
-            self.action_set.generate_view_textual_document_code(web_text),
-            self.action_set.generate_pandas_read_csv_code(table_doc),
-            self.action_set.generate_table_select_code(
-                "t1", "test_ds.table_1", ["a", "b"]
-            ),
-        ]
-        self.assertIn(
-            self.materializer.prov_graph.get_graph_code(),
-            (
-                "\n\n".join(prov_graph_code_lines_1),
-                "\n\n".join(prov_graph_code_lines_2),
+        self.assertEqual(len(context_nodes), 1)
+        self.assertEqual(
+            context_nodes[0].python_code,
+            self.action_set.generate_view_textual_document_code(
+                "web_crawl_result", 'This is a web crawl result.'
             ),
         )
+        # The web result does not feed t1, so the script leaves it out.
+        script = self._assert_script_reproduces(["t1"])
+        self.assertNotIn('This is a web crawl result.', script)
 
     def test_semantic_column_generator_adds_column(self):
         self.config.ENABLE_SEMANTIC_COL_GEN = True
@@ -316,31 +325,247 @@ class MaterializerTests(unittest.TestCase):
         )
 
         self.assertTrue(len(self.materializer.prov_graph.nodes) == 4)
-        t1_doc = next(
-            doc
-            for doc in self.materializer.state.intermediate_tables
-            if doc.doc_id == "t1"
-        )
-        prov_graph_code_lines_1 = [
-            self.materializer.prov_graph.ROOT_NODE_CODE,
-            self.action_set.generate_pandas_read_csv_code(table_doc),
-            self.action_set.generate_table_select_code(
-                "t1", "test_ds.table_1", ["a", "b"]
-            ),
-            self.action_set.generate_semantic_col_generator_code(
+        # The script replays the generated values instead of calling the LLM.
+        script = self._assert_script_reproduces(["t1"])
+        self.assertIn(
+            self.action_set.generate_semantic_column_replay_code(
+                "t1",
                 ["b"],
-                t1_doc,
                 "newcol",
                 [
-                    "Result for: name: Alice; age: 30",
-                    "Result for: name: Alice; age: 30",
+                    ("10", "Result for: name: Alice; age: 30"),
+                    ("20", "Result for: name: Alice; age: 30"),
                 ],
             ),
-        ]
-        self.assertEqual(
-            self.materializer.prov_graph.get_graph_code(),
-            "\n\n".join(prov_graph_code_lines_1),
+            script,
         )
+
+    def test_failed_replay_recording_does_not_fail_the_step(self):
+        """If recording a model-driven step for replay fails, materialization
+        still succeeds; the script stops at that step with an explanation."""
+        self.config.ENABLE_SEMANTIC_COL_GEN = True
+        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}'
+        plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
+        plan3 = f'{{"action":"{ActionNames.SEMANTIC_COLUMN_GENERATION.value}","args":{{"table_id":"t1","new_column_name":"newcol","relevant_columns":["b"],"instruction":"make new"}}}}'
+        self.lm_api.llm._responses = [  # type: ignore
+            f'{{"plan": [{plan1}, {plan2}, {plan3}]}}',
+            "['x', 'y']",
+        ]
+        table_df = pd.DataFrame({"a": [1, 2], "b": [10, 20]})
+        os.makedirs(Path(self.tmpdir) / "test_ds", exist_ok=True)
+        table_df.to_csv(Path(self.tmpdir) / "test_ds" / "table_1.csv", index=False)
+        self.db_api.ingest_dataset("test_ds", str(Path(self.tmpdir) / "test_ds"))
+        self.action_set.retrieve_multi_topic_documents = MagicMock(
+            return_value=[
+                Table(
+                    doc_id="table_1",
+                    retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+                    content=table_df,
+                    metadata={},
+                )
+            ]
+        )
+        self.materializer._fetch_rows = MagicMock(side_effect=RuntimeError("boom"))  # type: ignore
+
+        result = self.materializer.materialize_T(
+            T={"t1": pd.DataFrame(columns=["a", "b", "newcol"])},
+            column_descriptions={},
+            S="",
+            dataset_name=self.dataset_name,
+        )[-1]
+
+        self.assertEqual(list(result["t1"]["newcol"]), ["x", "y"])
+        script = self.prov_graph.get_graph_code(["t1"])
+        compile(script, "e2e_script.py", "exec")
+        self.assertIn("raise RuntimeError(", script)
+        self.assertIn("could not be recorded for replay (boom)", script)
+
+    def _materialize_full_pipeline(self) -> list[str]:
+        """Materializes a pipeline chaining every replayable step type from raw
+        CSV files; returns the target table IDs."""
+        self.config.ENABLE_SEMANTIC_COL_GEN = True
+        self.config.ENABLE_SEMANTIC_JOIN = True
+
+        # Raw CSV names/headers are normalized on ingestion (e.g. "Sales 2023.csv"
+        # -> table sales_2023, "Amount ($)" -> amount_usd); the script must match.
+        raw_dir = Path(self.tmpdir) / "test_ds"
+        os.makedirs(raw_dir, exist_ok=True)
+        raw_tables = {
+            "Orders.csv": pd.DataFrame(
+                {"Order ID": [3, 1, 2], "Customer ID": [20, 10, 10], "Amount ($)": [5.5, 10.0, 7.25]}
+            ),
+            "customers.csv": pd.DataFrame(
+                {"id": [10, 20], "Customer Name": ["Alice Smith", "Bob Jones"]}
+            ),
+            "Sales 2023.csv": pd.DataFrame({"Region": ["N", "S"], "Revenue": [1000, 2000]}),
+            "Sales 2024.csv": pd.DataFrame({"Region": ["N"], "Revenue": [4500]}),
+            "unused.csv": pd.DataFrame({"x": [1]}),
+        }
+        for file_name, df in raw_tables.items():
+            df.to_csv(raw_dir / file_name, index=False)
+        self.db_api.ingest_dataset("test_ds", str(raw_dir))
+        self.db_api.link_dataset_tables(self.user_id, self.chat_id, "test_ds")
+
+        retrieved = [
+            Table(
+                doc_id=table_id,
+                retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+                content=self.db_api.execute_query(
+                    self.user_id, self.chat_id, f'SELECT * FROM test_ds."{table_id}"'
+                ),
+                metadata={"dataset_name": "test_ds", "topic": "sales data"},
+                path=f'test_ds."{table_id}"',
+            )
+            for table_id in ["orders", "customers", "sales_2023", "sales_2024", "unused"]
+        ]
+        self.action_set.retrieve_multi_topic_documents = MagicMock(return_value=retrieved)
+
+        python_code = """df = db_api.execute_query(user_id, chat_id, 'SELECT year, SUM(revenue) AS revenue FROM all_sales GROUP BY year ORDER BY year')
+df["revenue_k"] = df["revenue"] / 1000
+db_api.register_temporary_df(user_id, chat_id, df, "t2_tmp")
+db_api.execute_query(user_id, chat_id, 'CREATE OR REPLACE TABLE "t2" AS SELECT * FROM t2_tmp')"""
+        plan = [
+            {"action": ActionNames.TABLE_RETRIEVE.value, "args": {"prompts": ["sales"]}},
+            {
+                "action": ActionNames.TABLE_PROJECTION.value,
+                "args": {
+                    "t5": {
+                        "id": "test_ds.customers",
+                        "columns": {"cust_id": "id", "name": "customer_name"},
+                    }
+                },
+            },
+            {
+                "action": ActionNames.EQUALITY_JOIN.value,
+                "args": {
+                    "left_table_id": "test_ds.orders",
+                    "right_table_id": "t5",
+                    "left_table_column_keys": ["customer_id"],
+                    "right_table_column_keys": ["cust_id"],
+                    "result_table_id": "orders_customers",
+                },
+            },
+            {
+                "action": ActionNames.TABLE_UNION.value,
+                "args": {
+                    "table_ids": ["re:^sales_\\d{4}$"],
+                    "result_table_id": "all_sales",
+                    "provenance_column_name": "year",
+                    "provenance_regex": "(\\d{4})",
+                },
+            },
+            {
+                "action": ActionNames.QUERY_EXECUTOR.value,
+                "args": {
+                    "query": "SELECT left_order_id AS order_id, right_name AS name, left_amount_usd AS amount FROM orders_customers ORDER BY order_id",
+                    "assign_to": "t1",
+                },
+            },
+            {
+                "action": ActionNames.PYTHON_EXECUTOR.value,
+                "args": {"code": python_code, "assign_to": "t2"},
+            },
+            {
+                "action": ActionNames.SEMANTIC_COLUMN_GENERATION.value,
+                "args": {
+                    "table_id": "t2",
+                    "new_column_name": "label",
+                    "relevant_columns": ["year"],
+                    "instruction": "fiscal year label",
+                },
+            },
+            {
+                "action": ActionNames.SEMANTIC_JOIN.value,
+                "args": {
+                    "left_table_id": "t1",
+                    "right_table_id": "customers",
+                    "relevant_left_cols": ["name"],
+                    "relevant_right_cols": ["customer_name"],
+                    "joined_table_id": "t3",
+                },
+            },
+            {
+                "action": ActionNames.ENTITY_RESOLUTION.value,
+                "args": {
+                    "source_table_id": "t1",
+                    "target_column": "name",
+                    "output_mapping_table_id": "name_map",
+                    "canonical_entities": ["Alice Smith", "Bob Jones"],
+                },
+            },
+            {
+                "action": ActionNames.QUERY_EXECUTOR.value,
+                "args": {
+                    "query": "SELECT t1.order_id, m.canonical_value AS canonical_name FROM t1 JOIN name_map AS m ON t1.name = m.original_value ORDER BY t1.order_id",
+                    "assign_to": "t4",
+                },
+            },
+        ]
+        self.lm_api.llm._responses = [  # type: ignore
+            json.dumps({"plan": plan}),
+            "['FY23', 'FY24']",  # semantic column generation
+        ]
+
+        T = {
+            "t1": pd.DataFrame(columns=["order_id", "name", "amount"]),
+            "t2": pd.DataFrame(columns=["year", "revenue", "revenue_k", "label"]),
+            "t3": pd.DataFrame(columns=["left_name", "right_customer_name", "similarity_score"]),
+            "t4": pd.DataFrame(columns=["order_id", "canonical_name"]),
+            "t5": pd.DataFrame(columns=["cust_id", "name"]),
+        }
+        result = self.materializer.materialize_T(
+            T=T, column_descriptions={}, S="", dataset_name=self.dataset_name
+        )[-1]
+        self.assertEqual(set(result), set(T))
+        self.assertEqual(
+            list(result["t2"]["label"]), ["FY23", "FY24"]
+        )
+        return list(T)
+
+    def test_e2e_script_reproduces_full_pipeline(self):
+        """Every replayable step type, chained: the downloaded script rebuilds
+        all target tables from the raw CSV files, offline."""
+        targets = self._materialize_full_pipeline()
+
+        script = self._assert_script_reproduces(targets)
+
+        # Only the source tables the targets depend on are required.
+        for table_id in ["orders", "customers", "sales_2023", "sales_2024"]:
+            self.assertIn(f"#     - {table_id}.csv", script)
+        self.assertNotIn("unused", script)
+
+        steps = self.prov_graph.get_graph_explanation(targets)
+        # 4 loads + 9 materialization steps (table_retrieve adds no step)
+        self.assertEqual(len(steps), 13)
+        for step_md in steps:
+            self.assertRegex(step_md, r"^# Step \d+\n\n\S")
+        self.assertEqual(self.prov_graph.get_snapshot_table_ids(targets), [])
+
+    def test_e2e_script_loads_snapshots_of_steps_over_the_replay_cap(self):
+        """Model-driven steps with more decisions than the cap are loaded from
+        CSV snapshots (shipped in "Download views"), and the inputs that only
+        fed those steps are no longer required."""
+        self.config.PROVENANCE_REPLAY_MAX_ROWS = 1
+        targets = self._materialize_full_pipeline()
+
+        snapshots = self.prov_graph.get_snapshot_table_ids(targets)
+        self.assertEqual(sorted(snapshots), ["name_map", "t2", "t3"])
+        # Simulate unzipping "Download views" next to the script.
+        for table_id in snapshots:
+            self.db_api.execute_query(
+                self.user_id, self.chat_id, f'SELECT * FROM "{table_id}"'
+            ).to_csv(Path(self.tmpdir) / f"{table_id}.csv", index=False)
+
+        script = self._assert_script_reproduces(targets)
+
+        for table_id in snapshots:
+            self.assertIn(f"load_snapshot_table({table_id!r})", script)
+            self.assertIn(f"#     - {table_id}.csv\n", script)
+        # Sales tables only fed t2, which is now loaded from its snapshot.
+        for table_id in ["orders", "customers"]:
+            self.assertIn(f"#     - {table_id}.csv  (", script)
+        for table_id in ["sales_2023", "sales_2024"]:
+            self.assertNotIn(f"#     - {table_id}.csv", script)
 
     # ------------------------------------------------------------------ update-mode tests
 

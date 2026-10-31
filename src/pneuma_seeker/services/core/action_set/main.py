@@ -5,13 +5,13 @@ from pandas import DataFrame
 
 from pneuma_seeker.provenance.graph import ProvenanceGraph
 from pneuma_seeker.provenance.provenance_helper import (
-    append_comment_to_existing_code,
-    generate_pandas_read_csv_code,
-    generate_pandas_read_multi_doc_code,
-    generate_read_external_tables_code,
-    generate_semantic_col_generator_code,
-    generate_semantic_join_generator_code,
-    generate_table_select_code,
+    generate_load_table_code,
+    generate_semantic_column_replay_code,
+    generate_semantic_join_replay_code,
+    generate_snapshot_load_code,
+    generate_sql_step_code,
+    generate_table_from_rows_code,
+    generate_unreplayable_step_code,
     generate_view_textual_document_code,
 )
 from pneuma_seeker.services.core.action_set.impl.join_path_extraction import (
@@ -254,50 +254,56 @@ class ActionSet:
         )
 
     # ------------------------------------------------------------------
-    # Provenance code-generation helpers (unchanged)
+    # Provenance code-generation helpers
     # ------------------------------------------------------------------
 
-    def generate_read_external_tables_code(
-        self, table_number: int, doc: AbstractDocument
-    ):
-        return generate_read_external_tables_code(table_number, doc)
+    def get_last_executed_code(self, action_name: ActionNames) -> str | None:
+        """SQL/Python that produced the output of the action's last run."""
+        return self.registry.get(action_name).last_executed_code
 
-    def generate_pandas_read_csv_code(self, doc: AbstractDocument):
-        return generate_pandas_read_csv_code(doc)
+    def generate_load_table_code(self, table_name: str, dataset_alias: str | None):
+        return generate_load_table_code(table_name, dataset_alias)
 
-    def generate_view_textual_document_code(self, doc: AbstractDocument):
-        return generate_view_textual_document_code(doc)
+    def generate_sql_step_code(self, sql: str):
+        return generate_sql_step_code(sql)
 
-    def generate_pandas_read_multi_doc_code(self, docs: list[AbstractDocument]):
-        return generate_pandas_read_multi_doc_code(docs)
+    def generate_view_textual_document_code(self, var_name: str, content: Any):
+        return generate_view_textual_document_code(var_name, content)
 
-    def generate_table_select_code(
-        self, target_var_name: str, source_id: str, relevant_cols: list[str]
-    ):
-        return generate_table_select_code(target_var_name, source_id, relevant_cols)
-
-    def generate_semantic_col_generator_code(
+    def generate_semantic_column_replay_code(
         self,
-        src_table_columns: list[str],
-        doc: AbstractDocument,
-        new_col_name: str,
-        new_col_values: list[Any],
+        table_id: str,
+        source_columns: list[str],
+        new_column: str,
+        generated_values: list[tuple[Any, ...]],
     ):
-        return generate_semantic_col_generator_code(
-            src_table_columns, doc, new_col_name, new_col_values
+        return generate_semantic_column_replay_code(
+            table_id, source_columns, new_column, generated_values
         )
 
-    def generate_semantic_join_generator_code(
+    def generate_semantic_join_replay_code(
         self,
-        doc_1: AbstractDocument,
-        doc_2: AbstractDocument,
-        relevant_left_cols: list[str],
-        relevant_right_cols: list[str],
-        top_k: int,
+        left_ref: str,
+        right_ref: str,
+        left_columns: list[str],
+        right_columns: list[str],
+        result_table_id: str,
+        matches: list[tuple[Any, ...]],
     ):
-        return generate_semantic_join_generator_code(
-            doc_1, doc_2, relevant_left_cols, relevant_right_cols, top_k
+        return generate_semantic_join_replay_code(
+            left_ref, right_ref, left_columns, right_columns, result_table_id, matches
         )
+
+    def generate_table_from_rows_code(
+        self, table_id: str, columns: list[str], rows: list[tuple[Any, ...]]
+    ):
+        return generate_table_from_rows_code(table_id, columns, rows)
+
+    def generate_snapshot_load_code(self, table_id: str):
+        return generate_snapshot_load_code(table_id)
+
+    def generate_unreplayable_step_code(self, reason: str):
+        return generate_unreplayable_step_code(reason)
 
     def run_context_extraction(
         self,
@@ -331,6 +337,3 @@ class ActionSet:
         if canonical_entities is not None:
             args["canonical_entities"] = canonical_entities
         return self.registry.get(ActionNames.ENTITY_RESOLUTION).apply(args)  # type: ignore[union-attr]
-
-    def append_comment_to_existing_code(self, code: str, comment: str):
-        return append_comment_to_existing_code(code, comment)

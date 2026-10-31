@@ -51,6 +51,9 @@ class Action(ABC):
         self.logger = logger
         self.db_api = db_api
         self.language_model_api = language_model_api
+        # SQL/Python that produced the action's output in its last run; the
+        # Materializer records it in the provenance graph for replay.
+        self.last_executed_code: str | None = None
 
     @abstractmethod
     def get_description(self, agent: "AgentType | None" = None) -> str:
