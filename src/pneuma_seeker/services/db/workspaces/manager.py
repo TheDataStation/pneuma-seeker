@@ -1,5 +1,6 @@
 import datetime
 import os
+import threading
 from logging import Logger
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -52,6 +53,12 @@ class WorkspaceManager:
         os.makedirs(self.workspace_db_path, exist_ok=True)
 
         self._conn_cache: dict[tuple[str, str], duckdb.DuckDBPyConnection] = {}
+        # A DuckDB connection must not be used by several threads at once
+        # (e.g., context extraction resolving questions in parallel, or an API
+        # request querying a table while the chat runs), so each cached
+        # connection gets a lock that execute_query/register_temporary_df hold.
+        self._conn_locks: dict[tuple[str, str], threading.RLock] = {}
+        self._conn_cache_lock = threading.Lock()
 
     def get_ws_db_connection(self, user_id: str, chat_id: str):
         """
@@ -60,17 +67,23 @@ class WorkspaceManager:
         - Caller must not close the returned connection (use close_workspace_connection).
         """
         key = (user_id, chat_id)
-        if key in self._conn_cache:
-            return self._conn_cache[key]
+        with self._conn_cache_lock:
+            if key in self._conn_cache:
+                return self._conn_cache[key]
 
-        ws_db_file = self.__get_workspace_db_file_path(user_id, chat_id)
-        os.makedirs(ws_db_file.parent, exist_ok=True)
+            ws_db_file = self.__get_workspace_db_file_path(user_id, chat_id)
+            os.makedirs(ws_db_file.parent, exist_ok=True)
 
-        ws_db_con = duckdb.connect(database=ws_db_file.as_posix(), read_only=False)
-        self.__define_all_persistence_tables(ws_db_con)
+            ws_db_con = duckdb.connect(database=ws_db_file.as_posix(), read_only=False)
+            self.__define_all_persistence_tables(ws_db_con)
 
-        self._conn_cache[key] = ws_db_con
-        return ws_db_con
+            self._conn_cache[key] = ws_db_con
+            self._conn_locks[key] = threading.RLock()
+            return ws_db_con
+
+    def __connection_lock(self, user_id: str, chat_id: str) -> threading.RLock:
+        with self._conn_cache_lock:
+            return self._conn_locks.setdefault((user_id, chat_id), threading.RLock())
 
     def __define_all_persistence_tables(self, con: duckdb.DuckDBPyConnection):
         """Defines all necessary tables for state persistence in the workspace DB."""
@@ -200,7 +213,9 @@ class WorkspaceManager:
     def close_workspace_connection(self, user_id: str, chat_id: str):
         """Closes and removes a cached workspace connection if it exists."""
         key = (user_id, chat_id)
-        con = self._conn_cache.pop(key, None)
+        with self._conn_cache_lock:
+            con = self._conn_cache.pop(key, None)
+            self._conn_locks.pop(key, None)
         if con:
             try:
                 con.close()
@@ -209,12 +224,15 @@ class WorkspaceManager:
 
     def close_all_connections(self):
         """Closes all cached workspace connections."""
-        for con in list(self._conn_cache.values()):
+        with self._conn_cache_lock:
+            connections = list(self._conn_cache.values())
+            self._conn_cache.clear()
+            self._conn_locks.clear()
+        for con in connections:
             try:
                 con.close()
             except Exception:
                 pass
-        self._conn_cache.clear()
 
     def execute_query(
         self, user_id: str, chat_id: str, sql: str, sql_params: tuple = ()
@@ -224,14 +242,20 @@ class WorkspaceManager:
         Note: workspace connection is cached so ATTACH persists between calls.
         """
         ws_db_con = self.get_ws_db_connection(user_id, chat_id)
-        return ws_db_con.execute(sql, sql_params).fetchdf()
+        with self.__connection_lock(user_id, chat_id):
+            return ws_db_con.execute(sql, sql_params).fetchdf()
 
     def register_temporary_df(
         self, user_id: str, chat_id: str, df: DataFrame, table_name: str
     ):
         """Registers a temporary DataFrame in the workspace DB connection."""
         con = self.get_ws_db_connection(user_id, chat_id)
+        with self.__connection_lock(user_id, chat_id):
+            self.__register_temporary_df(con, df, table_name)
 
+    def __register_temporary_df(
+        self, con: duckdb.DuckDBPyConnection, df: DataFrame, table_name: str
+    ):
         existing = con.execute(
             """
             SELECT table_type

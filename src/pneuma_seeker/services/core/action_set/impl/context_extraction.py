@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 from pandas import DataFrame
@@ -67,19 +68,17 @@ class ContextExtraction(Action, Applicable):
         execute_code_fn: Callable[[str, str], Any] = input["execute_code_fn"]
         dataset_name: str = input.get("dataset_name", "")
 
-        results: list[dict] = []
-        log_messages: list[str] = []
+        questions = [
+            (i, u) for i, u in enumerate(uncertainties) if u.get("question", "")
+        ]
 
-        for i, uncertainty in enumerate(uncertainties):
+        def resolve(i: int, uncertainty: dict) -> tuple[dict, list[str]]:
             table_ids: list[str] = uncertainty.get("table_ids", [])
             question: str = uncertainty.get("question", "")
-            if not question:
-                continue
-
-            log_messages.append(
+            logs = [
                 f"[Context Extraction {i + 1}/{len(uncertainties)}] Resolving: "
                 f"{question[:80]}{'...' if len(question) > 80 else ''}"
-            )
+            ]
             self.__log(f"Resolving uncertainty: {question}")
 
             relevant_tables = [t for t in available_tables if t.doc_id in table_ids]
@@ -87,13 +86,15 @@ class ContextExtraction(Action, Applicable):
                 relevant_tables = available_tables
 
             table_str = "\n\n".join(str(t) for t in relevant_tables)
-            retry_logs: list[str] = []
 
             def _resolve() -> str:
-                answer, logs = self._resolve_single(
-                    question, table_str, result_table_name, execute_code_fn
+                answer, retry_logs = self._resolve_single(
+                    question,
+                    table_str,
+                    self._question_table_name(result_table_name, i),
+                    execute_code_fn,
                 )
-                retry_logs.extend(logs)
+                logs.extend(retry_logs)
                 return answer
 
             if dataset_name and self.config.ENABLE_MEMORY_LAYER:
@@ -102,11 +103,32 @@ class ContextExtraction(Action, Applicable):
                 )
             else:
                 answer = _resolve()
+            return {"question": question, "answer": answer}, logs
 
-            log_messages.extend(retry_logs)
-            results.append({"question": question, "answer": answer})
+        # Questions are independent, so they are resolved concurrently (the
+        # time is spent waiting on the LLM); each writes its own result table.
+        try:
+            with ThreadPoolExecutor(max_workers=max(1, len(questions))) as pool:
+                outcomes = list(pool.map(lambda q: resolve(*q), questions))
+        finally:
+            self._drop_question_tables(result_table_name, [i for i, _ in questions])
 
+        results = [result for result, _ in outcomes]
+        log_messages = [msg for _, logs in outcomes for msg in logs]
         return self._format_results(results), log_messages
+
+    @staticmethod
+    def _question_table_name(result_table_name: str, index: int) -> str:
+        return f"{result_table_name}_{index + 1}"
+
+    def _drop_question_tables(self, result_table_name: str, indices: list[int]) -> None:
+        for i in indices:
+            name = self._question_table_name(result_table_name, i).replace('"', '""')
+            for stmt in (f'DROP VIEW IF EXISTS "{name}";', f'DROP TABLE IF EXISTS "{name}";'):
+                try:
+                    self.db_api.execute_query(self.user_id, self.chat_id, stmt)
+                except Exception as exc:
+                    self.__log(f"Cleanup warning ({stmt}): {exc}")
 
     # ------------------------------------------------------------------
     # Inner loop
