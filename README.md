@@ -3,7 +3,20 @@
 [![arXiv](https://img.shields.io/badge/arXiv-2603.10747-b31b1b?logo=arxiv)](https://arxiv.org/abs/2603.10747)
 [![Demo](https://img.shields.io/badge/YouTube-Demo%20Video-red?logo=youtube)](https://youtu.be/ZNAhTE6n0yI)
 
-`Pneuma-Seeker` is an LLM-powered system for answering questions over tabular data. Given a question, it automatically finds relevant tables, combines them, and runs the necessary computations to produce an answer.
+`Pneuma-Seeker` is a human-in-the-loop system for answering questions over tabular data. The system makes its understanding of what you need explicit, as a shared state **(T, S)** that you and the system negotiate:
+
+- **T**: the target views, i.e., the schema the answer requires (tables, columns, and what each column means).
+- **S**: the script, i.e., the computation over T (filters, aggregates, rankings) that turns that data into the answer.
+
+Questions over data are rarely fully specified up front, and what is actually needed often only becomes clear after seeing what the data contains. (T, S) is the artifact on which both sides converge: the system proposes it from the data, and you refine it until it captures what you mean.
+
+## How it works
+
+1. **Ask.** The system explores the available data (finding relevant tables and checking assumptions about their contents), defines (T, S), populates T from the source tables (discovering, joining, and cleaning data), and runs S on T to answer. The answer is shown together with the (T, S) it came from.
+2. **Negotiate.** Reply in the chat to change (T, S) (e.g., "count fiscal years, not calendar years"); the system revises it and recomputes the answer. To settle (T, S) before anything is computed, turn on plan mode: the system then stops at proposing (T, S) and only computes once you agree with it.
+3. **Inspect.** Every step remains inspectable: download the populated target views, and an end-to-end script that rebuilds them from the source CSV files.
+
+Because the system's interpretation lives in (T, S) rather than inside a model's reasoning, misunderstandings surface as concrete differences in a schema or a script, which you can see and correct.
 
 # Installation
 
