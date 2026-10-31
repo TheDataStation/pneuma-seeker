@@ -155,7 +155,7 @@
     {
         "id": "wildfire-hard-20",
         "query": "According to NOAA, what percentage (to 2 decimal places) of wildfires account for at least 90% of residential houses damaged in 2008?",
-        "answer": 0.0465,
+        "answer": 4.65,
         "data_sources": [
             "noaa_wildfires.csv",
             "noaa_wildfires_variabledescrip.csv"

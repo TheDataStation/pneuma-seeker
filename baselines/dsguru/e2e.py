@@ -7,7 +7,6 @@ from psutil import Process
 
 dataset_name = "environment"
 question_numbers = []  # Leave blank to process all questions, or specify a list of question indices to process specific questions (e.g., [0, 2, 5])
-# model_name = "gpt-4.1-mini-2025-04-14"
 model_name = "o3-2025-04-16"
 
 current_dir = os.path.dirname(os.path.abspath("__file__"))
