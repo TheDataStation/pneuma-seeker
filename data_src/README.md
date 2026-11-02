@@ -14,6 +14,14 @@ Some datasets are too large to include in this repository. You can download the 
 
 https://drive.google.com/drive/folders/1jL2T8N8X8ncFyERdZ1lg0DcKZDwFqKaG?usp=sharing
 
+# Directory Layout
+
+Each domain (`archeology`, `astronomy`, `biomedical`, `environment`, `legal`, `wildfire`) follows the same structure:
+
+- `<domain>_tabular.json`: the questions, each with an `id`, the `query`, the reference `answer`, and the `data_sources` needed to answer it.
+- `dataset/`: the CSV tables for the domain.
+- `metadata.csv`: a short description of each table (if any).
+
 # Preprocessing
 
 The following preprocessing steps were applied to the datasets relative to the original KramaBench version:
@@ -24,4 +32,9 @@ The following preprocessing steps were applied to the datasets relative to the o
 
 # Evaluation Metrics
 
-- Answer Quality: best-of-3 (max score of 3 runs per question, averaged across questions; extends pass@3 to fractional scores)
+**Answer Quality** is the average score across questions. Each question is run 3 times and keeps its best score (best-of-3, which extends pass@3 to fractional scores).
+
+A run scores 1 if its answer is correct and 0 otherwise. For questions whose answers are sets or lists, a run is scored with F1 against the reference list. Two questions use a question-specific score:
+
+- `biomedical-hard-8`: the reference answer lists genes (`CDK12`, `SMARCA4`), so site-level answers such as `SMARCA4-S1484` are matched by their gene. This question is scored by recall: the fraction of reference genes found.
+- `wildfire-hard-18`: the answer has two claims (whether suppression shortens fire duration and whether it reduces buildings affected), and each claim counts for half.
