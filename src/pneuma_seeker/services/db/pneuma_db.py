@@ -188,6 +188,15 @@ class PneumaDB:
                 return entry.content
         return self.dataset_manager.get_table_description(dataset_name, table_name)
 
+    def get_dataset_description(self, dataset_name: str) -> str:
+        """Gets the description of a dataset ("" if nobody wrote one)."""
+        if self.memory_manager is None:
+            return ""
+        entry = self.memory_manager.get_by_key(
+            "dataset_metadata", dataset_name, dataset_name
+        )
+        return entry.content if entry is not None else ""
+
     def register_postgres_dataset(
         self, dataset_name: str, connection_string: str
     ) -> None:

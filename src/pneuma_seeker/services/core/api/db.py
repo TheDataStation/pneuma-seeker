@@ -58,6 +58,10 @@ class DBAPI:
         """Lists the table names in a dataset."""
         return self.pneuma_db.list_dataset_tables(dataset_name)
 
+    def get_dataset_description(self, dataset_name: str) -> str:
+        """Returns the description of a dataset ("" if nobody wrote one)."""
+        return self.pneuma_db.get_dataset_description(dataset_name)
+
     def get_table_description(self, dataset_name: str, table_name: str) -> str:
         """Returns the description of a table in the dataset."""
         return self.pneuma_db.get_table_description(dataset_name, table_name)

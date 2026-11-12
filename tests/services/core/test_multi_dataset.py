@@ -275,6 +275,22 @@ class MultiDatasetConductorTests(unittest.TestCase):
         self.assertIn("- b (7 tables;", outcomes)
         self.retrieve.assert_not_called()  # purely dataset-level: no table search
 
+    def test_list_datasets_uses_descriptions(self):
+        db_api = self.conductor.action_set.registry.get(ActionNames.DATASET_LISTING).db_api
+        db_api.list_dataset_tables = MagicMock(side_effect=lambda ds: [f"{ds}_t"])  # type: ignore
+        db_api.get_dataset_description = MagicMock(  # type: ignore
+            side_effect=lambda ds: "Boston rainfall\nand beaches" if ds == "a" else ""
+        )
+        self._run(
+            [f'{{"plan": [{{"action":"{ActionNames.DATASET_LISTING.value}","args":{{}}}}]}}'],
+            dataset_name="",
+            multi_dataset=True,
+            accessible_datasets=["a", "b"],
+        )
+        outcomes = self._outcomes()
+        self.assertIn("- a (1 table): Boston rainfall and beaches", outcomes)
+        self.assertIn("- b (1 table; e.g. b_t)", outcomes)  # no description: examples
+
     def _make_dataset(self, root: Path, name: str) -> None:
         import duckdb
 

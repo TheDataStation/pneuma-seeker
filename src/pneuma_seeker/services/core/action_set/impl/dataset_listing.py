@@ -5,12 +5,12 @@ from pneuma_seeker.services.core.dataset_context import MULTI_DATASET_MODE
 from pneuma_seeker.shared.schemas.core.action import ActionNames
 from pneuma_seeker.shared.schemas.core.agent import AgentType
 
-# Datasets have no descriptions yet, so a few table names stand in for one.
+# For a dataset nobody has described, a few table names stand in for a description.
 _PREVIEW_TABLES = 5
 
 
 class DatasetListing(Action, Applicable):
-    """Lists the datasets the user may access — names and sizes, no table search.
+    """Lists the datasets the user may access — names, sizes and descriptions; no table search.
 
     Like Agentic Catalog's list_accessible_datasets(): purely about datasets.
     Finding tables inside a dataset is Table Retrieve's job (with `datasets`).
@@ -31,7 +31,7 @@ class DatasetListing(Action, Applicable):
             "    List the datasets you can retrieve tables from.\n"
             "    - **Args**: {}\n"
             "    - **Notes**:\n"
-            "        - Returns each dataset's name, table count and a few example table names; it does not search for tables.\n"
+            "        - Returns each dataset's name, table count and description (or, if it has none, a few example table names); it does not search for tables.\n"
             f"        - Then pass the dataset(s) likely to hold the data as `datasets` to `{ActionNames.TABLE_RETRIEVE.value}`. Tables from several datasets can be combined.\n"
             "        - Call this when you don't know which dataset holds the data, or when no retrieved table fits an information need — "
             "do not conclude the data is unavailable before considering the other datasets."
@@ -53,7 +53,19 @@ class DatasetListing(Action, Applicable):
             except Exception as exc:
                 lines.append(f"- {dataset}: (unavailable: {exc})")
                 continue
+            size = f"{len(tables)} table{'' if len(tables) == 1 else 's'}"
+            description = self._description_of(dataset)
+            if description:
+                lines.append(f"- {dataset} ({size}): {description}")
+                continue
             preview = ", ".join(tables[:_PREVIEW_TABLES])
             more = ", ..." if len(tables) > _PREVIEW_TABLES else ""
-            lines.append(f"- {dataset} ({len(tables)} tables; e.g. {preview}{more})")
+            lines.append(f"- {dataset} ({size}; e.g. {preview}{more})")
         return "\n".join(lines)
+
+    def _description_of(self, dataset: str) -> str:
+        """The dataset's description on one line ("" if none or unavailable)."""
+        try:
+            return " ".join((self.db_api.get_dataset_description(dataset) or "").split())
+        except Exception:
+            return ""

@@ -6,14 +6,17 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from pneuma_seeker.models import (
     CreateMemoryEntryRequest,
+    DatasetDescriptionResponse,
     EndpointTag,
     MemoryEntryListResponse,
     MemoryEntryResponse,
     MemoryMetadataUploadResponse,
     PermissionKey,
+    UpdateDatasetDescriptionRequest,
     UpdateMemoryEntryRequest,
 )
 from pneuma_seeker.routers.auth import get_current_user, get_current_user_permissions
+from pneuma_seeker.routers.chat import require_dataset_access
 from pneuma_seeker.services.db.memory.manager import MemoryManager
 from pneuma_seeker.services.db.memory.models import MemoryEntryRecord, MemoryType
 from pneuma_seeker.services.db.users.manager import UserDB
@@ -47,6 +50,7 @@ def get_memory_manager() -> MemoryManager:
 
 _DATASET_SCOPED_TYPES = {
     MemoryType.AGENT_LEARNING.value,
+    MemoryType.DATASET_METADATA.value,
     MemoryType.TABLE_METADATA.value,
     MemoryType.COLUMN_METADATA.value,
 }
@@ -281,3 +285,65 @@ def upload_metadata_csv(
     return MemoryMetadataUploadResponse(
         dataset_name=dataset_name, memory_type=memory_type, rows_stored=rows_stored
     )
+
+
+# -- Dataset descriptions -------------------------------------------------------
+# One per dataset (a dataset_metadata entry keyed by the dataset's name). Like
+# table and column descriptions, anyone who may access the dataset can edit it.
+# Agents see it when listing datasets in multi-dataset mode.
+
+
+def _dataset_description_response(
+    dataset_name: str, entry: MemoryEntryRecord | None
+) -> DatasetDescriptionResponse:
+    return DatasetDescriptionResponse(
+        dataset_name=dataset_name,
+        description=entry.content if entry else "",
+        updated_at=entry.updated_at.isoformat() if entry and entry.updated_at else None,
+    )
+
+
+@router.get(
+    "/dataset_description/{dataset_name}", response_model=DatasetDescriptionResponse
+)
+def get_dataset_description(
+    dataset_name: str,
+    current_user: UserRecord = Depends(get_current_user),
+    mm: MemoryManager = Depends(get_memory_manager),
+):
+    """Returns what a dataset is about ("" if nobody wrote a description)."""
+    require_dataset_access(dataset_name, current_user)
+    entry = mm.get_by_key(MemoryType.DATASET_METADATA.value, dataset_name, dataset_name)
+    return _dataset_description_response(dataset_name, entry)
+
+
+@router.put(
+    "/dataset_description/{dataset_name}", response_model=DatasetDescriptionResponse
+)
+def update_dataset_description(
+    dataset_name: str,
+    payload: UpdateDatasetDescriptionRequest,
+    current_user: UserRecord = Depends(get_current_user),
+    mm: MemoryManager = Depends(get_memory_manager),
+):
+    """Sets a dataset's description; an empty description removes it."""
+    require_dataset_access(dataset_name, current_user)
+    description = payload.description.strip()
+    entry = mm.get_by_key(MemoryType.DATASET_METADATA.value, dataset_name, dataset_name)
+    if not description:
+        if entry is not None:
+            mm.delete_entry(entry.memory_id)
+        return _dataset_description_response(dataset_name, None)
+    if entry is not None:
+        mm.update_entry(entry.memory_id, content=description)
+        entry = mm.get_entry(entry.memory_id)
+    else:
+        entry = mm.create_entry(
+            MemoryType.DATASET_METADATA.value,
+            description,
+            "user",
+            current_user.user_id,
+            dataset_name=dataset_name,
+            key_text=dataset_name,
+        )
+    return _dataset_description_response(dataset_name, entry)

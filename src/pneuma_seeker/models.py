@@ -175,6 +175,16 @@ class UpdateMemoryEntryRequest(BaseModel):
     content: str = Field(min_length=1)
 
 
+class DatasetDescriptionResponse(BaseModel):
+    dataset_name: str
+    description: str  # "" if nobody wrote one
+    updated_at: str | None = None
+
+
+class UpdateDatasetDescriptionRequest(BaseModel):
+    description: str  # "" clears it
+
+
 class MemoryMetadataUploadResponse(BaseModel):
     dataset_name: str
     memory_type: str

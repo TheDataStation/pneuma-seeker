@@ -8,6 +8,8 @@ class MemoryType(str, Enum):
     TRIBAL_KNOWLEDGE = "tribal_knowledge"
     USER_PREFERENCE = "user_preference"
     AGENT_LEARNING = "agent_learning"
+    # One entry per dataset (key_text = dataset name): what the dataset is about.
+    DATASET_METADATA = "dataset_metadata"
     TABLE_METADATA = "table_metadata"
     COLUMN_METADATA = "column_metadata"
 
