@@ -47,6 +47,16 @@ from pneuma_seeker.shared.schemas.language_model.role import Role
 from pneuma_seeker.shared.str_processor import clean_column_table_name
 
 
+INDEX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "indices", "pneuma")
+
+
+def is_dataset_indexed(dataset_name: str) -> bool:
+    """Whether Table Retrieve can search `dataset_name` (its indices exist)."""
+    return Path(INDEX_PATH, f"vector-index-{dataset_name}").exists() and Path(
+        INDEX_PATH, f"fulltext-index-{dataset_name}"
+    ).exists()
+
+
 class PneumaRetriever(AbstractRetriever):
     """Represents a tabular data retriever."""
 
@@ -64,9 +74,7 @@ class PneumaRetriever(AbstractRetriever):
             RerankingMode.NONE,  # Alternative: RerankingMode.LLM
         )
         self.stemmer = Stemmer.Stemmer("english")
-        self.index_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "indices", "pneuma"
-        )
+        self.index_path = INDEX_PATH
 
     @property
     def retriever_type(self) -> RetrieverType:

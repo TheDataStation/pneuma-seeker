@@ -15,6 +15,13 @@ from pneuma_seeker.services.core.conductor.models import (
 )
 from pneuma_seeker.services.core.conductor.prompt_factory import ConductorPromptFactory
 from pneuma_seeker.services.core.conductor.state import ConductorState
+from pneuma_seeker.services.core.dataset_context import (
+    MULTI_DATASET_MODE,
+    DatasetContext,
+    dataset_of,
+    in_scope,
+    merge_retrieved,
+)
 from pneuma_seeker.services.core.materializer.main import Materializer
 from pneuma_seeker.services.core.materializer.models import MaterializerMode
 from pneuma_seeker.shared.config import Config
@@ -86,6 +93,10 @@ class Conductor:
         self.web_crawl_result: AbstractDocument | None = None
         self.join_paths: str | None = None
         self.used_memory_entries: list[dict[str, Any]] = []
+        self.dataset_ctx = DatasetContext.single("")
+        self._use_memory: bool = False
+        self._memory_group_ids: list[str] = []
+        self._memory_datasets_seen: set[str] = set()
 
         self.user_facing_response = ""
         self.actions: list[str] = []
@@ -105,6 +116,7 @@ class Conductor:
             ActionNames.WEB_SEARCH.value: self._handle_web_search,
             ActionNames.WEB_CRAWL.value: self._handle_web_crawl,
             ActionNames.TABLE_ENUMERATION.value: self._handle_table_enumeration,
+            ActionNames.DATASET_LISTING.value: self._handle_dataset_listing,
             ActionNames.STATE_MANIPULATION.value: self._handle_state_manipulation,
             ActionNames.MATERIALIZER.value: self._handle_materializer,
             ActionNames.PYTHON_EXECUTOR.value: self._handle_python_executor,
@@ -120,14 +132,64 @@ class Conductor:
         dataset_name: str = "",
         use_memory: bool = True,
         memory_group_ids: list[str] | None = None,
+        multi_dataset: bool = False,
+        accessible_datasets: list[str] | None = None,
     ):
-        """Processes user message and yields responses."""
+        """Processes user message and yields responses.
+
+        With `multi_dataset` (and Config.ENABLE_MULTI_DATASET), tables may be
+        retrieved from any of `accessible_datasets`; `dataset_name` is then only
+        the default. Otherwise every retrieval targets `dataset_name`.
+        """
         self._log(f"Processing user message: {user_message}")
 
         chat_start_time = time()
         self._reset_conductor()
         self._plan_mode = plan_mode and self.config.ENABLE_PLAN_MODE
         self.interaction_history = interaction_history
+        if multi_dataset and self.config.ENABLE_MULTI_DATASET:
+            self.dataset_ctx = DatasetContext(
+                default=dataset_name,
+                accessible=tuple(accessible_datasets or ([dataset_name] if dataset_name else [])),
+                multi=True,
+            )
+            self._log(f"Multi-dataset mode: {self.dataset_ctx.describe()}")
+        else:
+            self.dataset_ctx = DatasetContext.single(dataset_name)
+        self.action_set.registry.set_active_modes(
+            {MULTI_DATASET_MODE} if self.dataset_ctx.multi else set()
+        )
+        # The workspace connection is cached per chat, so datasets attached in an
+        # earlier (multi-dataset) turn would otherwise stay queryable by raw SQL.
+        try:
+            detached = self.db_api.detach_datasets_except(
+                self.user_id, self.chat_id, set(self.dataset_ctx.accessible)
+            )
+            if detached:
+                self._log(f"Detached datasets outside this turn's scope: {detached}")
+        except Exception as exc:
+            self._log(f"Could not restrict attached datasets: {exc}")
+        # Likewise drop tables (carried over from earlier turns or restored with
+        # the session) whose dataset is outside this turn's scope. Only possible
+        # after a multi-dataset turn or a change in access; a no-op otherwise.
+        if self.dataset_ctx.multi or dataset_name:
+            for attr in ("retrieved_tables", "enumerated_tables"):
+                tables = getattr(self, attr)
+                kept = in_scope(tables, self.dataset_ctx.accessible)
+                if len(kept) != len(tables):
+                    self._log(
+                        f"Dropped {len(tables) - len(kept)} {attr.replace('_', ' ')} "
+                        "from datasets outside this turn's scope."
+                    )
+                    setattr(self, attr, kept)
+                    if attr == "retrieved_tables":
+                        try:
+                            self.join_paths = self.action_set.discover_join_paths(kept)
+                        except Exception as exc:
+                            self._log(f"=> Error during join path extraction: {exc}")
+        self._use_memory = use_memory and self.config.ENABLE_MEMORY_LAYER
+        self._memory_group_ids = memory_group_ids or []
+        self._memory_datasets_seen = {dataset_name}
 
         self.used_memory_entries = []
         if use_memory and self.config.ENABLE_MEMORY_LAYER:
@@ -205,6 +267,7 @@ class Conductor:
                     self.web_crawl_result,
                     self.join_paths,
                     information_needs=self._information_needs,
+                    dataset_scope=self.dataset_ctx.describe(),
                 ),
             )
 
@@ -475,6 +538,7 @@ class Conductor:
         user_facing_in_plan = False
         table_retrieve_in_plan = False
         assumption_check_in_plan = False
+        dataset_listing_in_plan = False
 
         for action_plan in plan:
             if action_plan.get("action") is None:
@@ -516,6 +580,8 @@ class Conductor:
                 table_retrieve_in_plan = True
             elif action == ActionNames.CONTEXT_EXTRACTION.value:
                 assumption_check_in_plan = True
+            elif action == ActionNames.DATASET_LISTING.value:
+                dataset_listing_in_plan = True
 
         # Strip user-facing communication when it co-occurs with execution actions
         triggering_actions = [
@@ -525,6 +591,7 @@ class Conductor:
                 (materializer_in_plan, ActionNames.MATERIALIZER.value),
                 (table_retrieve_in_plan, ActionNames.TABLE_RETRIEVE.value),
                 (assumption_check_in_plan, ActionNames.CONTEXT_EXTRACTION.value),
+                (dataset_listing_in_plan, ActionNames.DATASET_LISTING.value),
             )
             if present
         ]
@@ -714,8 +781,43 @@ class Conductor:
             error_msg = "=> `prompts` must be a list of strings"
             self._log(f"=> {error_msg}")
             return error_msg, ActionExecutionStatus.ERROR
-        self.retrieved_tables = self.action_set.retrieve_multi_topic_documents(
-            action_args["prompts"],
+        try:
+            datasets = self.dataset_ctx.resolve(action_args.get("datasets"))
+        except ValueError as e:
+            self._log(f"=> {e}")
+            return str(e), ActionExecutionStatus.ERROR
+
+        new_tables: list[AbstractDocument] = []
+        for ds in datasets:
+            new_tables += self._retrieve_tables_from(action_args["prompts"], ds)
+        replaced: list[str] = []
+        if self.dataset_ctx.multi:
+            self.retrieved_tables, replaced = merge_retrieved(
+                self.retrieved_tables, new_tables, datasets
+            )
+        else:
+            self.retrieved_tables = new_tables
+
+        self._log(f"Retrieved tables:\n {[i.doc_id for i in self.retrieved_tables]}")
+        try:
+            self.join_paths = self.action_set.discover_join_paths(self.retrieved_tables)
+        except Exception as e:
+            self._log(f"=> Error during join path extraction: {e}")
+        success_msg = "Successfully retrieved tables from Table Retrieve. Notice that the `RETRIEVED TABLES` has been updated."
+        if self.dataset_ctx.multi:
+            success_msg += self._multi_dataset_retrieval_notes(
+                user_message, datasets, replaced
+            )
+        self._log(success_msg)
+        self._log_table_repr_tokens(self.retrieved_tables)
+        return success_msg, ActionExecutionStatus.SUCCESS
+
+    def _retrieve_tables_from(
+        self, prompts: list[str], dataset_name: str
+    ) -> list[AbstractDocument]:
+        """Retrieves, deduplicates and (optionally) column-compacts one dataset's tables."""
+        retrieved = self.action_set.retrieve_multi_topic_documents(
+            prompts,
             RetrieverType.PNEUMA_RETRIEVER,
             dataset_name,
             10,
@@ -726,36 +828,54 @@ class Conductor:
         # Deduplicate: same table may appear for multiple prompts — keep first occurrence
         seen: set[str] = set()
         deduped: list[AbstractDocument] = []
-        for doc in self.retrieved_tables:
+        for doc in retrieved:
             if doc.doc_id not in seen:
                 seen.add(doc.doc_id)
                 deduped.append(doc)
-        self.retrieved_tables = deduped
 
         if self.config.COLUMN_COMPACTION_ENABLED:
             from pneuma_seeker.services.core.ir_system.retriever.impl.attribute_retriever import (
                 retrieve_attribute,
             )
 
-            self.retrieved_tables = retrieve_attribute(
-                action_args["prompts"],
-                self.retrieved_tables,  # type: ignore
+            deduped = retrieve_attribute(
+                prompts,
+                deduped,  # type: ignore
                 dataset_name,
                 self.language_model_api,
                 alpha=self.config.COLUMN_COMPACTION_ALPHA,
                 sim_threshold=self.config.COLUMN_COMPACTION_SIM_THRESHOLD,
                 use_llm_threshold=self.config.COLUMN_COMPACTION_USE_LLM_THRESHOLD,
             )
+        return deduped
 
-        self._log(f"Retrieved tables:\n {[i.doc_id for i in self.retrieved_tables]}")
-        try:
-            self.join_paths = self.action_set.discover_join_paths(self.retrieved_tables)
-        except Exception as e:
-            self._log(f"=> Error during join path extraction: {e}")
-        success_msg = "Successfully retrieved tables from Table Retrieve. Notice that the `RETRIEVED TABLES` has been updated."
-        self._log(success_msg)
-        self._log_table_repr_tokens(self.retrieved_tables)
-        return success_msg, ActionExecutionStatus.SUCCESS
+    def _multi_dataset_retrieval_notes(
+        self, user_message: str, datasets: list[str], replaced: list[str]
+    ) -> str:
+        """Extra feedback for a multi-dataset retrieval: same-named tables that
+        replaced one another, and tribal knowledge of datasets first touched this turn."""
+        notes = ""
+        if replaced:
+            notes += "\nNote: " + " ".join(replaced)
+        for ds in datasets:
+            if not self._use_memory or ds in self._memory_datasets_seen:
+                continue
+            self._memory_datasets_seen.add(ds)
+            try:
+                entries = self.db_api.retrieve_memory_context(
+                    self.user_id,
+                    ds,
+                    self._memory_group_ids,
+                    user_message,
+                    self.config.MEMORY_RETRIEVAL_TOP_K,
+                )
+            except Exception as exc:
+                self._log(f"Memory context retrieval for dataset {ds} failed: {exc}")
+                continue
+            if entries:
+                self.used_memory_entries.extend(entries)
+                notes += f"\nContext for dataset `{ds}`:\n" + self.prompt_factory.get_memory_context_prompt(entries)
+        return notes
 
     def _handle_web_search(
         self, user_message: str, action_args: dict[str, Any], dataset_name: str
@@ -829,12 +949,43 @@ class Conductor:
             error_msg = "=> `patterns` must be a list of non-empty strings"
             self._log(f"=> {error_msg}")
             return error_msg, ActionExecutionStatus.ERROR
-        self.enumerated_tables = self.action_set.retrieve_multi_topic_documents(
-            action_args["patterns"], RetrieverType.ENUMERATOR, dataset_name, 20, True, 2
-        )
+        try:
+            datasets = self.dataset_ctx.resolve(
+                action_args.get("datasets")
+                or (self.dataset_ctx.datasets_of(self.retrieved_tables) if self.dataset_ctx.multi else None)
+            )
+        except ValueError as e:
+            self._log(f"=> {e}")
+            return str(e), ActionExecutionStatus.ERROR
+        enumerated: list[AbstractDocument] = []
+        for ds in datasets:
+            enumerated += self.action_set.retrieve_multi_topic_documents(
+                action_args["patterns"], RetrieverType.ENUMERATOR, ds, 20, True, 2
+            )
+        if self.dataset_ctx.multi:
+            self.enumerated_tables, _ = merge_retrieved(
+                self.enumerated_tables, enumerated, datasets
+            )
+            # Enumerated tables are handed to the Materializer alongside the
+            # retrieved ones, so names must not clash across datasets.
+            retrieved_ds = {t.doc_id: dataset_of(t) for t in self.retrieved_tables}
+            self.enumerated_tables = [
+                t for t in self.enumerated_tables
+                if retrieved_ds.get(t.doc_id, dataset_of(t)) == dataset_of(t)
+            ]
+        else:
+            self.enumerated_tables = enumerated
         success_msg = f"Enumerated table IDs based on these patterns: {action_args['patterns']}. If there are any matches, the IDs will be reflected in `OTHER TABLE IDS WITH SIMILAR NAMING PATTERNS`."
         self._log(success_msg)
         return success_msg, ActionExecutionStatus.SUCCESS
+
+    def _handle_dataset_listing(
+        self, user_message: str, action_args: dict[str, Any], dataset_name: str
+    ) -> tuple[str, ActionExecutionStatus]:
+        self._log(f"{ActionNames.DATASET_LISTING.value} request with params: {action_args}")
+        listing = self.action_set.list_datasets(list(self.dataset_ctx.accessible))
+        self._log(f"=> {listing}")
+        return listing, ActionExecutionStatus.SUCCESS
 
     def _handle_state_manipulation(
         self, user_message: str, action_args: dict[str, Any], dataset_name: str
@@ -932,6 +1083,7 @@ class Conductor:
             self.web_search_result,
             self.web_crawl_result,
             dataset_name=dataset_name,
+            dataset_ctx=self.dataset_ctx,
         )
 
         if len(retrieved_tables) > 0:

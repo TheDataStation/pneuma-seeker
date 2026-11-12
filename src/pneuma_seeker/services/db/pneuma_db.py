@@ -12,6 +12,7 @@ from pneuma_seeker.services.db.memory.manager import MemoryManager
 from pneuma_seeker.services.db.workspaces.manager import WorkspaceManager
 from pneuma_seeker.services.db.workspaces.session_index import SessionIndex
 from pneuma_seeker.shared.config import Config
+from pneuma_seeker.shared.str_processor import clean_column_table_name
 from pneuma_seeker.shared.schemas.core.ir_system import AbstractDocument
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 
@@ -197,6 +198,14 @@ class PneumaDB:
         """Links tables from the specified dataset into the user's workspace for the current chat session."""
         self.dataset_manager.link_dataset_tables(
             user_id, chat_id, dataset_name, self.get_ws_db_connection
+        )
+
+    def detach_datasets_except(
+        self, user_id: str, chat_id: str, allowed: set[str]
+    ) -> list[str]:
+        """Detaches every dataset attached to the chat's workspace that isn't in `allowed`."""
+        return self.workspace_manager.detach_datasets_except(
+            user_id, chat_id, {clean_column_table_name(name) for name in allowed}
         )
 
     def get_accessible_local_datasets(

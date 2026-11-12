@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import importlib
 import inspect
 import pkgutil
@@ -39,6 +37,7 @@ class ActionRegistry:
     ) -> None:
         self._config = config
         self._instances: dict[ActionNames, Action] = {}
+        self._active_modes: frozenset[str] = frozenset()
         self._discover_and_instantiate(
             user_id, chat_id, config, logger, db_api, language_model_api
         )
@@ -94,6 +93,23 @@ class ActionRegistry:
     # Public API
     # ------------------------------------------------------------------
 
+    def set_active_modes(self, modes: set[str] | frozenset[str]) -> None:
+        """Sets the per-request modes (e.g. multi-dataset) for the current turn.
+
+        Actions declaring a `mode` are only available while it is active; every
+        action sees the active modes so its description can adapt.
+        """
+        self._active_modes = frozenset(modes)
+        for action in self._instances.values():
+            action.active_modes = self._active_modes
+
+    def _is_enabled(self, action: Action) -> bool:
+        if action.flag is not None and not getattr(self._config, action.flag, False):
+            return False
+        if action.mode is not None and action.mode not in self._active_modes:
+            return False
+        return True
+
     def get(self, name: ActionNames) -> Action:
         if name not in self._instances:
             raise KeyError(f"Action {name!r} is not registered")
@@ -112,9 +128,7 @@ class ActionRegistry:
         for action in self._instances.values():
             if agent not in action.agents:
                 continue
-            if action.flag is not None and not getattr(
-                self._config, action.flag, False
-            ):
+            if not self._is_enabled(action):
                 continue
             if prompt_only and not action.show_in_prompt:
                 continue
@@ -135,6 +149,4 @@ class ActionRegistry:
         action = self._instances[name]
         if agent not in action.agents:
             return False
-        if action.flag is not None and not getattr(self._config, action.flag, False):
-            return False
-        return True
+        return self._is_enabled(action)

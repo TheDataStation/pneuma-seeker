@@ -111,6 +111,12 @@ class Config:
             getenv("PROVENANCE_REPLAY_MAX_ROWS", "100000")
         )
         self.ENABLE_PLAN_MODE = getenv("ENABLE_PLAN_MODE", "true").lower() == "true"
+        # Multi-dataset mode: when on, a chat request with `multi_dataset: true` lets
+        # Conductor/Materializer list the user's accessible datasets and retrieve
+        # tables from several of them in one turn (federated over DuckDB ATTACH).
+        self.ENABLE_MULTI_DATASET = (
+            getenv("ENABLE_MULTI_DATASET", "true").lower() == "true"
+        )
 
         ## Column Compaction Settings
         self.COLUMN_COMPACTION_ENABLED = (

@@ -54,6 +54,10 @@ class DBAPI:
             dataset_name, dataset_path, metadata_path, overwrite
         )
 
+    def list_dataset_tables(self, dataset_name: str) -> list[str]:
+        """Lists the table names in a dataset."""
+        return self.pneuma_db.list_dataset_tables(dataset_name)
+
     def get_table_description(self, dataset_name: str, table_name: str) -> str:
         """Returns the description of a table in the dataset."""
         return self.pneuma_db.get_table_description(dataset_name, table_name)
@@ -117,6 +121,12 @@ class DBAPI:
         This is idempotent (no error if already attached).
         """
         self.pneuma_db.link_dataset_tables(user_id, chat_id, dataset_name)
+
+    def detach_datasets_except(
+        self, user_id: str, chat_id: str, allowed: set[str]
+    ) -> list[str]:
+        """Detaches every attached dataset not in `allowed`; returns the detached aliases."""
+        return self.pneuma_db.detach_datasets_except(user_id, chat_id, allowed)
 
     def register_postgres_dataset(self, dataset_name: str, connection_string: str):
         """Registers a PostgreSQL dataset connection string for later linking."""

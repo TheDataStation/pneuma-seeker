@@ -22,6 +22,8 @@ class Action(ABC):
 
     Subclasses may override:
         flag: str | None    — Config attribute that must be True for the action to be enabled
+        mode: str | None    — per-request mode (e.g. "multi_dataset") that must be active
+                              for the action to be enabled; see ActionRegistry.set_active_modes
         order: int          — sort key used when building agent prompts (lower = earlier)
         show_in_prompt: bool — whether the action description should appear in agent prompts
     """
@@ -32,6 +34,7 @@ class Action(ABC):
 
     # --- optional class-level overrides ---
     flag: str | None = None
+    mode: str | None = None
     order: int = 99
     show_in_prompt: bool = True
 
@@ -54,6 +57,9 @@ class Action(ABC):
         # SQL/Python that produced the action's output in its last run; the
         # Materializer records it in the provenance graph for replay.
         self.last_executed_code: str | None = None
+        # Per-request modes, mirrored here by ActionRegistry so descriptions can
+        # adapt (e.g. Table Retrieve documents its `datasets` arg in multi mode).
+        self.active_modes: frozenset[str] = frozenset()
 
     @abstractmethod
     def get_description(self, agent: "AgentType | None" = None) -> str:

@@ -381,6 +381,7 @@ Both you and **{ActionNames.MATERIALIZER.value}** share the same data layer. You
         web_crawl_result: AbstractDocument | None = None,
         join_paths: str | None = None,
         information_needs: str | None = None,
+        dataset_scope: str = "",
     ) -> str:
         """Gets the environment state prompt for Conductor."""
         last_ce_idx = -1
@@ -445,7 +446,7 @@ Recent actions:
 Recent user interactions:
 {self.__convert_interactions_to_str(interaction_history)}
 
-Retrieved Tables:
+{f"{dataset_scope}\n\n" if dataset_scope else ""}Retrieved Tables:
 {convert_retrieval_results_to_str(retrieved_tables)}
 {"- Potential join paths between retrieved tables:\n" + join_paths if join_paths else ""}
 {f"\nOther tables IDs with simlar naming patterns (for reference):\n{[i.doc_id for i in enumerated_tables]}\n" if len(enumerated_tables) > 0 else ""}

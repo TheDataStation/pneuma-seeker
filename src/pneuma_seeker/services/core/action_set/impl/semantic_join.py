@@ -84,6 +84,8 @@ class SemanticJoin(Action, Applicable):
         mode: str = input.get("mode", self.config.SEMANTIC_JOIN_MODE).lower()
         use_llm: bool = input.get("use_llm", False)
         dataset_name: str = input.get("dataset_name", "")
+        left_dataset_name: str = input.get("left_dataset_name") or dataset_name
+        right_dataset_name: str = input.get("right_dataset_name") or dataset_name
 
         if not isinstance(left_table_id, str):
             raise ValueError("left_table_id must be a string.")
@@ -116,6 +118,8 @@ class SemanticJoin(Action, Applicable):
             mode,
             use_llm,
             dataset_name,
+            left_dataset_name,
+            right_dataset_name,
         )
 
     def join(
@@ -132,9 +136,14 @@ class SemanticJoin(Action, Applicable):
         mode: str = "jarowinkler",
         use_llm: bool = False,
         dataset_name: str = "",
+        left_dataset_name: str | None = None,
+        right_dataset_name: str | None = None,
     ) -> DataFrame:
         """
         Join rows from left_table_id and right_table_id using similarity matching.
+
+        `left_dataset_name`/`right_dataset_name` (default: `dataset_name`) say which
+        dataset an unqualified source table id belongs to.
 
         Parameters:
             relevant_left_cols / relevant_right_cols: columns to use for comparison
@@ -156,8 +165,12 @@ class SemanticJoin(Action, Applicable):
             )
         needs_embedding = mode in ("embedding", "hybrid")
 
-        left_table_ref = self.__resolve_table_ref(left_table_id, dataset_name)
-        right_table_ref = self.__resolve_table_ref(right_table_id, dataset_name)
+        left_table_ref = self.__resolve_table_ref(
+            left_table_id, left_dataset_name or dataset_name
+        )
+        right_table_ref = self.__resolve_table_ref(
+            right_table_id, right_dataset_name or dataset_name
+        )
         left_all_cols = self.__get_table_columns(left_table_ref)
         right_all_cols = self.__get_table_columns(right_table_ref)
 

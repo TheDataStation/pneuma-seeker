@@ -89,6 +89,8 @@ class ChatSession:
         plan_mode: bool = False,
         use_memory: bool = True,
         memory_group_ids: list[str] | None = None,
+        multi_dataset: bool = False,
+        accessible_datasets: list[str] | None = None,
     ):
         """Processes a user message and yields responses from Conductor."""
         external_table_paths = external_table_paths or []
@@ -115,6 +117,8 @@ class ChatSession:
             dataset_name=self.dataset_name,
             use_memory=use_memory,
             memory_group_ids=memory_group_ids,
+            multi_dataset=multi_dataset,
+            accessible_datasets=accessible_datasets,
         ):
             if conductor_response.type in (
                 ConductorResponseType.FINAL_RESPONSE,

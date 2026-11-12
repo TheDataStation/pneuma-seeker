@@ -218,11 +218,21 @@ class TestChatRouter(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         mock_conductor.action_set.execute_code.assert_called_once()
 
+    @patch(
+        "pneuma_seeker.routers.chat._resolve_dataset_permissions",
+        return_value=(False, {}),
+    )
+    @patch("pneuma_seeker.routers.chat.pneuma_db")
     @patch("pneuma_seeker.routers.chat.session_manager")
     @patch("pneuma_seeker.routers.chat.config")
-    def test_get_state_success(self, mock_config, mock_session_manager):
+    def test_get_state_success(
+        self, mock_config, mock_session_manager, mock_pneuma_db, _mock_perms
+    ):
         """Tests gathering system states alongside visual structural graph descriptions."""
         # Arrange
+        mock_pneuma_db.is_dataset_accessible.side_effect = (
+            lambda ds, *_: ds != "revoked_dataset"
+        )
         mock_config.TABLE_MAX_ROWS_DISPLAY = 10
         mock_conductor = MagicMock()
 
@@ -239,7 +249,12 @@ class TestChatRouter(unittest.TestCase):
         mock_doc = MagicMock()
         mock_doc.doc_id = "table_alpha"
         mock_doc.content = pd.DataFrame({"x": [1]})
-        mock_conductor.retrieved_tables = [mock_doc]
+        mock_doc.metadata = {"dataset_name": "other_dataset"}
+        revoked_doc = MagicMock()
+        revoked_doc.doc_id = "table_secret"
+        revoked_doc.content = pd.DataFrame({"x": [1]})
+        revoked_doc.metadata = {"dataset_name": "revoked_dataset"}
+        mock_conductor.retrieved_tables = [mock_doc, revoked_doc]
         mock_conductor.used_memory_entries = []
 
         mock_chat_session = MagicMock()
@@ -259,6 +274,12 @@ class TestChatRouter(unittest.TestCase):
         self.assertEqual(body["prov_steps"], ["Step 1", "Step 2"])
         self.assertIn("table_alpha", body["retrieved_tables"])
         self.assertEqual(body["dataset_name"], "test_dataset")
+        # Each retrieved table reports its own dataset (multi-dataset chats).
+        self.assertEqual(
+            body["retrieved_table_datasets"], {"table_alpha": "other_dataset"}
+        )
+        # Tables from a dataset the user can no longer access are not shown.
+        self.assertNotIn("table_secret", body["retrieved_tables"])
 
     @patch("pneuma_seeker.routers.chat.session_manager")
     def test_get_chat_history(self, mock_session_manager):

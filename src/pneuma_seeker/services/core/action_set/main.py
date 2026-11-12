@@ -115,6 +115,12 @@ class ActionSet:
             aggregated.extend(docs)
         return aggregated
 
+    def list_datasets(self, datasets: list[str]) -> str:
+        """Lists the accessible datasets (names and sizes; no table search)."""
+        return self.registry.get(ActionNames.DATASET_LISTING).apply(  # type: ignore[union-attr]
+            {"datasets": datasets}
+        )
+
     def discover_join_paths(self, tables: list[AbstractDocument]) -> str:
         tables_df: dict[str, DataFrame] = {doc.doc_id: doc.content for doc in tables}
         return self.join_path_extraction.discover_join_paths(tables_df)
@@ -219,6 +225,8 @@ class ActionSet:
         mode: str | None = None,
         use_llm: bool = False,
         dataset_name: str = "",
+        left_dataset_name: str | None = None,
+        right_dataset_name: str | None = None,
     ) -> DataFrame:
         args: dict[str, Any] = {
             "left_table_id": left_table_id,
@@ -235,6 +243,11 @@ class ActionSet:
         }
         if mode is not None:
             args["mode"] = mode
+        # Per-side datasets (multi-dataset mode); each defaults to `dataset_name`.
+        if left_dataset_name is not None:
+            args["left_dataset_name"] = left_dataset_name
+        if right_dataset_name is not None:
+            args["right_dataset_name"] = right_dataset_name
         return self.registry.get(ActionNames.SEMANTIC_JOIN).apply(args)  # type: ignore[union-attr]
 
     def generate_semantic_column(

@@ -11,6 +11,7 @@ from pandas import DataFrame, isna
 
 from pneuma_seeker.provenance.graph import ProvenanceGraph, ProvenanceNode
 from pneuma_seeker.services.core.conductor.state import ConductorState
+from pneuma_seeker.provenance.provenance_helper import quote_ident
 from pneuma_seeker.services.db.datasets.manager import DatasetManager
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.schemas.core.ir_system import (
@@ -244,6 +245,27 @@ class WorkspaceManager:
         ws_db_con = self.get_ws_db_connection(user_id, chat_id)
         with self.__connection_lock(user_id, chat_id):
             return ws_db_con.execute(sql, sql_params).fetchdf()
+
+    def detach_datasets_except(
+        self, user_id: str, chat_id: str, keep_aliases: set[str]
+    ) -> list[str]:
+        """
+        Detaches every database attached to the workspace connection whose alias
+        isn't in `keep_aliases`, keeping the workspace's own database and DuckDB's
+        built-in catalogs. Holds the connection lock so it can't race a query.
+        Returns the detached aliases.
+        """
+        ws_db_con = self.get_ws_db_connection(user_id, chat_id)
+        with self.__connection_lock(user_id, chat_id):
+            (current,) = ws_db_con.execute("SELECT current_database()").fetchone()
+            keep = set(keep_aliases) | {current, "system", "temp", "memory"}
+            attached = ws_db_con.execute("PRAGMA database_list").fetchdf()
+            detached: list[str] = []
+            for alias in attached.get("name", []):
+                if alias not in keep:
+                    ws_db_con.execute(f"DETACH DATABASE {quote_ident(alias)}")
+                    detached.append(alias)
+            return detached
 
     def register_temporary_df(
         self, user_id: str, chat_id: str, df: DataFrame, table_name: str
@@ -1046,13 +1068,16 @@ class WorkspaceManager:
             (state_id, role),
         ).fetchdf()
 
-        if not doc_rows.empty:
+        # A multi-dataset chat may have no default dataset ("").
+        linked_datasets: set[str] = set()
+        if not doc_rows.empty and dataset_name:
             self.dataset_manager.link_dataset_tables(
                 user_id,
                 chat_id,
                 dataset_name,
                 self.get_ws_db_connection,
             )
+            linked_datasets.add(dataset_name)
 
         documents: list[AbstractDocument] = []
         for _, doc_row in doc_rows.iterrows():
@@ -1097,7 +1122,24 @@ class WorkspaceManager:
                         f"""SELECT * FROM \"{doc_row['doc_id']}\" LIMIT {row_limit};"""
                     )
                 else:
-                    select_query = f"""SELECT * FROM \"{dataset_name}\".\"{doc_row['doc_id']}\" LIMIT {row_limit};"""
+                    # Source tables come from their own dataset (several, in a
+                    # multi-dataset chat); older sessions fall back to the chat's.
+                    source_dataset = metadata.get("dataset_name") or dataset_name
+                    if source_dataset not in linked_datasets:
+                        try:
+                            self.dataset_manager.link_dataset_tables(
+                                user_id,
+                                chat_id,
+                                source_dataset,
+                                self.get_ws_db_connection,
+                            )
+                            linked_datasets.add(source_dataset)
+                        except Exception as e:
+                            self.__log(
+                                f"__load_documents_by_role: failed to attach dataset '{source_dataset}': {e}"
+                            )
+                            continue
+                    select_query = f"""SELECT * FROM \"{source_dataset}\".\"{doc_row['doc_id']}\" LIMIT {row_limit};"""
                 try:
                     content = self.execute_query(
                         user_id,

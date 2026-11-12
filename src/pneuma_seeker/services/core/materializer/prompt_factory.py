@@ -125,6 +125,7 @@ the new T schema rather than re-deriving everything from scratch.
         web_search_result: AbstractDocument | None,
         web_crawl_result: AbstractDocument | None,
         join_paths: str | None,
+        dataset_scope: str = "",
     ) -> str:
         """Generates the context prompt for each iteration of the Materializer."""
         return f"""
@@ -136,7 +137,7 @@ Recent actions:
 Intermediate tables created so far:
 {convert_retrieval_results_to_str(intermediate_tables)}
 
-Retrieved tables:
+{f"{dataset_scope}\n\n" if dataset_scope else ""}Retrieved tables:
 {convert_retrieval_results_to_str(retrieved_tables)}
 {"- Potential join paths between retrieved tables:\n" + join_paths if join_paths else ""}
 {f"\nExternal tables:\n{convert_retrieval_results_to_str(external_tables)}\n" if len(external_tables) > 0 else ""}

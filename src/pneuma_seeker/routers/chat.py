@@ -37,6 +37,9 @@ from pneuma_seeker.services.core.conductor.models import (
     ConductorResponseType,
 )
 from pneuma_seeker.provenance.provenance_helper import quote_ident
+from pneuma_seeker.services.core.ir_system.retriever.impl.pneuma_retriever import (
+    is_dataset_indexed,
+)
 from pneuma_seeker.services.db.pneuma_db import PneumaDB
 from pneuma_seeker.services.db.users.manager import UserDB
 from pneuma_seeker.services.db.users.models import UserRecord
@@ -86,7 +89,7 @@ def _extract_memory_safely(
     final_response: str,
     user_id: str,
     group_id: str | None,
-    dataset_name: str,
+    dataset_name: str | None,
     chat_id: str,
 ) -> None:
     """
@@ -131,6 +134,19 @@ def _resolve_dataset_permissions(
     return is_admin, group_permissions
 
 
+def get_retrievable_datasets(current_user: UserRecord) -> list[str]:
+    """Datasets `current_user` may access that Table Retrieve can search (indexed).
+
+    In multi-dataset mode this is the only set the agents may draw tables from.
+    """
+    is_admin, group_permissions = _resolve_dataset_permissions(current_user)
+    return sorted(
+        name
+        for name in pneuma_db.get_accessible_local_datasets(is_admin, group_permissions)
+        if is_dataset_indexed(name)
+    )
+
+
 def require_dataset_access(dataset_name: str, current_user: UserRecord) -> None:
     """Raises 403 unless `current_user` may access `dataset_name`.
 
@@ -159,15 +175,26 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
     files = body.get("files", [])
     plan_mode = bool(body.get("plan_mode", False))
     use_memory = bool(body.get("use_memory", True)) and config.ENABLE_MEMORY_LAYER
+    multi_dataset = bool(body.get("multi_dataset", False)) and config.ENABLE_MULTI_DATASET
 
     if dataset_name is None:
-        raise HTTPException(
-            status_code=400, detail="Missing data source (dataset_name)"
-        )
+        if not multi_dataset:
+            raise HTTPException(
+                status_code=400, detail="Missing data source (dataset_name)"
+            )
+        dataset_name = ""
     if latest_user_message is None or not isinstance(latest_user_message, str):
         raise HTTPException(status_code=400, detail="Missing user message")
 
-    require_dataset_access(dataset_name, current_user)
+    if dataset_name:
+        require_dataset_access(dataset_name, current_user)
+    accessible_datasets = (
+        get_retrievable_datasets(current_user) if multi_dataset else None
+    )
+    if multi_dataset and not accessible_datasets:
+        raise HTTPException(
+            status_code=403, detail="No accessible, indexed datasets to search."
+        )
 
     memory_group_ids = (
         [g.group_id for g in user_db.list_group_ancestors(current_user.group_id)]
@@ -219,6 +246,19 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                 or chat_session.messages[-1]["role"] != Role.ASSISTANT.value
             ):
                 return
+            memory_dataset = dataset_name
+            if multi_dataset:
+                # Memory is scoped to one dataset; recording it without one
+                # would make it global. Attribute it to the dataset the turn
+                # used, or skip extraction when it drew on several (or none).
+                conductor = chat_session.conductor
+                used = conductor.dataset_ctx.datasets_of(conductor.retrieved_tables)
+                if len(used) != 1:
+                    logger.info(
+                        f"[Memory Extraction] Skipped: turn used datasets {used}, not exactly one."
+                    )
+                    return
+                memory_dataset = used[0]
             final_response = chat_session.messages[-1]["content"]
             user_msg = (
                 chat_session.messages[-2]["content"]
@@ -233,7 +273,7 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                     final_response,
                     user_id,
                     current_user.group_id,
-                    dataset_name,
+                    memory_dataset,
                     chat_id,
                 ),
                 daemon=True,
@@ -249,6 +289,8 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                     plan_mode=plan_mode,
                     use_memory=use_memory,
                     memory_group_ids=memory_group_ids,
+                    multi_dataset=multi_dataset,
+                    accessible_datasets=accessible_datasets,
                 ):
                     send_to_frontend(response)
             finally:
@@ -296,6 +338,8 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                     plan_mode=plan_mode,
                     use_memory=use_memory,
                     memory_group_ids=memory_group_ids,
+                    multi_dataset=multi_dataset,
+                    accessible_datasets=accessible_datasets,
                 ):
                     cur = rss_mb()
                     peak_rss = max(peak_rss, cur)
@@ -369,7 +413,12 @@ def get_accessible_datasets(
 ):
     is_admin, group_permissions = _resolve_dataset_permissions(current_user)
     datasets = pneuma_db.get_accessible_local_datasets(is_admin, group_permissions)
-    return JSONResponse(content={"datasets": datasets})
+    return JSONResponse(
+        content={
+            "datasets": datasets,
+            "multi_dataset_enabled": config.ENABLE_MULTI_DATASET,
+        }
+    )
 
 
 @router.get("/dataset_tables/{dataset_name}")
@@ -601,9 +650,23 @@ async def get_state(chat_id: str, current_user: UserRecord = Depends(get_current
         if prov_explanation_steps_markdown:
             prov_steps = [str(step_md) for step_md in prov_explanation_steps_markdown]
 
+    # Each retrieved table's own dataset (they can differ in a multi-dataset
+    # chat). Tables restored from a dataset the user can no longer access are
+    # not shown (the next turn drops them from the agents' state too).
+    is_admin, group_permissions = _resolve_dataset_permissions(current_user)
+    visible_tables = []
+    retrieved_table_datasets: dict[str, str] = {}
+    for doc in conductor.retrieved_tables:
+        doc_dataset = doc.metadata.get("dataset_name") or chat_session.dataset_name
+        if doc_dataset and not pneuma_db.is_dataset_accessible(
+            doc_dataset, is_admin, group_permissions
+        ):
+            continue
+        visible_tables.append(doc)
+        retrieved_table_datasets[doc.doc_id] = doc_dataset
     retrieved_tables = {
         doc.doc_id: serialize_dataframe(doc.content, config.TABLE_MAX_ROWS_DISPLAY)
-        for doc in conductor.retrieved_tables
+        for doc in visible_tables
     }
 
     return JSONResponse(
@@ -611,6 +674,7 @@ async def get_state(chat_id: str, current_user: UserRecord = Depends(get_current
             "state": state,
             "prov_steps": prov_steps,
             "retrieved_tables": retrieved_tables,
+            "retrieved_table_datasets": retrieved_table_datasets,
             "dataset_name": chat_session.dataset_name,
             "used_memory_entries": conductor.used_memory_entries,  # type: ignore
         }

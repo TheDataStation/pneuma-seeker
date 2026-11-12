@@ -6,6 +6,7 @@ class ActionNames(Enum):
     PYTHON_EXECUTOR = "python_executor"
     TABLE_RETRIEVE = "table_retrieve"
     TABLE_ENUMERATION = "table_enumeration"
+    DATASET_LISTING = "list_datasets"
     WEB_SEARCH = "web_search"
     WEB_CRAWL = "web_crawl"
     CONTEXT_EXTRACTION = "assumption_check"

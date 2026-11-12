@@ -21,6 +21,11 @@ from pneuma_seeker.services.core.materializer.prompt_factory import (
     MaterializerPromptFactory,
 )
 from pneuma_seeker.services.core.materializer.state import MaterializerState
+from pneuma_seeker.services.core.dataset_context import (
+    DatasetContext,
+    dataset_of,
+    merge_retrieved,
+)
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.schemas.language_model.role import Role
 from pneuma_seeker.shared.schemas.language_model.option import LLMOption
@@ -70,6 +75,7 @@ class Materializer:
         self.llm_messages: list[LLMMessage] = []
         self.last_intermediate_table_ids: set[str] = set()
         self._saved_intermediate_tables: list[AbstractDocument] = []
+        self.dataset_ctx = DatasetContext.single("")
 
         self._action_handlers: dict[str, Any] = {
             ActionNames.SITUATIONAL_ANALYSIS.value: self._handle_situational_analysis,
@@ -77,6 +83,7 @@ class Materializer:
             ActionNames.WEB_SEARCH.value: self._handle_web_search,
             ActionNames.WEB_CRAWL.value: self._handle_web_crawl,
             ActionNames.TABLE_ENUMERATION.value: self._handle_table_enumeration,
+            ActionNames.DATASET_LISTING.value: self._handle_dataset_listing,
             ActionNames.TABLE_PROJECTION.value: self._handle_table_projection,
             ActionNames.EQUALITY_JOIN.value: self._handle_equality_join,
             ActionNames.TABLE_UNION.value: self._handle_table_union,
@@ -101,6 +108,7 @@ class Materializer:
         prefetched_web_crawl_result: AbstractDocument | None = None,
         precomputed_join_paths: str | None = None,
         dataset_name: str = "",
+        dataset_ctx: DatasetContext | None = None,
     ) -> tuple[
         list[AbstractDocument],
         AbstractDocument | None,
@@ -119,7 +127,16 @@ class Materializer:
         self.state.column_descriptions = column_descriptions
         self.state.S = S
 
-        self.db_api.link_dataset_tables(self.user_id, self.chat_id, dataset_name)
+        self.dataset_ctx = dataset_ctx or DatasetContext.single(dataset_name)
+        if self.dataset_ctx.multi:
+            # Tables may come from several datasets; attach every one in use.
+            for ds in dict.fromkeys(
+                [dataset_name] + self.dataset_ctx.datasets_of(prefetched_tables)
+            ):
+                if ds in self.dataset_ctx.accessible:
+                    self.db_api.link_dataset_tables(self.user_id, self.chat_id, ds)
+        else:
+            self.db_api.link_dataset_tables(self.user_id, self.chat_id, dataset_name)
 
         if len(prefetched_tables) > 0:
             self.state.retrieved_tables = prefetched_tables
@@ -179,6 +196,7 @@ class Materializer:
                     self.state.web_search_result,
                     self.state.web_crawl_result,
                     self.state.join_paths,
+                    dataset_scope=self.dataset_ctx.describe(),
                 ),
             )
 
@@ -349,9 +367,26 @@ class Materializer:
             error_msg = "The 'prompts' list cannot be empty."
             self._log(f"==> {error_msg}")
             return error_msg, ActionExecutionStatus.ERROR
-        self.state.retrieved_tables = self.action_set.retrieve_multi_topic_documents(
-            prompts, RetrieverType.PNEUMA_RETRIEVER, dataset_name, 10, True, 5
-        )
+        try:
+            datasets = self.dataset_ctx.resolve(action_args.get("datasets"))
+        except ValueError as e:
+            self._log(f"==> {e}")
+            return str(e), ActionExecutionStatus.ERROR
+        retrieved: list[AbstractDocument] = []
+        for ds in datasets:
+            retrieved += self.action_set.retrieve_multi_topic_documents(
+                prompts, RetrieverType.PNEUMA_RETRIEVER, ds, 10, True, 5
+            )
+        replaced: list[str] = []
+        if self.dataset_ctx.multi:
+            if len(retrieved) == 0:
+                error_msg = "No tables were retrieved."
+                self._log(f"==> {error_msg}")
+                return error_msg, ActionExecutionStatus.ERROR
+            retrieved, replaced = merge_retrieved(
+                self.state.retrieved_tables, retrieved, datasets
+            )
+        self.state.retrieved_tables = retrieved
         if len(self.state.retrieved_tables) == 0:
             error_msg = "No tables were retrieved."
             self._log(f"==> {error_msg}")
@@ -360,6 +395,8 @@ class Materializer:
             self.state.retrieved_tables
         )
         success_msg = 'Successfully retrieved tables. Notice that the "retrieved internal tables" have been filled.'
+        if replaced:
+            success_msg += " Note: " + " ".join(replaced)
         self._log(f"==> {success_msg}")
         self._log(
             f"Retrieved tables:\n {[i.doc_id for i in self.state.retrieved_tables]}"
@@ -431,11 +468,23 @@ class Materializer:
             error_msg = "The 'patterns' list cannot be empty."
             self._log(f"==> {error_msg}")
             return error_msg, ActionExecutionStatus.ERROR
-        extra_tables: list[AbstractDocument] = (
-            self.action_set.retrieve_multi_topic_documents(
-                patterns, RetrieverType.ENUMERATOR, dataset_name, 20, True, 5
+        try:
+            datasets = self.dataset_ctx.resolve(
+                action_args.get("datasets")
+                or (
+                    self.dataset_ctx.datasets_of(self.state.retrieved_tables)
+                    if self.dataset_ctx.multi
+                    else None
+                )
             )
-        )
+        except ValueError as e:
+            self._log(f"==> {e}")
+            return str(e), ActionExecutionStatus.ERROR
+        extra_tables: list[AbstractDocument] = []
+        for ds in datasets:
+            extra_tables += self.action_set.retrieve_multi_topic_documents(
+                patterns, RetrieverType.ENUMERATOR, ds, 20, True, 5
+            )
         pattern_desc = str(patterns)
         if len(extra_tables) == 0:
             error_msg = "There are no tables that match the pattern."
@@ -443,13 +492,29 @@ class Materializer:
             return error_msg, ActionExecutionStatus.ERROR
         success_msg = f'Successfully retrieved all tables that match the pattern(s) {pattern_desc}. You can use them to materialize T, even if you have not called {ActionNames.TABLE_RETRIEVE.value} before, as these tables have been included to "retrieved internal tables".'
         self._log(f"==> {success_msg}")
-        self.state.retrieved_tables = list(
-            set(self.state.retrieved_tables).union(set(extra_tables))
-        )
+        if self.dataset_ctx.multi:
+            # Set union keys on doc_id alone, which would drop same-named
+            # tables from different datasets.
+            self.state.retrieved_tables, replaced = merge_retrieved(
+                self.state.retrieved_tables, extra_tables, []
+            )
+            if replaced:
+                success_msg += " Note: " + " ".join(replaced)
+        else:
+            self.state.retrieved_tables = list(
+                set(self.state.retrieved_tables).union(set(extra_tables))
+            )
         self._log(
             f"Retrieved tables:\n {[i.doc_id for i in self.state.retrieved_tables]}"
         )
         return success_msg, ActionExecutionStatus.SUCCESS
+
+    def _handle_dataset_listing(
+        self, action_args: dict[str, Any], dataset_name: str
+    ) -> tuple[str, ActionExecutionStatus]:
+        listing = self.action_set.list_datasets(list(self.dataset_ctx.accessible))
+        self._log(f"==> {listing}")
+        return listing, ActionExecutionStatus.SUCCESS
 
     def _handle_table_projection(
         self, action_args: dict[str, Any], dataset_name: str
@@ -855,6 +920,11 @@ class Materializer:
             error_msg = "joined_table_id is not provided."
             self._log(f"==> {error_msg}")
             return error_msg, ActionExecutionStatus.ERROR
+        # In multi-dataset mode the two sides may live in different datasets.
+        left_dataset = right_dataset = dataset_name
+        if self.dataset_ctx.multi:
+            left_dataset = dataset_of(left_table_doc) or dataset_name  # type: ignore[arg-type]
+            right_dataset = dataset_of(right_table_doc) or dataset_name  # type: ignore[arg-type]
         joined_table_sample_rows = self.action_set.join_semantic(
             left_table_id,
             right_table_id,
@@ -863,6 +933,8 @@ class Materializer:
             joined_table_id,
             top_k=self.config.SEMANTIC_JOIN_TOP_K,
             dataset_name=dataset_name,
+            left_dataset_name=left_dataset if self.dataset_ctx.multi else None,
+            right_dataset_name=right_dataset if self.dataset_ctx.multi else None,
         )
 
         # Record the (left row, right row) matches that were kept, so the
@@ -875,8 +947,8 @@ class Materializer:
         replay_code, replay_kind = self._replay_code(
             lambda: f"SELECT DISTINCT {match_cols_sql} FROM {quote_ident(joined_table_id)} ORDER BY ALL",
             lambda rows: self.action_set.generate_semantic_join_replay_code(
-                self._semantic_join_table_ref(left_table_id, dataset_name),
-                self._semantic_join_table_ref(right_table_id, dataset_name),
+                self._semantic_join_table_ref(left_table_id, left_dataset),
+                self._semantic_join_table_ref(right_table_id, right_dataset),
                 relevant_left_cols,
                 relevant_right_cols,
                 joined_table_id,

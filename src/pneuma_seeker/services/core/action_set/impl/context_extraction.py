@@ -48,6 +48,19 @@ class ContextExtraction(Action, Applicable):
             return _SHARED_PREAMBLE + _MATERIALIZER_SUFFIX
         return _SHARED_PREAMBLE + _CONDUCTOR_SUFFIX
 
+    @staticmethod
+    def _learning_dataset(tables: list[AbstractDocument], default: str) -> str:
+        """Dataset whose learning cache a question over `tables` belongs to.
+
+        The chat's dataset, unless the tables come from other datasets (multi-
+        dataset mode): then their single dataset, or "" — no caching — when
+        they span several, so cross-dataset answers don't land in one dataset.
+        """
+        datasets = {str(t.metadata.get("dataset_name") or "") for t in tables} - {""}
+        if not datasets or datasets == {default}:
+            return default
+        return next(iter(datasets)) if len(datasets) == 1 else ""
+
     def apply(self, input: dict[str, Any]) -> tuple[str, list[str]]:
         """
         Resolves a list of natural-language uncertainty questions.
@@ -97,9 +110,10 @@ class ContextExtraction(Action, Applicable):
                 logs.extend(retry_logs)
                 return answer
 
-            if dataset_name and self.config.ENABLE_MEMORY_LAYER:
+            learning_dataset = self._learning_dataset(relevant_tables, dataset_name)
+            if learning_dataset and self.config.ENABLE_MEMORY_LAYER:
                 answer = self.db_api.get_or_create_agent_learning(
-                    dataset_name, question, table_ids, _resolve
+                    learning_dataset, question, table_ids, _resolve
                 )
             else:
                 answer = _resolve()

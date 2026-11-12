@@ -1,4 +1,5 @@
 from pneuma_seeker.services.core.action_set.interfaces import Action
+from pneuma_seeker.services.core.dataset_context import MULTI_DATASET_MODE
 from pneuma_seeker.shared.schemas.core.action import ActionNames
 from pneuma_seeker.shared.schemas.core.agent import AgentType
 
@@ -12,8 +13,19 @@ class TableEnumeration(Action):
 
     def get_description(self, agent: AgentType | None = None) -> str:
         if agent == AgentType.MATERIALIZER:
-            return self._materializer_description()
-        return self._conductor_description()
+            description = self._materializer_description()
+        else:
+            description = self._conductor_description()
+        if MULTI_DATASET_MODE in self.active_modes:
+            description += self._multi_dataset_note()
+        return description
+
+    def _multi_dataset_note(self) -> str:
+        return (
+            "\n    - Multi-dataset: optionally add "
+            '`"datasets": ["<dataset>", ...]` to the args to choose where to enumerate; '
+            "it defaults to the datasets of the tables already retrieved."
+        )
 
     def _conductor_description(self) -> str:
         return (
