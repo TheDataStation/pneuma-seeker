@@ -151,13 +151,7 @@ class Config:
         self.ENABLE_MEMORY_LAYER = (
             getenv("ENABLE_MEMORY_LAYER", "false").lower() == "true"
         )
-        self.ENABLE_MEMORY_AUTO_EXTRACTION = (
-            getenv("ENABLE_MEMORY_AUTO_EXTRACTION", "false").lower() == "true"
-        )
         self.MEMORY_RETRIEVAL_TOP_K = int(getenv("MEMORY_RETRIEVAL_TOP_K", "20"))
-        self.MEMORY_AGENT_LEARNING_SIMILARITY_THRESHOLD = float(
-            getenv("MEMORY_AGENT_LEARNING_SIMILARITY_THRESHOLD", "0.6")
-        )
 
         # Postgres Settings (for UserDB)
         self.POSTGRES_HOST = getenv("POSTGRES_HOST", "localhost")

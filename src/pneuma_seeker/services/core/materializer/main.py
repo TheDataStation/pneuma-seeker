@@ -1126,7 +1126,7 @@ class Materializer:
         )
         try:
             summary, log_msgs = self.action_set.run_context_extraction(
-                uncertainties, available_tables, "materializer_assumption_check", dataset_name
+                uncertainties, available_tables, "materializer_assumption_check"
             )
             for msg in log_msgs:
                 self.log_callback(msg)

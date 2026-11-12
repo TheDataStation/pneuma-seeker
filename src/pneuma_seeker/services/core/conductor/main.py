@@ -195,7 +195,6 @@ class Conductor:
         if use_memory and self.config.ENABLE_MEMORY_LAYER:
             try:
                 self.used_memory_entries = self.db_api.retrieve_memory_context(
-                    self.user_id,
                     dataset_name,
                     memory_group_ids or [],
                     user_message,
@@ -863,7 +862,6 @@ class Conductor:
             self._memory_datasets_seen.add(ds)
             try:
                 entries = self.db_api.retrieve_memory_context(
-                    self.user_id,
                     ds,
                     self._memory_group_ids,
                     user_message,
@@ -1202,7 +1200,7 @@ class Conductor:
             + self.external_tables
         )
         summary, log_msgs = self.action_set.run_context_extraction(
-            uncertainties, available_tables, "conductor_assumption_check", dataset_name
+            uncertainties, available_tables, "conductor_assumption_check"
         )
         for log_msg in log_msgs:
             self.frontend_callback(

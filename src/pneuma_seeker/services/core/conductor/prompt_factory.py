@@ -179,7 +179,7 @@ Retrieved tables:
 
     def get_memory_context_prompt(self, entries: list[dict]) -> str:
         """
-        Renders retrieved tribal-knowledge/user-preference entries as a short system
+        Renders retrieved tribal-knowledge entries as a short system
         message so Conductor can factor them into planning without treating them as
         instructions from the current user turn.
         """

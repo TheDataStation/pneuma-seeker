@@ -162,6 +162,65 @@ class TestDatasetDescriptionPostgres(unittest.TestCase):
         self.client.put(url, json={"description": ""})
         self.assertEqual(self.db_api.get_dataset_description(self.dataset), "")
 
+    def test_memory_context_is_tribal_knowledge_only(self, _):
+        """Rows of removed types left in Postgres from before are never surfaced."""
+        group = f"g_{uuid4().hex[:8]}"
+        tk = self.mm.create_entry(
+            "tribal_knowledge", "rainfall is in inches", "user", "u1",
+            group_id=group, dataset_name=self.dataset,
+        )
+        legacy = [
+            self.mm.create_entry(
+                "user_preference", "rainfall charts please", "llm_extraction", "u1",
+                user_id="u1", dataset_name=self.dataset,
+            ),
+            self.mm.create_entry(
+                "agent_learning", "rainfall answer", "agent_learning", None,
+                dataset_name=self.dataset, key_text="rainfall?",
+            ),
+        ]
+        try:
+            entries = self.db_api.retrieve_memory_context(self.dataset, [group], "rainfall", 10)
+            self.assertEqual([e["memory_id"] for e in entries], [tk.memory_id])
+        finally:
+            for record in [tk, *legacy]:
+                self.mm.delete_entry(record.memory_id)
+
+
+
+class TestRemovedMemoryTypes(unittest.TestCase):
+    """User preferences and agent learnings were removed; only tribal knowledge
+    (plus dataset/table/column metadata) is left."""
+
+    def setUp(self):
+        self.app = FastAPI()
+        self.app.include_router(memory.router)
+        self.app.dependency_overrides[get_current_user] = lambda: UserRecord(
+            user_id="u1", email="u@x.io", username="u@x.io", group_id="g1", is_active=True
+        )
+        self.app.dependency_overrides[memory.get_memory_manager] = FakeMemoryManager
+        self.client = TestClient(self.app)
+
+    def tearDown(self):
+        self.app.dependency_overrides.clear()
+
+    def test_removed_types_are_rejected(self):
+        for removed in ("user_preference", "agent_learning"):
+            res = self.client.get(f"/memory/entries?memory_type={removed}")
+            self.assertEqual(res.status_code, 400, removed)
+            res = self.client.post(
+                "/memory/entries", json={"memory_type": removed, "content": "x"}
+            )
+            self.assertEqual(res.status_code, 400, removed)
+
+    def test_memory_types_left(self):
+        from pneuma_seeker.services.db.memory.models import MemoryType
+
+        self.assertEqual(
+            {t.value for t in MemoryType},
+            {"tribal_knowledge", "dataset_metadata", "table_metadata", "column_metadata"},
+        )
+
 
 
 if __name__ == "__main__":

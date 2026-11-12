@@ -5,7 +5,6 @@ from io import BytesIO, StringIO
 from json import dumps
 from queue import Empty, Queue
 from re import match
-from threading import Thread
 from typing import Any
 from zipfile import ZipFile, ZIP_DEFLATED
 
@@ -47,10 +46,7 @@ from pneuma_seeker.session_manager import SessionManager
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.schemas.core.ir_system import RetrieverType
 from pneuma_seeker.shared.logger import setup_logger
-from pneuma_seeker.shared.parser import parse_json
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
-from pneuma_seeker.shared.schemas.language_model.option import LLMOption
-from pneuma_seeker.shared.schemas.language_model.role import Role
 from pneuma_seeker.shared.table_serializer import serialize_dataframe
 
 router = APIRouter(
@@ -67,57 +63,6 @@ session_manager = SessionManager(
     logger,
     pneuma_db,
 )
-
-
-_MEMORY_EXTRACTION_SYS_PROMPT = """You are extracting durable, reusable knowledge from a single chat turn in a data-analysis assistant.
-
-Identify at most a few short, atomic pieces of knowledge worth remembering long-term:
-- "global": undocumented assumptions, data quirks, or pitfalls about the dataset that would help OTHER users interpret it correctly.
-- "local": a personal preference this specific user expressed about how they like analyses done.
-
-Only extract something if it is clearly durable and reusable in future, unrelated turns — not a one-off detail specific to this single question.
-
-Output ONLY a JSON object of the form:
-{"entries": [{"scope": "local"|"global", "content": "one short sentence"}]}
-
-If nothing qualifies, return {"entries": []}. Never include more than 3 entries."""
-
-
-def _extract_memory_safely(
-    chat_session,
-    user_message: str,
-    final_response: str,
-    user_id: str,
-    group_id: str | None,
-    dataset_name: str | None,
-    chat_id: str,
-) -> None:
-    """
-    Best-effort, fire-and-forget extraction of tribal knowledge / user preferences
-    from a completed turn. Never allowed to raise — a malformed LLM JSON response
-    or any other failure here must not affect the user-facing chat flow, which has
-    already completed by the time this runs.
-    """
-    try:
-        messages = [
-            LLMMessage(role=Role.SYSTEM.value, content=_MEMORY_EXTRACTION_SYS_PROMPT),
-            LLMMessage(
-                role=Role.USER.value,
-                content=f"User message:\n{user_message}\n\nAssistant response:\n{final_response}",
-            ),
-        ]
-        raw = "".join(
-            chat_session.language_model_api.chat(messages, LLMOption(json_mode=True))
-        )
-        parsed = parse_json(raw)
-        entries = parsed.get("entries", []) if isinstance(parsed, dict) else []
-        if not entries:
-            return
-        chat_session.conductor.db_api.record_memory_candidates(
-            entries, user_id, group_id, dataset_name, chat_id
-        )
-    except Exception as e:
-        logger.info(f"[Memory Extraction] Skipped due to error: {e}")
 
 
 def _resolve_dataset_permissions(
@@ -233,52 +178,6 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                     )
                 )
 
-        def _spawn_memory_extraction_if_enabled():
-            """
-            Best-effort, non-blocking: extracts tribal knowledge/preferences from
-            the just-completed turn on a daemon thread. Never allowed to delay or
-            fail the response — see _extract_memory_safely for the try/except.
-            """
-            if not (config.ENABLE_MEMORY_AUTO_EXTRACTION and use_memory):
-                return
-            if (
-                not chat_session.messages
-                or chat_session.messages[-1]["role"] != Role.ASSISTANT.value
-            ):
-                return
-            memory_dataset = dataset_name
-            if multi_dataset:
-                # Memory is scoped to one dataset; recording it without one
-                # would make it global. Attribute it to the dataset the turn
-                # used, or skip extraction when it drew on several (or none).
-                conductor = chat_session.conductor
-                used = conductor.dataset_ctx.datasets_of(conductor.retrieved_tables)
-                if len(used) != 1:
-                    logger.info(
-                        f"[Memory Extraction] Skipped: turn used datasets {used}, not exactly one."
-                    )
-                    return
-                memory_dataset = used[0]
-            final_response = chat_session.messages[-1]["content"]
-            user_msg = (
-                chat_session.messages[-2]["content"]
-                if len(chat_session.messages) > 1
-                else latest_user_message
-            )
-            Thread(
-                target=_extract_memory_safely,
-                args=(
-                    chat_session,
-                    user_msg,
-                    final_response,
-                    user_id,
-                    current_user.group_id,
-                    memory_dataset,
-                    chat_id,
-                ),
-                daemon=True,
-            ).start()
-
         def run_chat():
             assert latest_user_message is not None
             try:
@@ -304,7 +203,6 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                 # silently discarding the fully-computed answer once this
                 # thread finishes with nothing left to save it.
                 chat_session.persist_session(dataset_name)
-                _spawn_memory_extraction_if_enabled()
                 response_queue.put(None)
 
         def run_chat_with_profiling():
@@ -357,7 +255,6 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                 logger.info(f"[TIME] took {time() - t0:.2f}s")
                 # See run_chat()'s finally for why this must happen here.
                 chat_session.persist_session(dataset_name)
-                _spawn_memory_extraction_if_enabled()
                 response_queue.put(None)
 
         producer = create_task(

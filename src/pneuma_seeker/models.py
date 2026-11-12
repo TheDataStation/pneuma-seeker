@@ -161,7 +161,7 @@ class MemoryEntryListResponse(BaseModel):
 class CreateMemoryEntryRequest(BaseModel):
     memory_type: str = Field(
         ...,
-        description="tribal_knowledge | user_preference | table_metadata | column_metadata",
+        description="tribal_knowledge | table_metadata | column_metadata",
     )
     content: str = Field(min_length=1)
     dataset_name: str | None = None

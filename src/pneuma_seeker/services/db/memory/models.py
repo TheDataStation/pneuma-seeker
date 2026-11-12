@@ -6,8 +6,6 @@ from typing import Any
 
 class MemoryType(str, Enum):
     TRIBAL_KNOWLEDGE = "tribal_knowledge"
-    USER_PREFERENCE = "user_preference"
-    AGENT_LEARNING = "agent_learning"
     # One entry per dataset (key_text = dataset name): what the dataset is about.
     DATASET_METADATA = "dataset_metadata"
     TABLE_METADATA = "table_metadata"
@@ -16,8 +14,6 @@ class MemoryType(str, Enum):
 
 class MemorySource(str, Enum):
     USER = "user"
-    LLM_EXTRACTION = "llm_extraction"
-    AGENT_LEARNING = "agent_learning"
     CSV_UPLOAD = "csv_upload"
 
 

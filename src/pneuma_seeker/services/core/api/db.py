@@ -79,40 +79,14 @@ class DBAPI:
 
     def retrieve_memory_context(
         self,
-        user_id: str,
         dataset_name: str,
         group_ids: list[str],
         query: str,
         k: int = 5,
     ) -> list[dict[str, Any]]:
-        """Returns relevant user-preference and tribal-knowledge snippets for a turn."""
+        """Returns the tribal knowledge relevant to a turn."""
         return self.pneuma_db.retrieve_memory_context(
-            user_id, dataset_name, group_ids, query, k
-        )
-
-    def record_memory_candidates(
-        self,
-        entries: list[dict[str, Any]],
-        source_user_id: str,
-        group_id: str | None,
-        dataset_name: str | None,
-        chat_id: str | None,
-    ) -> None:
-        """Persists LLM-extracted tribal-knowledge/preference candidates."""
-        self.pneuma_db.record_memory_candidates(
-            entries, source_user_id, group_id, dataset_name, chat_id
-        )
-
-    def get_or_create_agent_learning(
-        self,
-        dataset_name: str,
-        question: str,
-        table_ids: list[str],
-        resolve_fn,
-    ) -> str:
-        """Returns a cached CONTEXT_EXTRACTION answer if one exists, else computes and caches it."""
-        return self.pneuma_db.get_or_create_agent_learning(
-            dataset_name, question, table_ids, resolve_fn
+            dataset_name, group_ids, query, k
         )
 
     # ------------------------------------------------------------------

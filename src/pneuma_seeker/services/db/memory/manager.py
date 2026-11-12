@@ -32,8 +32,8 @@ _COLUMNS = (
 
 class MemoryManager:
     """
-    Postgres-backed store for all memory-layer entries (tribal knowledge, user
-    preferences, agent-learning cache, table/column metadata).
+    Postgres-backed store for all memory-layer entries (tribal knowledge and
+    dataset/table/column metadata).
 
     Postgres is the single source of truth for CRUD; retrieval ranking is done
     with an ephemeral, in-memory BM25S index built from the (small, pre-filtered)
@@ -230,9 +230,9 @@ class MemoryManager:
 
         `match_null_dataset`: when True, a row with dataset_name IS NULL also matches
         regardless of the `dataset_name` filter — for memory types where dataset_name is
-        an optional tag rather than a partition key (tribal_knowledge/user_preference,
-        which can be created without picking a dataset). Dataset-scoped types
-        (agent_learning/table_metadata/column_metadata) always require an exact match,
+        an optional tag rather than a partition key (tribal_knowledge, which can be
+        created without picking a dataset). Dataset-scoped types
+        (dataset_metadata/table_metadata/column_metadata) always require an exact match,
         since those rows are never created without a dataset_name in the first place.
         """
         clauses = ["memory_type = %s"]

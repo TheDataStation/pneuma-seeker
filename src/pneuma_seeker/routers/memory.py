@@ -49,14 +49,12 @@ def get_memory_manager() -> MemoryManager:
     return memory_manager
 
 _DATASET_SCOPED_TYPES = {
-    MemoryType.AGENT_LEARNING.value,
     MemoryType.DATASET_METADATA.value,
     MemoryType.TABLE_METADATA.value,
     MemoryType.COLUMN_METADATA.value,
 }
 _MANUALLY_CREATABLE_TYPES = {
     MemoryType.TRIBAL_KNOWLEDGE.value,
-    MemoryType.USER_PREFERENCE.value,
     MemoryType.TABLE_METADATA.value,
     MemoryType.COLUMN_METADATA.value,
 }
@@ -117,10 +115,6 @@ def list_entries(
         result = mm.list_entries(
             memory_type, dataset_name=dataset_name, limit=limit, offset=offset
         )
-    elif memory_type == MemoryType.USER_PREFERENCE.value:
-        result = mm.list_entries(
-            memory_type, user_id=current_user.user_id, limit=limit, offset=offset
-        )
     else:  # tribal_knowledge — visible to the user's group and its ancestors
         group_ids = _ancestor_group_ids(current_user.group_id)
         result = mm.list_entries(
@@ -140,7 +134,7 @@ def create_entry(
     current_user: UserRecord = Depends(get_current_user),
     mm: MemoryManager = Depends(get_memory_manager),
 ):
-    """Manually creates a memory entry. agent_learning entries are system-generated only."""
+    """Manually creates a memory entry (dataset descriptions use their own endpoint)."""
     if payload.memory_type not in _MANUALLY_CREATABLE_TYPES:
         raise HTTPException(
             status_code=400,
@@ -160,15 +154,6 @@ def create_entry(
             current_user.user_id,
             dataset_name=payload.dataset_name,
             key_text=payload.key_text,
-        )
-    elif payload.memory_type == MemoryType.USER_PREFERENCE.value:
-        record = mm.create_entry(
-            payload.memory_type,
-            payload.content,
-            "user",
-            current_user.user_id,
-            user_id=current_user.user_id,
-            dataset_name=payload.dataset_name,
         )
     else:  # tribal_knowledge
         if not current_user.group_id:
@@ -222,10 +207,7 @@ def delete_entry(
 
 def _ensure_can_modify(entry: MemoryEntryRecord, current_user: UserRecord) -> None:
     """Everyone in the relevant group/dataset can modify — this only rejects cross-user/group edits."""
-    if entry.memory_type == MemoryType.USER_PREFERENCE.value:
-        if entry.user_id != current_user.user_id:
-            raise HTTPException(status_code=403, detail="Not your preference entry")
-    elif entry.memory_type == MemoryType.TRIBAL_KNOWLEDGE.value:
+    if entry.memory_type == MemoryType.TRIBAL_KNOWLEDGE.value:
         if entry.group_id != current_user.group_id:
             raise HTTPException(status_code=403, detail="Not your group's entry")
 

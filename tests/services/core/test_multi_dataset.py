@@ -15,9 +15,6 @@ from unittest.mock import MagicMock
 import pandas as pd
 
 from pneuma_seeker.provenance.graph import ProvenanceGraph
-from pneuma_seeker.services.core.action_set.impl.context_extraction import (
-    ContextExtraction,
-)
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
 from pneuma_seeker.services.core.conductor.main import Conductor
@@ -107,13 +104,6 @@ class DatasetContextTests(unittest.TestCase):
         ctx = DatasetContext(default="unindexed", accessible=("a",), multi=True)
         with self.assertRaises(ValueError):
             ctx.resolve(None)
-
-    def test_learning_cache_dataset(self):
-        pick = ContextExtraction._learning_dataset
-        self.assertEqual(pick([_table("t", "a"), _table("x", None)], "a"), "a")
-        self.assertEqual(pick([_table("t", "b")], "a"), "b")
-        self.assertEqual(pick([_table("t", "a"), _table("u", "b")], "a"), "")
-        self.assertEqual(pick([], "a"), "a")
 
 
 class MultiDatasetConductorTests(unittest.TestCase):

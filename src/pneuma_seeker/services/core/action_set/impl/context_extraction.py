@@ -48,19 +48,6 @@ class ContextExtraction(Action, Applicable):
             return _SHARED_PREAMBLE + _MATERIALIZER_SUFFIX
         return _SHARED_PREAMBLE + _CONDUCTOR_SUFFIX
 
-    @staticmethod
-    def _learning_dataset(tables: list[AbstractDocument], default: str) -> str:
-        """Dataset whose learning cache a question over `tables` belongs to.
-
-        The chat's dataset, unless the tables come from other datasets (multi-
-        dataset mode): then their single dataset, or "" — no caching — when
-        they span several, so cross-dataset answers don't land in one dataset.
-        """
-        datasets = {str(t.metadata.get("dataset_name") or "") for t in tables} - {""}
-        if not datasets or datasets == {default}:
-            return default
-        return next(iter(datasets)) if len(datasets) == 1 else ""
-
     def apply(self, input: dict[str, Any]) -> tuple[str, list[str]]:
         """
         Resolves a list of natural-language uncertainty questions.
@@ -70,7 +57,6 @@ class ContextExtraction(Action, Applicable):
             available_tables  list[AbstractDocument]
             result_table_name str  — e.g. "conductor_assumption_check"
             execute_code_fn   Callable[[str, str], Any]  — injected by ActionSet
-            dataset_name      str  — used to scope the agent-learning cache
 
         Returns:
             (formatted_Q→A_summary, log_messages)
@@ -79,7 +65,6 @@ class ContextExtraction(Action, Applicable):
         available_tables: list[AbstractDocument] = input.get("available_tables", [])
         result_table_name: str = input.get("result_table_name", "ce_result")
         execute_code_fn: Callable[[str, str], Any] = input["execute_code_fn"]
-        dataset_name: str = input.get("dataset_name", "")
 
         questions = [
             (i, u) for i, u in enumerate(uncertainties) if u.get("question", "")
@@ -100,23 +85,13 @@ class ContextExtraction(Action, Applicable):
 
             table_str = "\n\n".join(str(t) for t in relevant_tables)
 
-            def _resolve() -> str:
-                answer, retry_logs = self._resolve_single(
-                    question,
-                    table_str,
-                    self._question_table_name(result_table_name, i),
-                    execute_code_fn,
-                )
-                logs.extend(retry_logs)
-                return answer
-
-            learning_dataset = self._learning_dataset(relevant_tables, dataset_name)
-            if learning_dataset and self.config.ENABLE_MEMORY_LAYER:
-                answer = self.db_api.get_or_create_agent_learning(
-                    learning_dataset, question, table_ids, _resolve
-                )
-            else:
-                answer = _resolve()
+            answer, retry_logs = self._resolve_single(
+                question,
+                table_str,
+                self._question_table_name(result_table_name, i),
+                execute_code_fn,
+            )
+            logs.extend(retry_logs)
             return {"question": question, "answer": answer}, logs
 
         # Questions are independent, so they are resolved concurrently (the
