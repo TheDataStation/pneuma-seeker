@@ -1,3 +1,4 @@
+import re
 from logging import Logger
 from time import time
 from typing import Any, Callable
@@ -39,6 +40,23 @@ from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.schemas.language_model.option import LLMOption
 from pneuma_seeker.shared.schemas.language_model.role import Role
 
+
+
+def split_information_needs(needs: str) -> list[str]:
+    """Splits the planned numbered list of information needs into one string per
+    need (continuation lines stay with their need). Unnumbered text is one need."""
+    items: list[str] = []
+    for line in needs.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if re.match(r"^\d+[.)]\s+", stripped):
+            items.append(re.sub(r"^\d+[.)]\s+", "", stripped))
+        elif items:
+            items[-1] += " " + stripped
+        else:
+            items.append(stripped)
+    return [" ".join(item.split()) for item in items if item.strip()]
 
 class Conductor:
     def __init__(
@@ -94,9 +112,9 @@ class Conductor:
         self.join_paths: str | None = None
         self.used_memory_entries: list[dict[str, Any]] = []
         self.dataset_ctx = DatasetContext.single("")
-        self._use_memory: bool = False
         self._memory_group_ids: list[str] = []
         self._memory_datasets_seen: set[str] = set()
+        self._tribal_knowledge_queries: list[str] = []
 
         self.user_facing_response = ""
         self.actions: list[str] = []
@@ -130,7 +148,6 @@ class Conductor:
         external_table_paths: list[str],  # TODO: handle reading external tables
         plan_mode: bool = False,
         dataset_name: str = "",
-        use_memory: bool = True,
         memory_group_ids: list[str] | None = None,
         multi_dataset: bool = False,
         accessible_datasets: list[str] | None = None,
@@ -187,30 +204,9 @@ class Conductor:
                             self.join_paths = self.action_set.discover_join_paths(kept)
                         except Exception as exc:
                             self._log(f"=> Error during join path extraction: {exc}")
-        self._use_memory = use_memory and self.config.ENABLE_MEMORY_LAYER
         self._memory_group_ids = memory_group_ids or []
         self._memory_datasets_seen = {dataset_name}
-
         self.used_memory_entries = []
-        if use_memory and self.config.ENABLE_MEMORY_LAYER:
-            try:
-                self.used_memory_entries = self.db_api.retrieve_memory_context(
-                    dataset_name,
-                    memory_group_ids or [],
-                    user_message,
-                    self.config.MEMORY_RETRIEVAL_TOP_K,
-                )
-                self._log(
-                    f"Memory context: found {len(self.used_memory_entries)} relevant entries "
-                    f"(dataset={dataset_name}, group_ids={memory_group_ids})"
-                )
-            except Exception as exc:
-                self._log(f"Memory context retrieval failed, continuing without it: {exc}")
-                self.used_memory_entries = []
-        elif not use_memory:
-            self._log("Memory context: skipped (use_memory=False for this turn)")
-        else:
-            self._log("Memory context: skipped (ENABLE_MEMORY_LAYER=False)")
 
         self.llm_messages = [
             LLMMessage(
@@ -222,17 +218,22 @@ class Conductor:
                 ),
             )
         ]
+        self._plan_information_needs(user_message, dataset_name)
+        # Tribal knowledge is retrieved per planned information need (falling
+        # back to the user's message), keeping only entries that match one.
+        self._tribal_knowledge_queries = split_information_needs(
+            self._information_needs or ""
+        ) or [user_message]
+        self.used_memory_entries = self._fetch_tribal_knowledge(dataset_name)
         if self.used_memory_entries:
             self.llm_messages.append(
                 LLMMessage(
                     role=Role.SYSTEM.value,
-                    content=self.prompt_factory.get_memory_context_prompt(
+                    content=self.prompt_factory.get_tribal_knowledge_prompt(
                         self.used_memory_entries
                     ),
                 )
             )
-
-        self._plan_information_needs(user_message, dataset_name)
         current_step = 0
         prev_accumulated_in_tokens = self.language_model_api.llm.total_input_tokens
         prev_accumulated_out_tokens = self.language_model_api.llm.total_output_tokens
@@ -857,23 +858,34 @@ class Conductor:
         if replaced:
             notes += "\nNote: " + " ".join(replaced)
         for ds in datasets:
-            if not self._use_memory or ds in self._memory_datasets_seen:
+            if ds in self._memory_datasets_seen:
                 continue
             self._memory_datasets_seen.add(ds)
-            try:
-                entries = self.db_api.retrieve_memory_context(
-                    ds,
-                    self._memory_group_ids,
-                    user_message,
-                    self.config.MEMORY_RETRIEVAL_TOP_K,
-                )
-            except Exception as exc:
-                self._log(f"Memory context retrieval for dataset {ds} failed: {exc}")
-                continue
+            known = {e["memory_id"] for e in self.used_memory_entries}
+            entries = [e for e in self._fetch_tribal_knowledge(ds) if e["memory_id"] not in known]
             if entries:
                 self.used_memory_entries.extend(entries)
-                notes += f"\nContext for dataset `{ds}`:\n" + self.prompt_factory.get_memory_context_prompt(entries)
+                notes += f"\nFor dataset `{ds}`:\n" + self.prompt_factory.get_tribal_knowledge_prompt(entries)
         return notes
+
+    def _fetch_tribal_knowledge(self, dataset_name: str) -> list[dict[str, Any]]:
+        """Tribal knowledge for `dataset_name` matching this turn's information needs."""
+        try:
+            entries = self.db_api.retrieve_tribal_knowledge(
+                dataset_name,
+                self._memory_group_ids,
+                self._tribal_knowledge_queries,
+                self.config.TRIBAL_KNOWLEDGE_RETRIEVAL_TOP_K,
+            )
+        except Exception as exc:
+            self._log(f"Tribal knowledge retrieval failed, continuing without it: {exc}")
+            return []
+        self._log(
+            f"Tribal knowledge: {len(entries)} entries matched "
+            f"{len(self._tribal_knowledge_queries)} information need(s) "
+            f"(dataset={dataset_name}, group_ids={self._memory_group_ids})"
+        )
+        return entries
 
     def _handle_web_search(
         self, user_message: str, action_args: dict[str, Any], dataset_name: str

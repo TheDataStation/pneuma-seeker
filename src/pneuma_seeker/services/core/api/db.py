@@ -77,16 +77,16 @@ class DBAPI:
             dataset_name, table_name, column_name
         )
 
-    def retrieve_memory_context(
+    def retrieve_tribal_knowledge(
         self,
         dataset_name: str,
         group_ids: list[str],
-        query: str,
+        queries: list[str],
         k: int = 5,
     ) -> list[dict[str, Any]]:
-        """Returns the tribal knowledge relevant to a turn."""
-        return self.pneuma_db.retrieve_memory_context(
-            dataset_name, group_ids, query, k
+        """Returns the tribal knowledge relevant to each query (one per information need)."""
+        return self.pneuma_db.retrieve_tribal_knowledge(
+            dataset_name, group_ids, queries, k
         )
 
     # ------------------------------------------------------------------

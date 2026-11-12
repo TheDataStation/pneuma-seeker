@@ -147,11 +147,13 @@ class Config:
             getenv("AUTH_PASSWORD_HASH_ITERATIONS", "200000")
         )
 
-        # Memory Layer Settings
-        self.ENABLE_MEMORY_LAYER = (
-            getenv("ENABLE_MEMORY_LAYER", "false").lower() == "true"
+        # Tribal Knowledge Settings
+        # Each turn, tribal knowledge is searched once per planned information
+        # need; this caps the entries kept per need (only entries sharing a term
+        # with the need are kept at all).
+        self.TRIBAL_KNOWLEDGE_RETRIEVAL_TOP_K = int(
+            getenv("TRIBAL_KNOWLEDGE_RETRIEVAL_TOP_K", "10")
         )
-        self.MEMORY_RETRIEVAL_TOP_K = int(getenv("MEMORY_RETRIEVAL_TOP_K", "20"))
 
         # Postgres Settings (for UserDB)
         self.POSTGRES_HOST = getenv("POSTGRES_HOST", "localhost")

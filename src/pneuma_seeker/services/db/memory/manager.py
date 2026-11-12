@@ -288,11 +288,13 @@ class MemoryManager:
         k: int = 5,
     ) -> list[tuple[MemoryEntryRecord, float]]:
         """
-        Returns up to k entries matching the scope filters, ranked by BM25 relevance
-        to `query`. Builds the BM25 index in-memory for this call only — the
-        candidate set (a single group/dataset/user's entries) is expected to be
-        small, so there is no need to persist or incrementally maintain an index.
-        Scores are normalized to [0, 1] (1 = best match in this candidate set).
+        Returns up to k entries matching the scope filters that are relevant to
+        `query`, best first, with their BM25 scores. Relevant means the entry shares
+        at least one (stemmed, non-stopword) term with the query — BM25 still ranks
+        every candidate otherwise, so without this cutoff unrelated entries would
+        come back whenever fewer than k match. Builds the BM25 index in-memory for
+        this call only — the candidate set (a single group/dataset's entries) is
+        expected to be small, so there is no need to persist or maintain an index.
         """
         candidates = self.list_entries(
             memory_type,
@@ -304,7 +306,7 @@ class MemoryManager:
             offset=0,
         )["items"]
         if not query.strip() or not candidates:
-            return [(record, 0.0) for record in candidates[:k]]
+            return []
 
         corpus_text = [record.content for record in candidates]
         # Corpus entries are opaque index markers, not the text itself — bm25s hands
@@ -321,20 +323,11 @@ class MemoryManager:
         max_k = min(k, len(candidates))
         results, scores = retriever.retrieve(query_tokens, k=max_k, show_progress=False)
 
-        hits = results[0]
-        raw_scores = scores[0]
-        max_score = max(raw_scores) if len(raw_scores) else 0.0
-        min_score = min(raw_scores) if len(raw_scores) else 0.0
-
-        ranked: list[tuple[MemoryEntryRecord, float]] = []
-        for hit, raw_score in zip(hits, raw_scores):
-            normalized = (
-                1.0
-                if max_score == min_score
-                else (raw_score - min_score) / (max_score - min_score)
-            )
-            ranked.append((candidates[int(hit["idx"])], float(normalized)))
-        return ranked
+        return [
+            (candidates[int(hit["idx"])], float(score))
+            for hit, score in zip(results[0], scores[0])
+            if score > 0
+        ]
 
     def replace_dataset_rows(
         self,

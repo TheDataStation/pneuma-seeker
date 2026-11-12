@@ -112,7 +112,6 @@ class MultiDatasetConductorTests(unittest.TestCase):
         self.config.LLM_PATH = "mock"
         self.config.EMBED_MODEL_PATH = "mock"
         self.config.ENABLE_MULTI_DATASET = True
-        self.config.ENABLE_MEMORY_LAYER = False
 
         logger = logging.getLogger("test_multi_dataset")
         logger.setLevel(logging.ERROR)
@@ -349,6 +348,27 @@ class MultiDatasetConductorTests(unittest.TestCase):
             [("b", "orders")],
         )
         self.assertIn("`orders` from `a` was replaced by the one from `b`", self._outcomes())
+
+    def test_tribal_knowledge_follows_newly_searched_datasets(self):
+        """The first retrieval from a dataset adds its tribal knowledge (matched
+        to this turn's needs), without repeating entries already shown."""
+        shared = {"memory_id": "m0", "memory_type": "tribal_knowledge", "content": "Untagged rule.", "query": "q"}
+        by_ds = {
+            "": [shared],
+            "b": [shared, {"memory_id": "m1", "memory_type": "tribal_knowledge", "content": "B rule.", "query": "q"}],
+        }
+        tk = MagicMock(side_effect=lambda ds, *_: by_ds.get(ds, []))
+        self.conductor.db_api.retrieve_tribal_knowledge = tk  # type: ignore
+        self._run(
+            [self._retrieve_plan(["b"]), self._retrieve_plan(["b"])],
+            dataset_name="",
+            multi_dataset=True,
+            accessible_datasets=["a", "b"],
+        )
+        self.assertEqual([c.args[0] for c in tk.call_args_list], ["", "b"])  # b fetched once
+        self.assertEqual(tk.call_args.args[2], ["q"])  # same queries as the turn ("q" = user message)
+        self.assertEqual([e["memory_id"] for e in self.conductor.used_memory_entries], ["m0", "m1"])
+        self.assertEqual(self._outcomes().count("B rule."), 1)
 
     def test_mode_does_not_leak_into_next_turn(self):
         self._run([], dataset_name="a", multi_dataset=True, accessible_datasets=["a", "b"])

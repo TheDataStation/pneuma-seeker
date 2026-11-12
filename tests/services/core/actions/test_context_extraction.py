@@ -29,7 +29,6 @@ class ContextExtractionTests(unittest.TestCase):
         logger.setLevel(logging.ERROR)
         self.config = Config()
         self.config.ENABLE_CONTEXT_EXTRACTION = True
-        self.config.ENABLE_MEMORY_LAYER = False
         tmpdir = tempfile.mkdtemp()
         self.db_api = DBAPI(
             self.config,

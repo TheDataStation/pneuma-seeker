@@ -376,34 +376,43 @@ class PneumaDB:
         )
         return entry.content if entry is not None else ""
 
-    def retrieve_memory_context(
+    def retrieve_tribal_knowledge(
         self,
         dataset_name: str,
         group_ids: list[str],
-        query: str,
+        queries: list[str],
         k: int = 5,
     ) -> list[dict[str, Any]]:
         """
-        Returns up to k tribal-knowledge entries visible to `group_ids` (the
-        caller's group and its ancestors) for `dataset_name` (or for no dataset),
-        ranked by BM25 relevance to `query`. Used to fold passive context into the
-        Conductor's prompt every turn.
+        Returns the tribal knowledge relevant to each query (typically one per
+        information need): up to k entries per query that share a term with it,
+        visible to `group_ids` (the caller's group and its ancestors) and tagged
+        with `dataset_name` or with no dataset. An entry relevant to several
+        queries is returned once, under the first; each result carries the
+        `query` it matched.
         """
         if self.memory_manager is None:
             return []
-        tribal_knowledge = self.memory_manager.search(
-            "tribal_knowledge",
-            query,
-            group_ids=group_ids,
-            dataset_name=dataset_name,
-            match_null_dataset=True,
-            k=k,
-        )
-        return [
-            {
-                "memory_id": record.memory_id,
-                "memory_type": record.memory_type,
-                "content": record.content,
-            }
-            for record, _score in tribal_knowledge
-        ]
+        seen: set[str] = set()
+        results: list[dict[str, Any]] = []
+        for query in queries:
+            for record, _score in self.memory_manager.search(
+                "tribal_knowledge",
+                query,
+                group_ids=group_ids,
+                dataset_name=dataset_name,
+                match_null_dataset=True,
+                k=k,
+            ):
+                if record.memory_id in seen:
+                    continue
+                seen.add(record.memory_id)
+                results.append(
+                    {
+                        "memory_id": record.memory_id,
+                        "memory_type": record.memory_type,
+                        "content": record.content,
+                        "query": query,
+                    }
+                )
+        return results

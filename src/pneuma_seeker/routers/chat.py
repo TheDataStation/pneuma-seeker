@@ -119,7 +119,6 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
     )
     files = body.get("files", [])
     plan_mode = bool(body.get("plan_mode", False))
-    use_memory = bool(body.get("use_memory", True)) and config.ENABLE_MEMORY_LAYER
     multi_dataset = bool(body.get("multi_dataset", False)) and config.ENABLE_MULTI_DATASET
 
     if dataset_name is None:
@@ -186,7 +185,6 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                     files,
                     frontend_callback=send_to_frontend,
                     plan_mode=plan_mode,
-                    use_memory=use_memory,
                     memory_group_ids=memory_group_ids,
                     multi_dataset=multi_dataset,
                     accessible_datasets=accessible_datasets,
@@ -234,7 +232,6 @@ async def chat(request: Request, current_user: UserRecord = Depends(get_current_
                     files,
                     frontend_callback=send_to_frontend,
                     plan_mode=plan_mode,
-                    use_memory=use_memory,
                     memory_group_ids=memory_group_ids,
                     multi_dataset=multi_dataset,
                     accessible_datasets=accessible_datasets,

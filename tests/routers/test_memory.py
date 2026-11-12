@@ -180,10 +180,46 @@ class TestDatasetDescriptionPostgres(unittest.TestCase):
             ),
         ]
         try:
-            entries = self.db_api.retrieve_memory_context(self.dataset, [group], "rainfall", 10)
+            entries = self.db_api.retrieve_tribal_knowledge(self.dataset, [group], ["rainfall"], 10)
             self.assertEqual([e["memory_id"] for e in entries], [tk.memory_id])
         finally:
             for record in [tk, *legacy]:
+                self.mm.delete_entry(record.memory_id)
+
+    def test_tribal_knowledge_per_need_with_relevance_cutoff(self, _):
+        group = f"g_{uuid4().hex[:8]}"
+        rain = self.mm.create_entry(
+            "tribal_knowledge", "Precipitation values are recorded in inches.", "user", "u1",
+            group_id=group, dataset_name=self.dataset,
+        )
+        beach = self.mm.create_entry(
+            "tribal_knowledge", "Beach status code 3 means closed for swimming.", "user", "u1",
+            group_id=group, dataset_name=None,  # untagged: applies to every dataset
+        )
+        other_group = self.mm.create_entry(
+            "tribal_knowledge", "Precipitation is also tracked monthly.", "user", "u1",
+            group_id=f"g_{uuid4().hex[:8]}", dataset_name=self.dataset,
+        )
+        try:
+            needs = [
+                "What unit is the precipitation in?",
+                "Which beaches were closed?",
+                "Which rows count toward the precipitation total?",
+                "What is the answer's rounding?",
+            ]
+            entries = self.db_api.retrieve_tribal_knowledge(self.dataset, [group], needs, 10)
+            # Each entry once, under the first need it matched; nothing for a need
+            # that shares no term with any entry; other groups' entries never.
+            self.assertEqual(
+                [(e["memory_id"], e["query"]) for e in entries],
+                [(rain.memory_id, needs[0]), (beach.memory_id, needs[1])],
+            )
+            self.assertEqual(
+                self.db_api.retrieve_tribal_knowledge(self.dataset, [group], ["unrelated words"], 10),
+                [],
+            )
+        finally:
+            for record in (rain, beach, other_group):
                 self.mm.delete_entry(record.memory_id)
 
 
