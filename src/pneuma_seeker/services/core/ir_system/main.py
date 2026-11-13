@@ -64,7 +64,7 @@ class Retriever:
         - sample_only (bool): Whether to retrieve only a sample of documents.
         - sample_size (int | None): The number of documents to retrieve if sample_only is True.
         """
-        retriever = self.retriever_factory.get_retriever(retriever_type)
+        retriever = self.retriever_factory.get_retriever_for_retrieval(retriever_type)
         documents = retriever.retrieve(prompt, dataset_name, k, sample_only, sample_size)
         return documents
 
@@ -84,7 +84,7 @@ class Retriever:
         - sample_only (bool): Whether to retrieve only a sample of documents.
         - sample_size (int | None): The number of documents to retrieve if sample_only is True.
         """
-        retriever = self.retriever_factory.get_retriever(retriever_type)
+        retriever = self.retriever_factory.get_retriever_for_retrieval(retriever_type)
         output: dict[str, list[AbstractDocument]] = {}
         for prompt in prompts:
             documents = retriever.retrieve(prompt, dataset_name, k, sample_only, sample_size)

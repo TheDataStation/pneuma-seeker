@@ -9,6 +9,7 @@ from pneuma_seeker.provenance.graph import ProvenanceGraph
 from pneuma_seeker.services.core.conductor.state import ConductorState
 from pneuma_seeker.services.db.datasets.manager import DatasetManager
 from pneuma_seeker.services.db.memory.manager import MemoryManager
+from pneuma_seeker.services.db.memory.tribal_index import TribalKnowledgeIndex
 from pneuma_seeker.services.db.workspaces.manager import WorkspaceManager
 from pneuma_seeker.services.db.workspaces.session_index import SessionIndex
 from pneuma_seeker.shared.config import Config
@@ -86,6 +87,8 @@ class PneumaDB:
             )
             self.memory_manager = None
 
+        self._tribal_index: TribalKnowledgeIndex | None = None
+
         self._conn_cache = self.workspace_manager._conn_cache
         self._pg_registry = self.dataset_manager._pg_registry
 
@@ -141,6 +144,10 @@ class PneumaDB:
         self.dataset_manager.ingest_dataset(
             dataset_name, dataset_path, metadata_path, overwrite
         )
+
+    def dataset_fingerprint(self, dataset_name: str) -> str:
+        """Changes when the dataset's data may have."""
+        return self.dataset_manager.dataset_fingerprint(dataset_name)
 
     def list_dataset_tables(self, dataset_name: str) -> list[str]:
         """Lists table names in a dataset directly, without needing a chat session."""
@@ -376,43 +383,38 @@ class PneumaDB:
         )
         return entry.content if entry is not None else ""
 
-    def retrieve_tribal_knowledge(
-        self,
-        dataset_name: str,
-        group_ids: list[str],
-        queries: list[str],
-        k: int = 5,
+    def rank_tribal_knowledge(
+        self, dataset_name: str, group_ids: list[str], query: str
     ) -> list[dict[str, Any]]:
         """
-        Returns the tribal knowledge relevant to each query (typically one per
-        information need): up to k entries per query that share a term with it,
-        visible to `group_ids` (the caller's group and its ancestors) and tagged
-        with `dataset_name` or with no dataset. An entry relevant to several
-        queries is returned once, under the first; each result carries the
-        `query` it matched.
+        Tribal knowledge visible to `group_ids` for `dataset_name` (or untagged),
+        best BM25 match to `query` first. Zero-score entries are kept, last.
         """
         if self.memory_manager is None:
             return []
-        seen: set[str] = set()
-        results: list[dict[str, Any]] = []
-        for query in queries:
-            for record, _score in self.memory_manager.search(
-                "tribal_knowledge",
-                query,
-                group_ids=group_ids,
-                dataset_name=dataset_name,
-                match_null_dataset=True,
-                k=k,
-            ):
-                if record.memory_id in seen:
-                    continue
-                seen.add(record.memory_id)
-                results.append(
-                    {
-                        "memory_id": record.memory_id,
-                        "memory_type": record.memory_type,
-                        "content": record.content,
-                        "query": query,
-                    }
-                )
-        return results
+        visible = self.memory_manager.list_entries(
+            "tribal_knowledge",
+            group_ids=group_ids,
+            dataset_name=dataset_name,
+            match_null_dataset=True,
+            limit=5000,
+        )["items"]
+        if not visible:
+            return []
+        if self._tribal_index is None:
+            self._tribal_index = TribalKnowledgeIndex(
+                Path(self.config.RETRIEVAL_INDEX_ROOT), self.memory_manager
+            )
+        scores = self._tribal_index.scores(query)
+        ranked = sorted(
+            enumerate(visible), key=lambda pair: (-scores.get(pair[1].memory_id, 0.0), pair[0])
+        )
+        return [
+            {
+                "memory_id": record.memory_id,
+                "memory_type": record.memory_type,
+                "content": record.content,
+                "score": scores.get(record.memory_id, 0.0),
+            }
+            for _, record in ranked
+        ]

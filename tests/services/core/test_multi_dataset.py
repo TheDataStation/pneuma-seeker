@@ -357,8 +357,8 @@ class MultiDatasetConductorTests(unittest.TestCase):
             "": [shared],
             "b": [shared, {"memory_id": "m1", "memory_type": "tribal_knowledge", "content": "B rule.", "query": "q"}],
         }
-        tk = MagicMock(side_effect=lambda ds, *_: by_ds.get(ds, []))
-        self.conductor.db_api.retrieve_tribal_knowledge = tk  # type: ignore
+        tk = MagicMock(side_effect=lambda ds, *_, **__: by_ds.get(ds, []))
+        self.conductor.tribal_knowledge_retriever.retrieve = tk  # type: ignore
         self._run(
             [self._retrieve_plan(["b"]), self._retrieve_plan(["b"])],
             dataset_name="",

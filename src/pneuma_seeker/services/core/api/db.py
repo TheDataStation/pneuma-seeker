@@ -54,6 +54,10 @@ class DBAPI:
             dataset_name, dataset_path, metadata_path, overwrite
         )
 
+    def dataset_fingerprint(self, dataset_name: str) -> str:
+        """Changes when the dataset's data may have."""
+        return self.pneuma_db.dataset_fingerprint(dataset_name)
+
     def list_dataset_tables(self, dataset_name: str) -> list[str]:
         """Lists the table names in a dataset."""
         return self.pneuma_db.list_dataset_tables(dataset_name)
@@ -77,17 +81,11 @@ class DBAPI:
             dataset_name, table_name, column_name
         )
 
-    def retrieve_tribal_knowledge(
-        self,
-        dataset_name: str,
-        group_ids: list[str],
-        queries: list[str],
-        k: int = 5,
+    def rank_tribal_knowledge(
+        self, dataset_name: str, group_ids: list[str], query: str
     ) -> list[dict[str, Any]]:
-        """Returns the tribal knowledge relevant to each query (one per information need)."""
-        return self.pneuma_db.retrieve_tribal_knowledge(
-            dataset_name, group_ids, queries, k
-        )
+        """The visible tribal knowledge, best BM25 match to `query` first."""
+        return self.pneuma_db.rank_tribal_knowledge(dataset_name, group_ids, query)
 
     # ------------------------------------------------------------------
     # Dataset DB Linking into Workspace DB

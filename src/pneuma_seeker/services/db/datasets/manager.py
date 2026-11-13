@@ -1,5 +1,6 @@
 # src/pneuma_seeker/services/db/datasets/manager.py
 import csv
+import hashlib
 import os
 from logging import Logger
 from pathlib import Path
@@ -311,6 +312,16 @@ class DatasetManager:
         if description is None or isna(description):
             return ""
         return str(description)
+
+    def dataset_fingerprint(self, dataset_name: str) -> str:
+        """Changes when the dataset's data may have: the DB file's size and mtime,
+        or for Postgres, its connection (changes inside it aren't detected)."""
+        if dataset_name in self._pg_registry:
+            digest = hashlib.sha256(self._pg_registry[dataset_name].encode()).hexdigest()
+            return f"pg:{digest[:16]}"
+        db_file = self.dataset_db_path / dataset_name / f"{dataset_name}.db"
+        stat = db_file.stat()
+        return f"file:{stat.st_size}:{stat.st_mtime_ns}"
 
     def register_postgres_dataset(
         self, dataset_name: str, connection_string: str

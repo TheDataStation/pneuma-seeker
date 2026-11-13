@@ -49,7 +49,6 @@ class ConductorTribalKnowledgeTests(unittest.TestCase):
         config = Config(".env.test")
         config.LLM_PATH = "mock"
         config.EMBED_MODEL_PATH = "mock"
-        config.TRIBAL_KNOWLEDGE_RETRIEVAL_TOP_K = 4
         logger = logging.getLogger("test_tribal_knowledge")
         logger.setLevel(logging.ERROR)
         tmp = tempfile.mkdtemp()
@@ -60,7 +59,7 @@ class ConductorTribalKnowledgeTests(unittest.TestCase):
             frontend_callback=lambda _: None,
         )
         self.retrieve = MagicMock(return_value=[])
-        self.conductor.db_api.retrieve_tribal_knowledge = self.retrieve  # type: ignore
+        self.conductor.tribal_knowledge_retriever.retrieve = self.retrieve  # type: ignore
 
     def _run(self, needs: str | None, **kwargs):
         def plan_needs(*_):
@@ -80,7 +79,7 @@ class ConductorTribalKnowledgeTests(unittest.TestCase):
     def test_searches_once_per_planned_need(self):
         self._run("1. What unit is rainfall in?\n2. Which months are summer?")
         self.retrieve.assert_called_once_with(
-            "env", ["g1"], ["What unit is rainfall in?", "Which months are summer?"], 4
+            "env", ["g1"], ["What unit is rainfall in?", "Which months are summer?"], chat_id="c1"
         )
 
     def test_falls_back_to_user_message_without_needs(self):

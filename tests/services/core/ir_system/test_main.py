@@ -74,7 +74,7 @@ class IRSystemTests(unittest.TestCase):
 
         mock_retriever = MagicMock()
         mock_retriever.retrieve = MagicMock(return_value=mock_documents)
-        self.ir_system.retriever_factory.get_retriever = MagicMock(
+        self.ir_system.retriever_factory.get_retriever_for_retrieval = MagicMock(
             return_value=mock_retriever
         )
 
@@ -101,7 +101,7 @@ class IRSystemTests(unittest.TestCase):
 
         mock_retriever = MagicMock()
         mock_retriever.retrieve = MagicMock(return_value=mock_documents)
-        self.ir_system.retriever_factory.get_retriever = MagicMock(
+        self.ir_system.retriever_factory.get_retriever_for_retrieval = MagicMock(
             return_value=mock_retriever
         )
 
@@ -144,7 +144,7 @@ class IRSystemTests(unittest.TestCase):
 
         mock_retriever = MagicMock()
         mock_retriever.retrieve = MagicMock(side_effect=retrieve_side_effect)
-        self.ir_system.retriever_factory.get_retriever = MagicMock(
+        self.ir_system.retriever_factory.get_retriever_for_retrieval = MagicMock(
             return_value=mock_retriever
         )
 
@@ -164,7 +164,7 @@ class IRSystemTests(unittest.TestCase):
     def test_retrieve_multi_topic_documents_with_empty_prompts(self):
         """Test retrieve_multi_topic_documents with empty prompts list."""
         mock_retriever = MagicMock()
-        self.ir_system.retriever_factory.get_retriever = MagicMock(
+        self.ir_system.retriever_factory.get_retriever_for_retrieval = MagicMock(
             return_value=mock_retriever
         )
 
@@ -193,7 +193,7 @@ class IRSystemTests(unittest.TestCase):
 
         mock_retriever = MagicMock()
         mock_retriever.retrieve = MagicMock(return_value=mock_documents)
-        self.ir_system.retriever_factory.get_retriever = MagicMock(
+        self.ir_system.retriever_factory.get_retriever_for_retrieval = MagicMock(
             return_value=mock_retriever
         )
 
@@ -208,7 +208,7 @@ class IRSystemTests(unittest.TestCase):
         """Test that retrieve_documents returns empty list when no documents found."""
         mock_retriever = MagicMock()
         mock_retriever.retrieve = MagicMock(return_value=[])
-        self.ir_system.retriever_factory.get_retriever = MagicMock(
+        self.ir_system.retriever_factory.get_retriever_for_retrieval = MagicMock(
             return_value=mock_retriever
         )
 
@@ -258,7 +258,7 @@ class IRSystemTests(unittest.TestCase):
 
         mock_retriever = MagicMock()
         mock_retriever.retrieve = MagicMock(return_value=mock_documents)
-        self.ir_system.retriever_factory.get_retriever = MagicMock(
+        self.ir_system.retriever_factory.get_retriever_for_retrieval = MagicMock(
             return_value=mock_retriever
         )
 

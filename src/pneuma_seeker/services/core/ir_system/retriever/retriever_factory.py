@@ -4,6 +4,7 @@ from pneuma_seeker.services.core.ir_system.retriever.interface import (
     AbstractRetriever,
 )
 from pneuma_seeker.services.core.ir_system.retriever.impl.enumerator import Enumerator
+from pneuma_seeker.services.core.ir_system.retriever.impl.new_discovery import NewDiscovery
 from pneuma_seeker.services.core.ir_system.retriever.impl.pneuma_retriever import (
     PneumaRetriever,
 )
@@ -39,7 +40,20 @@ class RetrieverFactory:
                 user_id, chat_id, config, db_api, language_model_api
             ),
         }
+        # Retrieval of internal tables follows TABLE_DISCOVERY_METHOD; indexing
+        # always goes to the Pneuma retriever.
+        self.table_discovery: AbstractRetriever = (
+            NewDiscovery(user_id, chat_id, config, db_api, language_model_api)
+            if config.TABLE_DISCOVERY_METHOD == "m1"
+            else self.retriever_instances[RetrieverType.PNEUMA_RETRIEVER]
+        )
 
     def get_retriever(self, retriever_type: RetrieverType) -> AbstractRetriever:
         """Factory function to return the correct Retriever instance."""
+        return self.retriever_instances[retriever_type]
+
+    def get_retriever_for_retrieval(self, retriever_type: RetrieverType) -> AbstractRetriever:
+        """Like get_retriever, but internal tables use the configured discovery method."""
+        if retriever_type == RetrieverType.PNEUMA_RETRIEVER:
+            return self.table_discovery
         return self.retriever_instances[retriever_type]

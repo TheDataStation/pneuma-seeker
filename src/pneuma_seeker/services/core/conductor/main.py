@@ -16,6 +16,7 @@ from pneuma_seeker.services.core.conductor.models import (
 )
 from pneuma_seeker.services.core.conductor.prompt_factory import ConductorPromptFactory
 from pneuma_seeker.services.core.conductor.state import ConductorState
+from pneuma_seeker.services.core.ir_system.tribal_knowledge import TribalKnowledgeRetriever
 from pneuma_seeker.services.core.dataset_context import (
     MULTI_DATASET_MODE,
     DatasetContext,
@@ -89,6 +90,9 @@ class Conductor:
             self.language_model_api,
         )
         self.prompt_factory = ConductorPromptFactory(self.config, self.action_set)
+        self.tribal_knowledge_retriever = TribalKnowledgeRetriever(
+            self.config, self.logger, self.db_api, self.language_model_api
+        )
         self.materializer = Materializer(
             self.user_id,
             self.chat_id,
@@ -871,11 +875,11 @@ class Conductor:
     def _fetch_tribal_knowledge(self, dataset_name: str) -> list[dict[str, Any]]:
         """Tribal knowledge for `dataset_name` matching this turn's information needs."""
         try:
-            entries = self.db_api.retrieve_tribal_knowledge(
+            entries = self.tribal_knowledge_retriever.retrieve(
                 dataset_name,
                 self._memory_group_ids,
                 self._tribal_knowledge_queries,
-                self.config.TRIBAL_KNOWLEDGE_RETRIEVAL_TOP_K,
+                chat_id=self.chat_id,
             )
         except Exception as exc:
             self._log(f"Tribal knowledge retrieval failed, continuing without it: {exc}")

@@ -3,10 +3,8 @@ from logging import Logger
 from typing import Any
 from uuid import uuid4
 
-import bm25s
 import psycopg
 from psycopg.types.json import Jsonb
-from Stemmer import Stemmer
 
 from pneuma_seeker.services.db.memory.models import MemoryEntryRecord
 from pneuma_seeker.shared.config import Config
@@ -35,18 +33,14 @@ class MemoryManager:
     Postgres-backed store for all memory-layer entries (tribal knowledge and
     dataset/table/column metadata).
 
-    Postgres is the single source of truth for CRUD; retrieval ranking is done
-    with an ephemeral, in-memory BM25S index built from the (small, pre-filtered)
-    result set on every search() call rather than a persisted on-disk index —
-    this avoids the write-then-rebuild staleness/no-delete problems of the old
-    on-disk BM25S corpus approach while still satisfying the "no embeddings"
-    requirement for ranking.
+    Postgres is the single source of truth. Tribal knowledge is ranked by a
+    persisted BM25 index (tribal_index.py), rebuilt whenever fingerprint()
+    changes, so it never misses a write or a delete.
     """
 
     def __init__(self, config: Config, logger: Logger, dsn: str | None = None) -> None:
         self.config = config
         self.logger = logger
-        self.stemmer = Stemmer("english")
 
         # Build DSN from config, same credentials as UserDB (same Postgres instance)
         if dsn:
@@ -276,58 +270,35 @@ class MemoryManager:
             "next_offset": offset + limit if has_more else None,
         }
 
-    def search(
-        self,
-        memory_type: str,
-        query: str,
-        *,
-        group_ids: list[str] | None = None,
-        user_id: str | None = None,
-        dataset_name: str | None = None,
-        match_null_dataset: bool = False,
-        k: int = 5,
-    ) -> list[tuple[MemoryEntryRecord, float]]:
-        """
-        Returns up to k entries matching the scope filters that are relevant to
-        `query`, best first, with their BM25 scores. Relevant means the entry shares
-        at least one (stemmed, non-stopword) term with the query — BM25 still ranks
-        every candidate otherwise, so without this cutoff unrelated entries would
-        come back whenever fewer than k match. Builds the BM25 index in-memory for
-        this call only — the candidate set (a single group/dataset's entries) is
-        expected to be small, so there is no need to persist or maintain an index.
-        """
-        candidates = self.list_entries(
-            memory_type,
-            group_ids=group_ids,
-            user_id=user_id,
-            dataset_name=dataset_name,
-            match_null_dataset=match_null_dataset,
-            limit=5000,
-            offset=0,
-        )["items"]
-        if not query.strip() or not candidates:
-            return []
+    def fingerprint(self, memory_type: str) -> list[str]:
+        """Changes whenever an entry of `memory_type` is added, edited or deleted."""
+        con = self._get_connection()
+        try:
+            row = con.execute(
+                """
+                SELECT COUNT(*), MAX(created_at), MAX(updated_at)
+                FROM memory_entries WHERE memory_type = %s
+                """,
+                (memory_type,),
+            ).fetchone()
+        finally:
+            con.close()
+        return [str(v) for v in row]
 
-        corpus_text = [record.content for record in candidates]
-        # Corpus entries are opaque index markers, not the text itself — bm25s hands
-        # back whatever object was passed in at the matching position, so we only
-        # need enough to map a hit back to its MemoryEntryRecord.
-        corpus_json = [{"idx": i} for i in range(len(candidates))]
-        corpus_tokens = bm25s.tokenize(
-            corpus_text, stopwords="en", stemmer=self.stemmer, show_progress=False
-        )
-        retriever = bm25s.BM25(corpus=corpus_json)
-        retriever.index(corpus_tokens, show_progress=False)
-
-        query_tokens = bm25s.tokenize(query, stemmer=self.stemmer, show_progress=False)
-        max_k = min(k, len(candidates))
-        results, scores = retriever.retrieve(query_tokens, k=max_k, show_progress=False)
-
-        return [
-            (candidates[int(hit["idx"])], float(score))
-            for hit, score in zip(results[0], scores[0])
-            if score > 0
-        ]
+    def corpus(self, memory_type: str) -> list[tuple[str, str]]:
+        """(memory_id, content) of every entry of `memory_type`, in a stable order."""
+        con = self._get_connection()
+        try:
+            rows = con.execute(
+                """
+                SELECT memory_id, content FROM memory_entries
+                WHERE memory_type = %s ORDER BY created_at, memory_id
+                """,
+                (memory_type,),
+            ).fetchall()
+        finally:
+            con.close()
+        return [(str(memory_id), str(content)) for memory_id, content in rows]
 
     def replace_dataset_rows(
         self,

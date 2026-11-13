@@ -1,7 +1,15 @@
 # src/pneuma_seeker/shared/config.py
 from os import getenv
+from pathlib import Path
 
 from dotenv import load_dotenv
+
+
+def _choice(name: str, default: str, allowed: tuple[str, ...]) -> str:
+    value = getenv(name, default).strip().lower()
+    if value not in allowed:
+        raise ValueError(f"{name} must be one of {', '.join(allowed)}, not {value!r}")
+    return value
 
 
 class Config:
@@ -147,13 +155,43 @@ class Config:
             getenv("AUTH_PASSWORD_HASH_ITERATIONS", "200000")
         )
 
-        # Tribal Knowledge Settings
-        # Each turn, tribal knowledge is searched once per planned information
-        # need; this caps the entries kept per need (only entries sharing a term
-        # with the need are kept at all).
+        # Tribal knowledge, retrieved per information need: "m1" | "bm25". TOP_K is
+        # the "bm25" cap per need, and M1's fallback if the classifier fails.
+        self.TRIBAL_KNOWLEDGE_RETRIEVAL_METHOD = _choice(
+            "TRIBAL_KNOWLEDGE_RETRIEVAL_METHOD", "m1", ("m1", "bm25")
+        )
         self.TRIBAL_KNOWLEDGE_RETRIEVAL_TOP_K = int(
             getenv("TRIBAL_KNOWLEDGE_RETRIEVAL_TOP_K", "10")
         )
+        self.TRIBAL_KNOWLEDGE_BATCH_TOKENS = int(  # M1 batch size (τ)
+            getenv("TRIBAL_KNOWLEDGE_BATCH_TOKENS", "100")
+        )
+
+        # Table Retrieve over internal tables: "pneuma_retriever" | "m1" (new_discovery.py).
+        self.TABLE_DISCOVERY_METHOD = _choice(
+            "TABLE_DISCOVERY_METHOD", "pneuma_retriever", ("pneuma_retriever", "m1")
+        )
+        self.TABLE_DISCOVERY_BATCH_TOKENS = int(  # M1 batch size (τ)
+            getenv("TABLE_DISCOVERY_BATCH_TOKENS", "1500")
+        )
+        self.TABLE_DISCOVERY_MAX_COLUMNS = int(
+            getenv("TABLE_DISCOVERY_MAX_COLUMNS", "50")
+        )
+        self.TABLE_DISCOVERY_GROUP_MAX_NAMES = int(
+            getenv("TABLE_DISCOVERY_GROUP_MAX_NAMES", "100")
+        )
+
+        # Persisted retrieval indices (mounted by docker-compose).
+        self.RETRIEVAL_INDEX_ROOT = getenv(
+            "RETRIEVAL_INDEX_ROOT",
+            str(Path(__file__).resolve().parent.parent / "services" / "db" / "indices"),
+        )
+
+        # M1: windows of M1_WINDOW_BATCHES batches; stop after M1_EMPTY_WINDOWS
+        # empty windows or once M1_TOKEN_BUDGET tokens have been judged.
+        self.M1_WINDOW_BATCHES = int(getenv("M1_WINDOW_BATCHES", "5"))
+        self.M1_EMPTY_WINDOWS = int(getenv("M1_EMPTY_WINDOWS", "1"))
+        self.M1_TOKEN_BUDGET = int(getenv("M1_TOKEN_BUDGET", "300000"))
 
         # Postgres Settings (for UserDB)
         self.POSTGRES_HOST = getenv("POSTGRES_HOST", "localhost")
