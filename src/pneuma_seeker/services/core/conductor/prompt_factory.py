@@ -2,6 +2,7 @@
 
 from pneuma_seeker.services.core.action_set.main import ActionSet
 from pneuma_seeker.services.core.conductor.state import ConductorState
+from pneuma_seeker.services.core.retrieved_tables import render_retrieved_tables
 from pneuma_seeker.services.core.materializer.models import MaterializerMode
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.schemas.core.action import PLAN_INSTRUCTION, ActionNames
@@ -131,52 +132,6 @@ Recent user interactions:
 Current user input: {user_input}
 """.strip()
 
-    def get_needs_grounding_sys_prompt(self) -> str:
-        """Gets the system prompt for linking the information-needs plan to retrieved tables.
-
-        Runs once per turn, after the first retrieval, so the plan written blind gets
-        pointers into the data without committing Conductor to any of them.
-        """
-        return f"""
-# Role
-You are a stage of **Conductor** in **Pneuma-Seeker**. An information-needs plan was written before any data was seen, and tables have now been retrieved. For each need, point to where in these tables it could be resolved, so Conductor knows what to check. Your job is to say **where to look**, not how to read the request: Conductor has the rules for interpreting it.
-
-# What to produce
-Under each need, one to three short leads. You have only seen schemas and sample rows, so every lead is a hypothesis: word it as one ("probably", "possibly", "unclear"). A lead can be:
-- A column or table that probably bears on the need, and what to check in it (its value set, format, coding, or coverage).
-- A column that may already record the answer to the need itself: a flag, label, category, or reported value (e.g., a percentage or status column), which would be preferable to computing it.
-- Several candidates that compete, when you cannot tell which fits.
-- That the retrieved tables cover the need only partly or not at all, so more tables are probably needed. Compare the request's scope (e.g., a range of years, several places or categories) with what the retrieved tables cover; when tables are split into partitions by a naming pattern (e.g., one table per year or per place) and some the request needs are missing, say so and name the pattern, so Conductor can find the rest with {ActionNames.TABLE_ENUMERATION.value}.
-- For a need the data cannot settle, because it is about how to read the request (how to measure, sign, or bound a quantity, which records a phrase covers), write only "not settled by the data; Conductor's call".
-
-# Rules
-- Do not interpret the request: do not choose between its readings, propose formulas, distance measures, signs, or thresholds, or suggest which records to keep or drop.
-- Do not declare any need resolved and do not pick a final design. Conductor will verify the leads by inspecting the data and may discard them.
-- Scan every column of every retrieved table, not only the obvious ones: a flag or a pre-computed value in an unexpected column often bears on a need.
-- Name tables and columns exactly as they appear. Do not invent any.
-- Do not write queries or plan actions.
-
-# Output
-Plain text: each need from the plan, numbered as in the plan, followed by its leads. Nothing else.
-""".strip()
-
-    def get_needs_grounding_user_prompt(
-        self,
-        user_input: str,
-        information_needs: str,
-        retrieved_tables: list[AbstractDocument],
-    ) -> str:
-        """Gets the user message for linking the information-needs plan to retrieved tables."""
-        return f"""
-Current user input: {user_input}
-
-Information-needs plan:
-{information_needs}
-
-Retrieved tables:
-{convert_retrieval_results_to_str(retrieved_tables)}
-""".strip()
-
     def get_tribal_knowledge_prompt(self, entries: list[dict]) -> str:
         """
         Renders retrieved tribal-knowledge entries, grouped under the information
@@ -211,7 +166,7 @@ You are **Conductor**, the central planner in **Pneuma-Seeker**, a system that h
 # Plan Mode
 You are running in **plan mode**. Your goal is NOT to compute an answer — it is to explore the available data, settle on your best-effort proposed shared state **(T,S)**, and present that proposal to the user via `{ActionNames.USER_FACING_COMMUNICATION.value}` so they can confirm or adjust it before any computation happens.
 - `{ActionNames.MATERIALIZER.value}` and `{ActionNames.PYTHON_EXECUTOR.value}` are **not available** in this mode — do not attempt to call them.
-- You may still use `{ActionNames.TABLE_RETRIEVE.value}`, `{ActionNames.TABLE_ENUMERATION.value}`, `{ActionNames.WEB_SEARCH.value}`, `{ActionNames.WEB_CRAWL.value}`, `{ActionNames.STATE_MANIPULATION.value}`, and `{ActionNames.CONTEXT_EXTRACTION.value}` freely to explore data and resolve ambiguity before committing to a proposal.
+- You may still use `{ActionNames.TABLE_RETRIEVE.value}`, {f"`{ActionNames.TABLE_ENUMERATION.value}`, " if self.config.ENABLE_TABLE_ENUMERATION else ""}`{ActionNames.WEB_SEARCH.value}`, `{ActionNames.WEB_CRAWL.value}`, `{ActionNames.STATE_MANIPULATION.value}`, and `{ActionNames.CONTEXT_EXTRACTION.value}` freely to explore data and resolve ambiguity before committing to a proposal.
 - You operate through iterative steps, same as normal operation. The total number of steps must not exceed **{self.config.MAX_CONDUCTOR_STEPS}**.
 
 When forming a sequence of actions for a step, you must follow this **reactive planning structure**:
@@ -265,14 +220,15 @@ You maintain and update a shared state (T,S) that formalizes the user's active i
 - **Information Need**: The set of states of nature required to solve a data-driven task.
 - **Latent Information Need**: The true set of states needed to solve a task, often initially unknown to the user.
 - **Active Information Need**: The user's working hypothesis about what data is needed, which evolves through interaction and exploration to approximate the latent one.
-- **Information-needs plan**: Your first recorded action is a provisional list of the information needs the answer depends on, written before any data was seen. Treat it as a checklist, not a script: when the data contradicts an assumption in it, revise the need and say so in a `{ActionNames.SITUATIONAL_ANALYSIS.value}`, rather than forcing the original. In the step where you finalize S, your `{ActionNames.SITUATIONAL_ANALYSIS.value}` must go through each need and cite the evidence that resolves it (the column, value, or probe result you saw) and how T and S address it, or state how it was revised or why it cannot be met. A need is resolved by what the data records: if a qualifier has no explicit marker in the data (no column, flag, or category for it) and the data as a whole already matches it (e.g., the table covers exactly that period or population), treat it as satisfied. Never invent a boundary, such as a date range or threshold, that neither the user nor the data specifies.
+- **Information-needs plan**: Your first recorded action is a provisional list of the information needs the answer depends on, written before any data was seen. Treat it as a checklist, not a script: when the data contradicts an assumption in it, revise the need and say so in a `{ActionNames.SITUATIONAL_ANALYSIS.value}`, rather than forcing the original. When you define T and S, give `need_resolutions` in `{ActionNames.STATE_MANIPULATION.value}`: for each need, the evidence that resolves it (the column, value, probe result, or tribal-knowledge note you saw) and how T and S address it, or how it was revised, or why it cannot be met. A need is resolved by what the data records: if a qualifier has no explicit marker in the data (no column, flag, or category for it) and the data as a whole already matches it (e.g., the table covers exactly that period or population), treat it as satisfied. Never invent a boundary, such as a date range or threshold, that neither the user nor the data specifies.
 - **Shared State (T,S)**: A state object that represents the user's active information need.
   - **T**: A set of tables that specify what are needed to address the information need.
     - *Format:*
       - `T: dict[table_id (str) -> column names (list[str])]`
       - `column_descriptions: dict[table_id (str) -> dict[column (str) -> description (str)]]`
+      - `column_sources: dict[table_id (str) -> dict[column (str) -> list of "<dataset>.<table>.<column>" (str)]]`: where each column comes from, in retrieved or external tables. List every column its value depends on, including the columns used to link tables (e.g., the join keys of a table needed only to connect two others). `*` matches a family of tables, e.g., `environment.monthly_precipitations_*.jul`.
     - *Constraints:*
-      - Define tables and their columns in **T** based on the user's information need and the data available in the environment (`{ActionNames.MATERIALIZER.value}` will later populate these tables).
+      - Define tables and their columns in **T** based on the user's information need and the data available in the environment (`{ActionNames.MATERIALIZER.value}` will later populate these tables, using **only** the tables named in `column_sources`).
       - Use descriptive, **semantically clear table IDs** and **self-explanatory column names** that reflect their contents or purpose.
       - **Prefer a single unified table in T.** Multiple tables in T are only justified when the analysis genuinely requires separate, independently meaningful views (e.g., a before/after comparison, two parallel fact domains). Do NOT define multiple T tables just because the source data spans multiple source tables — joining or unioning sources is Materializer's job.
       - **Include only columns that S directly uses** to answer the user's question. Do not add "reference" or "context" columns speculatively. Two kinds of columns always count as "used" even though they never appear in the final output: (1) an identifier S needs to count or dedupe entities, and (2) any exclusion / QC flag on a source table (see below), because S must filter on it. Before finalizing T, scan each source table's columns for such a flag.
@@ -345,7 +301,7 @@ You maintain and update a shared state (T,S) that formalizes the user's active i
         return f"""# Available Data
 Both you and **{ActionNames.MATERIALIZER.value}** share the same data layer. You define _what_ tables (T) and transformations (S) are needed, while `{ActionNames.MATERIALIZER.value}` handles _how_ to populate all tables in T with actual tuples from the data.
 
-- **Internal Tables**: Retrievable via `{ActionNames.TABLE_RETRIEVE.value}`. Use {ActionNames.TABLE_ENUMERATION.value} to discover related tables.
+- **Internal Tables**: Retrievable via `{ActionNames.TABLE_RETRIEVE.value}`.{f" Use {ActionNames.TABLE_ENUMERATION.value} to discover related tables." if self.config.ENABLE_TABLE_ENUMERATION else ""}
 - **External Tables**: User-uploaded tables if any. Already visible (do not call `{ActionNames.TABLE_RETRIEVE.value}`). These may be CSVs or extracted Excel sheets.
 {"- **Web Search Results**: Relevant information from the web.\n" if self.config.ENABLE_WEB_SEARCH else ""}
 {"- **Web Crawl Results**: Extracted textual content from specified web pages.\n" if self.config.ENABLE_WEB_CRAWL else ""}
@@ -361,7 +317,7 @@ Both you and **{ActionNames.MATERIALIZER.value}** share the same data layer. You
 - If you are about to dismiss a retrieved table as irrelevant **only because its column names are unclear**, you may do a very quick check for an already-retrieved companion "dictionary/metadata/description/schema" table that explains column meanings (IF AVAILABLE). These companion tables may share a common stem in the name and differ only by a suffix/prefix (e.g., a business dataset might have `orders` and `orders_metadata`, or `customer_events` and `customer_events_dictionary`).
   - Do **not** enumerate/search for more tables for this purpose. Only use this if such a companion table is already present in the retrieved set.
   - If present, use {ActionNames.CONTEXT_EXTRACTION.value} to sample/inspect just enough to decide whether the original table is relevant.
-  - If the user requests for tables on some specific timeframe and you only retrieved tables on a subset of that timeframe, use {ActionNames.TABLE_ENUMERATION.value} to find other tables with similar names that may fill the gaps. If no more tables are available, you can still proceed with the available tables but be mindful of the missing data and its implications on the analysis.
+  - If the user requests for tables on some specific timeframe and you only retrieved tables on a subset of that timeframe, {f"use {ActionNames.TABLE_ENUMERATION.value} to find other tables with similar names that may fill the gaps" if self.config.ENABLE_TABLE_ENUMERATION else f"use {ActionNames.TABLE_RETRIEVE.value} to find the tables that may fill the gaps (by a query for them, or by name, e.g. a pattern like `sales_*`)"}. If no more tables are available, you can still proceed with the available tables but be mindful of the missing data and its implications on the analysis.
 - If a retrieved table is named for the exact concept the question asks about, it is the primary candidate: probe it with {ActionNames.CONTEXT_EXTRACTION.value} before deriving that concept yourself from a proxy (e.g., thresholding a score or measurement in another table). A table that records the concept directly encodes the dataset's own definition of it; re-deriving it substitutes yours. If a proxy source cannot enforce every qualifier in the question (a required subgroup, condition, or scope), treat that as evidence it is the wrong source.
 - If a second call to {ActionNames.TABLE_RETRIEVE.value} returns the same set of tables as the first, **stop retrieving and pivot to {ActionNames.CONTEXT_EXTRACTION.value}** to explore what you already have. Repeated retrieval with rephrased prompts rarely surfaces new tables; probing existing ones does.""".strip()
 
@@ -388,7 +344,10 @@ Both you and **{ActionNames.MATERIALIZER.value}** share the same data layer. You
         web_search_result: AbstractDocument | None = None,
         web_crawl_result: AbstractDocument | None = None,
         join_paths: str | None = None,
-        information_needs: str | None = None,
+        information_needs: list[str] | None = None,
+        need_resolutions: dict[int, str] | None = None,
+        spotlight: set[str] | None = None,
+        found_by: dict[str, list[str]] | None = None,
         dataset_scope: str = "",
     ) -> str:
         """Gets the environment state prompt for Conductor."""
@@ -427,18 +386,22 @@ Both you and **{ActionNames.MATERIALIZER.value}** share the same data layer. You
                 )
         needs_gate = ""
         if retrieved_tables and information_needs:
+            resolutions = need_resolutions or {}
+            needs_list = "\n".join(
+                f"{i}. {need}\n   -> {'resolved: ' + resolutions[i] if i in resolutions else 'UNRESOLVED'}"
+                for i, need in enumerate(information_needs, 1)
+            )
             needs_gate = (
                 f"\nREQUIRED — resolve your information needs from the data, not from assumptions:\n"
-                f"{information_needs}\n"
-                f"Any leads under a need are unverified hypotheses from schemas and sample rows. Use them as "
-                f"places to look, check them, and discard those the data does not bear out.\n"
-                f"Before you define or change T/S, each need above must be resolved by evidence you have "
-                f"actually seen: a column you can name in a retrieved table's schema, or a "
-                f"{ActionNames.CONTEXT_EXTRACTION.value} result. What a table or column name suggests, or "
-                f"what data like this usually contains, is not evidence. Look through every column of the "
-                f"tables you use, not only the ones your design already needs. Put each need you cannot "
-                f"yet cite evidence for into your next {ActionNames.CONTEXT_EXTRACTION.value} call (one "
-                f"call can carry several questions).\n"
+                f"{needs_list}\n"
+                f"Each need must be resolved by evidence you have actually seen: a column you can name in a "
+                f"retrieved table's schema, a {ActionNames.CONTEXT_EXTRACTION.value} result, or a tribal-knowledge "
+                f"note; or, for a need the data cannot settle, by an explicit assumption. What a table or column "
+                f"name suggests, or what data like this usually contains, is not evidence. Look through every "
+                f"column of the tables you use, not only the ones your design already needs. Put each need you "
+                f"cannot yet cite evidence for into your next {ActionNames.CONTEXT_EXTRACTION.value} call (one "
+                f"call can carry several questions). Record each resolution in `need_resolutions` of "
+                f"{ActionNames.STATE_MANIPULATION.value}; T and S cannot both be defined while a need is unresolved.\n"
             )
         return f"""
 Step {current_step} (out of maximum {self.config.MAX_CONDUCTOR_STEPS} steps)
@@ -454,8 +417,8 @@ Recent actions:
 Recent user interactions:
 {self.__convert_interactions_to_str(interaction_history)}
 
-{f"{dataset_scope}\n\n" if dataset_scope else ""}Retrieved Tables:
-{convert_retrieval_results_to_str(retrieved_tables)}
+{f"{dataset_scope}\n\n" if dataset_scope else ""}Retrieved Tables (tables returned by the latest {ActionNames.TABLE_RETRIEVE.value} or used by T's column sources are shown with sample rows; to see another one's rows, retrieve it again by name):
+{render_retrieved_tables(retrieved_tables, spotlight or set(), found_by)}
 {"- Potential join paths between retrieved tables:\n" + join_paths if join_paths else ""}
 {f"\nOther tables IDs with simlar naming patterns (for reference):\n{[i.doc_id for i in enumerated_tables]}\n" if len(enumerated_tables) > 0 else ""}
 {f"\nExternal tables:\n{convert_retrieval_results_to_str(external_tables)}\n" if len(external_tables) > 0 else ""}

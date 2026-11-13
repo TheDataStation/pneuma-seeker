@@ -4,8 +4,6 @@ an LLM judges a BM25 ranking from the top, a window of batches at a time, and
 stops after an empty window or when the token budget is spent.
 """
 
-from __future__ import annotations
-
 import functools
 import hashlib
 import random
@@ -54,7 +52,7 @@ def _encoding():
 
 
 def count_tokens(text: str) -> int:
-    """o200k tokens (~4 characters per token if tiktoken is unavailable)."""
+    """Counts o200k tokens (~4 characters per token if tiktoken is unavailable)."""
     try:
         return len(_encoding().encode(text))
     except Exception:
@@ -121,7 +119,10 @@ class M1:
         budget: int,
         instructions: str,
     ) -> M1Result:
-        """`ranked`: best first, each with an `id` and `content`. Returns the accepted, in rank order."""
+        """
+        Selects the relevant candidates of `ranked` (best first, each with an `id` and
+        `content`), returned in rank order.
+        """
         out = M1Result()
         source: Iterator[dict[str, Any]] = iter(ranked)
         read: list[dict[str, Any]] = []

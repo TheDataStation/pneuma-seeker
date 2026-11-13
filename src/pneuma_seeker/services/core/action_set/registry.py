@@ -94,9 +94,9 @@ class ActionRegistry:
     # ------------------------------------------------------------------
 
     def set_active_modes(self, modes: set[str] | frozenset[str]) -> None:
-        """Sets the per-request modes (e.g. multi-dataset) for the current turn.
-
-        Actions declaring a `mode` are only available while it is active; every
+        """
+        Sets the per-request modes (e.g. multi-dataset) for the current turn.
+        Actions declaring a `mode` are available only while it is active, and every
         action sees the active modes so its description can adapt.
         """
         self._active_modes = frozenset(modes)

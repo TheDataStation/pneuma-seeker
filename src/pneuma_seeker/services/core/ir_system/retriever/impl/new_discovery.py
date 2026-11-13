@@ -9,8 +9,6 @@ The index is built per dataset on first use, persisted under
 RETRIEVAL_INDEX_ROOT/discovery/<dataset>, and rebuilt when the dataset changes.
 """
 
-from __future__ import annotations
-
 import fcntl
 import hashlib
 import json
@@ -76,7 +74,7 @@ def schema_key(columns: list[dict]) -> str:
 
 
 def build_candidates(dataset_name: str, tables: list[dict], max_columns: int, max_names: int) -> list[dict]:
-    """One candidate per table, or per family of tables with identical columns."""
+    """Builds one candidate per table, or per family of tables with identical columns."""
     groups: dict[str, list[dict]] = {}
     for table in tables:
         groups.setdefault(schema_key(table["columns"]), []).append(table)
@@ -168,7 +166,9 @@ class DiscoveryIndex:
         self.root = Path(root) / "discovery"
 
     def get(self, dataset_name: str, fingerprint: str, scan) -> tuple[list[dict], TermIndex]:
-        """The dataset's candidates and BM25, (re)built with `scan()` if missing or stale."""
+        """
+        Returns the dataset's candidates and BM25, (re)built with `scan()` if missing or stale.
+        """
         directory = self.root / dataset_name
         loaded = self._load(directory)
         if loaded is None or loaded[1].get("fingerprint") != fingerprint:
@@ -247,7 +247,7 @@ class NewDiscovery(AbstractRetriever):
         pass
 
     def index(self, documents: list[AbstractDocument]):
-        """No-op: the index is built from the dataset itself."""
+        """Does nothing: the index is built from the dataset itself."""
 
     def retrieve(
         self,

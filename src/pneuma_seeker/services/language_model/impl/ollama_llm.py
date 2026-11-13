@@ -43,7 +43,7 @@ class OllamaLLM(AbstractModel):
         start_llm_time = time()
 
         stream = False
-        temperature = 0
+        temperature = self.config.LLM_TEMPERATURE
         max_tokens = None
 
         if llm_option:
@@ -58,7 +58,7 @@ class OllamaLLM(AbstractModel):
             "stream": stream,
             "think": False,
             "options": {
-                "temperature": temperature,
+                **({"temperature": temperature} if temperature is not None else {}),
                 **({"num_predict": max_tokens} if max_tokens else {}),
             },
         }

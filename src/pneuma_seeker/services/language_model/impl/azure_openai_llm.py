@@ -4,7 +4,7 @@ from time import time
 from typing import Optional
 
 from numpy import ndarray
-from openai import AzureOpenAI
+from openai import AzureOpenAI, Omit
 
 from pneuma_seeker.services.language_model.abstract_model import AbstractModel
 from pneuma_seeker.shared.config import Config
@@ -32,6 +32,7 @@ class AzureOpenAILLM(AbstractModel):
         self.total_llm_time = 0.0
         self.total_input_tokens = 0
         self.total_output_tokens = 0
+        self.total_cached_input_tokens = 0
 
     def load_model(self):
         # OpenAI API does not require model loading
@@ -48,13 +49,14 @@ class AzureOpenAILLM(AbstractModel):
         max_completion_tokens = None
         json_mode = False
         stream = False
-        temperature = 1
+        temperature = self.config.LLM_TEMPERATURE
         if llm_option:
             max_completion_tokens = llm_option.max_new_tokens
             json_mode = llm_option.json_mode
             stream = llm_option.stream
             if llm_option.temperature is not None:
                 temperature = llm_option.temperature
+        temperature = Omit() if temperature is None else temperature
 
         if stream:
             # Stream response as generator of chunks
@@ -121,11 +123,14 @@ class AzureOpenAILLM(AbstractModel):
         if usage is not None:
             self.total_input_tokens += usage.prompt_tokens
             self.total_output_tokens += usage.completion_tokens
+            details = getattr(usage, "prompt_tokens_details", None)
+            self.total_cached_input_tokens += getattr(details, "cached_tokens", 0) or 0
     
     def reset_metrics(self):
         self.total_llm_time = 0.0
         self.total_input_tokens = 0
         self.total_output_tokens = 0
+        self.total_cached_input_tokens = 0
 
     def batch_chat(
         self,

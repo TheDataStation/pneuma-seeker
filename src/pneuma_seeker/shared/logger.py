@@ -50,3 +50,13 @@ def formatted_log(logger: logging.Logger, component_name: str, text: str):
     Logs a message with a specific format, including the component name.
     """
     logger.info(f"[{component_name}] {text}")
+
+
+def format_timing(total_time: float, llm_time: float) -> str:
+    """
+    Formats wall-clock time, split into LLM and the rest. LLM time sums every call, so
+    with parallel calls it can exceed the wall-clock time; then no split is shown.
+    """
+    if llm_time > total_time:
+        return f"{total_time:.2f}s (LLM calls: {llm_time:.2f}s in total, partly in parallel)"
+    return f"{total_time:.2f}s (CPU: {total_time - llm_time:.2f}s, LLM: {llm_time:.2f}s)"

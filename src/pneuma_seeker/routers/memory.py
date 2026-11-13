@@ -134,7 +134,7 @@ def create_entry(
     current_user: UserRecord = Depends(get_current_user),
     mm: MemoryManager = Depends(get_memory_manager),
 ):
-    """Manually creates a memory entry (dataset descriptions use their own endpoint)."""
+    """Creates a memory entry manually (dataset descriptions use their own endpoint)."""
     if payload.memory_type not in _MANUALLY_CREATABLE_TYPES:
         raise HTTPException(
             status_code=400,

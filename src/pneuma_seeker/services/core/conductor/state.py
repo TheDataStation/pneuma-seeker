@@ -16,6 +16,7 @@ class ConductorState:
         self.T: dict[str, AbstractDocument] = dict()
         self.is_T_materialized = False
         self.column_descriptions: dict[str, dict[str, str]] = dict()
+        self.column_sources: dict[str, dict[str, list[str]]] = dict()
 
         self.S: str = ""
         self.s_description: str = ""
@@ -31,6 +32,9 @@ class ConductorState:
 Column descriptions of T:
 {self.column_descriptions}
 
+Column sources of T:
+{self.column_sources}
+
 Script (S) to be run over T (is executed yet? {self.is_S_executed}):
 {self.S}"""
 
@@ -42,6 +46,7 @@ Script (S) to be run over T (is executed yet? {self.is_S_executed}):
             },
             "is_T_materialized": self.is_T_materialized,
             "column_descriptions": self.column_descriptions,
+            "column_sources": self.column_sources,
             "S": self.S,
             "s_description": self.s_description,
             "is_S_executed": self.is_S_executed,

@@ -21,6 +21,7 @@ class ActionNames(Enum):
     MATERIALIZER = "materializer"
     USER_FACING_COMMUNICATION = "user_facing_communication"
     ENTITY_RESOLUTION = "entity_resolution"
+    REPORT_BLOCKER = "report_blocker"
 
 
 class ActionExecutionStatus(Enum):

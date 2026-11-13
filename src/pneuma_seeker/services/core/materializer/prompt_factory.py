@@ -3,6 +3,7 @@ import json
 from pandas import DataFrame
 
 from pneuma_seeker.services.core.action_set.main import ActionSet
+from pneuma_seeker.services.core.retrieved_tables import render_retrieved_tables
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.schemas.core.action import ActionNames
 from pneuma_seeker.shared.schemas.core.agent import AgentType
@@ -26,6 +27,7 @@ class MaterializerPromptFactory:
         S: str,
         is_update_mode: bool = False,
         prior_intermediate_table_ids: list[str] | None = None,
+        column_sources: dict[str, dict[str, list[str]]] | None = None,
     ) -> str:
         """Generates the planning prompt for Materializer."""
         return f"""
@@ -46,6 +48,10 @@ When forming a sequence of actions for a step, you must follow this **reactive p
 ## Column Descriptions of T
 {column_descriptions}
 
+## Column Sources of T
+Where Conductor expects each column to come from (`<dataset>.<table>.<column>`; `*` matches a family of tables). They tell you which source tables to use, not how to combine them.
+{json.dumps(column_sources or {}, indent=2)}
+
 # Script (S) to be run on (materialized) T later (just for reference, not for you to execute)
 {S}
 
@@ -55,10 +61,8 @@ When forming a sequence of actions for a step, you must follow this **reactive p
 # Notes
 
 ## Table Handling Guidelines
-- Treat external tables just like internal tables, except they are fixed and will never be replaced by calling {ActionNames.TABLE_RETRIEVE.value}.
-- Use external tables (if available) and internal tables; call {ActionNames.TABLE_RETRIEVE.value} to retrieve or re-retrieve internal tables (if necessary).
-- Internal tables are reset each time {ActionNames.TABLE_RETRIEVE.value} is used; external tables persist.
-- You may already see some internal tables provided at the start (pre-fetched by the caller). Treat it the same as if you had retrieved it yourself — use them if useful, or call {ActionNames.TABLE_RETRIEVE.value} again if needed. These pre-fetched tables are not guaranteed to be complete or sufficient.
+- You are given the tables named by T's column sources (internal tables) and the user's external tables. Build T from these only.
+- If these tables cannot produce T — a source table is missing, or the provided tables lack the values a column needs — do not work around it: call {ActionNames.REPORT_BLOCKER.value} with what is missing, and Conductor will revise T and its column sources.
 {f"- You may already see a web search result provided at the start (pre-fetched by the caller). Treat it the same as if you had performed the web search yourself — use it if useful. This pre-fetched web search result is not guaranteed to be complete or sufficient.\n" if self.config.ENABLE_WEB_SEARCH else ""}
 {f"- You may already see a web crawl result provided at the start (pre-fetched by the caller). Treat it the same as if you had performed the web crawl yourself — use it if useful. This pre-fetched web crawl result is not guaranteed to be complete or sufficient.\n" if self.config.ENABLE_WEB_CRAWL else ""}
 
@@ -66,7 +70,6 @@ When forming a sequence of actions for a step, you must follow this **reactive p
 - Always include an "args" object (use {{}} if the action has no args).
 - If an action has an `assign_to` argument, set the argument to the correct target table IDs or intermediate table IDs exactly (case-sensitive).
 {f"- Use {ActionNames.CONTEXT_EXTRACTION.value} to validate assumptions (e.g., about the existence of values) in the tables prior to determining how best to integrate them.\n" if self.config.ENABLE_CONTEXT_EXTRACTION else ""}
-- If you need to integrate (e.g., union) tables of certain names or patterns, the pre-provided tables may not be comprehensive. Call {ActionNames.TABLE_ENUMERATION.value} to discover all matching tables.
 - Operator outputs (e.g., from {ActionNames.TABLE_PROJECTION.value} and {ActionNames.EQUALITY_JOIN.value}) are persisted immediately into the workspace database. You can use those output tables in subsequent operator calls.
 - You may compose operators arbitrarily (e.g., projection -> join -> projection).
     - Prefer using operators first (e.g., {ActionNames.TABLE_PROJECTION.value}, {ActionNames.EQUALITY_JOIN.value}, {ActionNames.TABLE_UNION.value}) whenever they can express the transformation.
@@ -83,6 +86,50 @@ Return **one JSON object** describing your planned actions for this step, e.g.,
   ]
 }}
 {self.__get_update_mode_section(is_update_mode, prior_intermediate_table_ids or [])}""".strip()
+
+    def get_integration_plan_sys_prompt(self) -> str:
+        """Gets the system prompt for the Materializer's up-front integration plan."""
+        return f"""
+# Role
+You are the planning stage of **Materializer** in **Pneuma-Seeker**. Before any step runs, outline how to build the target tables (T) from the provided source tables.
+
+# What to produce
+For each table in T, a short numbered list of integration steps: which source tables to read (as T's column sources name them), how they combine (joins on which keys, unions of which tables), the filters the column descriptions imply, and how each column is derived. Note anything you need to check in the data first, and any column the provided tables cannot produce (that would call for {ActionNames.REPORT_BLOCKER.value}).
+
+# Rules
+- Use only the provided tables. Do not write code; describe the steps.
+- Keep it concise. The plan is provisional and will be revised when the data shows something different.
+
+# Output
+Plain text: the plan only.
+""".strip()
+
+    def get_integration_plan_user_prompt(
+        self,
+        T: dict[str, DataFrame],
+        column_descriptions: dict[str, dict[str, str]],
+        column_sources: dict[str, dict[str, list[str]]],
+        S: str,
+        note: str,
+        tables: list[AbstractDocument],
+    ) -> str:
+        """Gets the user message for the Materializer's up-front integration plan."""
+        return f"""
+Target tables (T):
+{json.dumps({k: list(df.columns) for k, df in T.items()}, indent=2)}
+
+Column descriptions of T:
+{column_descriptions}
+
+Column sources of T:
+{json.dumps(column_sources, indent=2)}
+
+Script (S) to be run on T later (for reference):
+{S}
+{f"\nNote from Conductor: {note}\n" if note else ""}
+Provided tables:
+{render_retrieved_tables(tables)}
+""".strip()
 
     def __get_update_mode_section(
         self, is_update_mode: bool, prior_intermediate_table_ids: list[str]
@@ -125,7 +172,6 @@ the new T schema rather than re-deriving everything from scratch.
         web_search_result: AbstractDocument | None,
         web_crawl_result: AbstractDocument | None,
         join_paths: str | None,
-        dataset_scope: str = "",
     ) -> str:
         """Generates the context prompt for each iteration of the Materializer."""
         return f"""
@@ -137,8 +183,8 @@ Recent actions:
 Intermediate tables created so far:
 {convert_retrieval_results_to_str(intermediate_tables)}
 
-{f"{dataset_scope}\n\n" if dataset_scope else ""}Retrieved tables:
-{convert_retrieval_results_to_str(retrieved_tables)}
+Provided tables (named by T's column sources):
+{render_retrieved_tables(retrieved_tables)}
 {"- Potential join paths between retrieved tables:\n" + join_paths if join_paths else ""}
 {f"\nExternal tables:\n{convert_retrieval_results_to_str(external_tables)}\n" if len(external_tables) > 0 else ""}
 {f"\nWeb search result:\n{web_search_result}\n" if self.config.ENABLE_WEB_SEARCH and web_search_result else ""}

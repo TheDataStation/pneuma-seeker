@@ -53,7 +53,10 @@ class RetrieverFactory:
         return self.retriever_instances[retriever_type]
 
     def get_retriever_for_retrieval(self, retriever_type: RetrieverType) -> AbstractRetriever:
-        """Like get_retriever, but internal tables use the configured discovery method."""
+        """
+        Returns the retriever like get_retriever, but internal tables use the configured
+        discovery method.
+        """
         if retriever_type == RetrieverType.PNEUMA_RETRIEVER:
             return self.table_discovery
         return self.retriever_instances[retriever_type]

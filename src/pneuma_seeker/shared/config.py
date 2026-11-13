@@ -21,6 +21,9 @@ class Config:
         # Language Model Settings
         self.LLM_PATH = getenv("LLM_PATH", "o3-2025-04-16")
         self.LLM_MAX_TOKENS = int(getenv("LLM_MAX_TOKENS", "200000"))
+        # Unset: no temperature is sent and the model uses its default.
+        temperature = getenv("LLM_TEMPERATURE")
+        self.LLM_TEMPERATURE = float(temperature) if temperature else None
         self.EMBED_MODEL_PATH = getenv("EMBED_MODEL_PATH", "text-embedding-3-small")
         self.EMBEDDING_MAX_TOKENS = int(getenv("EMBEDDING_MAX_TOKENS", "1536"))
 
@@ -167,10 +170,13 @@ class Config:
             getenv("TRIBAL_KNOWLEDGE_BATCH_TOKENS", "100")
         )
 
-        # Table Retrieve over internal tables: "pneuma_retriever" | "m1" (new_discovery.py).
+        # Table Retrieve over internal tables: "m1" (new_discovery.py) | "pneuma_retriever".
         self.TABLE_DISCOVERY_METHOD = _choice(
-            "TABLE_DISCOVERY_METHOD", "pneuma_retriever", ("pneuma_retriever", "m1")
+            "TABLE_DISCOVERY_METHOD", "m1", ("m1", "pneuma_retriever")
         )
+        # M1 has no fixed k and returns tables with identical columns together, so
+        # name-pattern enumeration is only needed with the Pneuma retriever.
+        self.ENABLE_TABLE_ENUMERATION = self.TABLE_DISCOVERY_METHOD == "pneuma_retriever"
         self.TABLE_DISCOVERY_BATCH_TOKENS = int(  # M1 batch size (τ)
             getenv("TABLE_DISCOVERY_BATCH_TOKENS", "1500")
         )

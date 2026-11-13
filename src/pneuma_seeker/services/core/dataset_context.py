@@ -8,13 +8,11 @@ MULTI_DATASET_MODE = "multi_dataset"
 
 @dataclass(frozen=True)
 class DatasetContext:
-    """Which datasets a turn may draw tables from.
-
-    In single mode (the default) every retrieval targets `default`, exactly as
-    before multi-dataset mode existed: a `datasets` argument from the LLM is
-    ignored. In multi mode, `Table Retrieve`/`Table Enumeration` name the
-    datasets they search, and each must be in `accessible` — the datasets the
-    user may access, decided by the router, never by the LLM.
+    """
+    Represents the datasets a turn may draw tables from. In single mode (the default),
+    every retrieval targets `default` and a `datasets` argument is ignored. In multi
+    mode, retrievals name the datasets they search, each of which must be in
+    `accessible` (decided by the router, never by the LLM).
     """
 
     default: str = ""
@@ -26,11 +24,10 @@ class DatasetContext:
         return cls(default=dataset_name, accessible=(dataset_name,), multi=False)
 
     def resolve(self, requested: Any) -> list[str]:
-        """Returns the datasets a retrieval should search.
-
-        Raises ValueError (surfaced to the agent as an action error) when the
-        request is malformed, names an inaccessible dataset, or names none while
-        the chat has no default dataset.
+        """
+        Returns the datasets a retrieval should search. Raises ValueError (an action
+        error for the agent) when the request is malformed, names an inaccessible
+        dataset, or names none while the chat has no default dataset.
         """
         if not self.multi:
             return [self.default]
@@ -57,12 +54,14 @@ class DatasetContext:
         return names
 
     def datasets_of(self, docs: Iterable[AbstractDocument]) -> list[str]:
-        """Distinct datasets the given documents come from (in order of first appearance)."""
+        """Returns the distinct datasets the documents come from, in order of first appearance."""
         names = (dataset_of(doc) for doc in docs)
         return list(dict.fromkeys(n for n in names if n))
 
     def describe(self) -> str:
-        """State-prompt line; empty in single mode so prompts stay unchanged."""
+        """
+        Describes the scope for the state prompt; empty in single mode so prompts stay unchanged.
+        """
         if not self.multi:
             return ""
         default = f" (default: {self.default})" if self.default else ""
@@ -73,43 +72,45 @@ def dataset_of(doc: AbstractDocument) -> str:
     return str(doc.metadata.get("dataset_name") or "")
 
 
-def merge_retrieved(
-    existing: list[AbstractDocument],
-    new: list[AbstractDocument],
-    searched: list[str],
-) -> tuple[list[AbstractDocument], list[str]]:
-    """Merges a multi-dataset retrieval into the tables already retrieved.
+def table_key(doc: AbstractDocument) -> str:
+    """Returns "<dataset>.<table>" (or just the table, for a table with no dataset)."""
+    dataset = dataset_of(doc)
+    return f"{dataset}.{doc.doc_id}" if dataset else doc.doc_id
 
-    A retrieval replaces previously retrieved tables from the datasets it
-    searched; tables from other datasets stay. Table IDs must stay unique
-    (prompts, persistence and the Materializer key tables by name), so when a
-    new table shares its name with a kept table from another dataset, the new
-    one wins. Returns (merged tables, notes describing every replacement).
+
+def merge_retrieved(
+    existing: list[AbstractDocument], new: list[AbstractDocument]
+) -> tuple[list[AbstractDocument], list[str]]:
     """
-    searched_set = set(searched)
-    kept = [doc for doc in existing if dataset_of(doc) not in searched_set]
+    Adds newly retrieved tables to those already retrieved (append-only). Table
+    IDs must stay unique, since prompts, persistence and the Materializer key
+    tables by name: a new table replaces an existing one of the same name.
+    Returns (merged tables, notes on same-named tables from different datasets).
+    """
     notes: list[str] = []
-    by_id: dict[str, AbstractDocument] = {}
+    incoming: dict[str, AbstractDocument] = {}
     for doc in new:
-        if doc.doc_id in by_id:
-            if dataset_of(by_id[doc.doc_id]) != dataset_of(doc):
-                notes.append(
-                    f"`{doc.doc_id}` exists in both `{dataset_of(by_id[doc.doc_id])}` and "
-                    f"`{dataset_of(doc)}`; kept the one from `{dataset_of(by_id[doc.doc_id])}`."
-                )
-            continue
-        by_id[doc.doc_id] = doc
+        first = incoming.get(doc.doc_id)
+        if first is None:
+            incoming[doc.doc_id] = doc
+        elif dataset_of(first) != dataset_of(doc):
+            notes.append(
+                f"`{doc.doc_id}` exists in both `{dataset_of(first)}` and "
+                f"`{dataset_of(doc)}`; kept the one from `{dataset_of(first)}`."
+            )
     merged: list[AbstractDocument] = []
-    for doc in kept:
-        if doc.doc_id in by_id:
-            if dataset_of(doc) != dataset_of(by_id[doc.doc_id]):
-                notes.append(
-                    f"`{doc.doc_id}` from `{dataset_of(doc)}` was replaced by the one from "
-                    f"`{dataset_of(by_id[doc.doc_id])}` (tables must have unique names)."
-                )
+    for doc in existing:
+        replacement = incoming.pop(doc.doc_id, None)
+        if replacement is None:
+            merged.append(doc)
             continue
-        merged.append(doc)
-    return merged + list(by_id.values()), notes
+        if dataset_of(doc) != dataset_of(replacement):
+            notes.append(
+                f"`{doc.doc_id}` from `{dataset_of(doc)}` was replaced by the one from "
+                f"`{dataset_of(replacement)}` (tables must have unique names)."
+            )
+        merged.append(replacement)
+    return merged + list(incoming.values()), notes
 
 
 def in_scope(

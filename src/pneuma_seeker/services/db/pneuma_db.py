@@ -387,7 +387,7 @@ class PneumaDB:
         self, dataset_name: str, group_ids: list[str], query: str
     ) -> list[dict[str, Any]]:
         """
-        Tribal knowledge visible to `group_ids` for `dataset_name` (or untagged),
+        Ranks the tribal knowledge visible to `group_ids` for `dataset_name` (or untagged),
         best BM25 match to `query` first. Zero-score entries are kept, last.
         """
         if self.memory_manager is None:

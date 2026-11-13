@@ -6,8 +6,6 @@ entries sharing a term with the need. An entry matching several needs is kept
 once, under the first.
 """
 
-from __future__ import annotations
-
 from concurrent.futures import ThreadPoolExecutor
 from logging import Logger
 from typing import Any

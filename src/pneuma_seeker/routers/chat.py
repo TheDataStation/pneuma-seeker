@@ -80,9 +80,9 @@ def _resolve_dataset_permissions(
 
 
 def get_retrievable_datasets(current_user: UserRecord) -> list[str]:
-    """Datasets `current_user` may access that Table Retrieve can search (indexed).
-
-    In multi-dataset mode this is the only set the agents may draw tables from.
+    """
+    Returns the datasets `current_user` may access that Table Retrieve can search.
+    In multi-dataset mode, agents may draw tables only from these.
     """
     is_admin, group_permissions = _resolve_dataset_permissions(current_user)
     return sorted(

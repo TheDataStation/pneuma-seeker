@@ -33,6 +33,7 @@ class GeminiLLM(AbstractModel):
         self.total_llm_time = 0.0
         self.total_input_tokens = 0
         self.total_output_tokens = 0
+        self.total_cached_input_tokens = 0
 
     def load_model(self):
         pass
@@ -69,11 +70,14 @@ class GeminiLLM(AbstractModel):
         if usage is not None:
             self.total_input_tokens += usage.prompt_tokens
             self.total_output_tokens += usage.completion_tokens
+            details = getattr(usage, "prompt_tokens_details", None)
+            self.total_cached_input_tokens += getattr(details, "cached_tokens", 0) or 0
     
     def reset_metrics(self):
         self.total_llm_time = 0.0
         self.total_input_tokens = 0
         self.total_output_tokens = 0
+        self.total_cached_input_tokens = 0
 
     def batch_chat(
         self,

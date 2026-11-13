@@ -62,24 +62,17 @@ class DatasetContextTests(unittest.TestCase):
             ctx.resolve(None)
         self.assertIn("a, b", ctx.describe())
 
-    def test_merge_replaces_only_searched_datasets(self):
+    def test_merge_is_append_only(self):
         existing = [_table("t1", "a"), _table("t2", "b")]
-        merged, notes = merge_retrieved(existing, [_table("t3", "b")], ["b"])
-        self.assertEqual(notes, [])
+        merged, notes = merge_retrieved(existing, [_table("t3", "b"), _table("t1", "a")])
         self.assertEqual(
             [(t.metadata["dataset_name"], t.doc_id) for t in merged],
-            [("a", "t1"), ("b", "t3")],
+            [("a", "t1"), ("b", "t2"), ("b", "t3")],
         )
-
-    def test_merge_with_one_dataset_is_full_replacement(self):
-        existing = [_table("t1", "a"), _table("t2", "a")]
-        new = [_table("t3", "a"), _table("t3", "a")]
-        self.assertEqual(
-            [t.doc_id for t in merge_retrieved(existing, new, ["a"])[0]], ["t3"]
-        )
+        self.assertEqual(notes, [])
 
     def test_merge_keeps_table_names_unique_newest_wins(self):
-        merged, notes = merge_retrieved([_table("t", "a"), _table("u", "a")], [_table("t", "b")], ["b"])
+        merged, notes = merge_retrieved([_table("t", "a"), _table("u", "a")], [_table("t", "b")])
         self.assertEqual(
             sorted((t.metadata["dataset_name"], t.doc_id) for t in merged),
             [("a", "u"), ("b", "t")],
@@ -88,13 +81,9 @@ class DatasetContextTests(unittest.TestCase):
         self.assertIn("`t` from `a` was replaced by the one from `b`", notes[0])
 
     def test_merge_same_name_in_one_call_keeps_first(self):
-        merged, notes = merge_retrieved([], [_table("t", "a"), _table("t", "b")], ["a", "b"])
+        merged, notes = merge_retrieved([], [_table("t", "a"), _table("t", "b")])
         self.assertEqual([t.metadata["dataset_name"] for t in merged], ["a"])
         self.assertIn("exists in both `a` and `b`", notes[0])
-
-    def test_merge_same_dataset_replacement_is_silent(self):
-        merged, notes = merge_retrieved([_table("t", "a")], [_table("t", "a")], [])
-        self.assertEqual((len(merged), notes), (1, []))
 
     def test_in_scope_drops_out_of_scope_tables(self):
         docs = [_table("t", "a"), _table("u", "b"), _table("ext", None)]
@@ -208,7 +197,8 @@ class MultiDatasetConductorTests(unittest.TestCase):
         registry = self.conductor.action_set.registry
         names = [a.action_name for a in registry.get_for_agent(AgentType.CONDUCTOR)]
         self.assertEqual(names[0], ActionNames.DATASET_LISTING)
-        self.assertIn(
+        # Discovery is the Conductor's: the Materializer only builds T from its contract.
+        self.assertNotIn(
             ActionNames.DATASET_LISTING,
             [a.action_name for a in registry.get_for_agent(AgentType.MATERIALIZER)],
         )

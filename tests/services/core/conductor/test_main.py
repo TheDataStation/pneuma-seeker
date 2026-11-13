@@ -202,6 +202,7 @@ class ConductorTests(unittest.TestCase):
         )
 
     def test_table_enumerator_updates_enumerated_ids(self):
+        self.conductor.config.ENABLE_TABLE_ENUMERATION = True
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
             {{"action":"{ActionNames.TABLE_ENUMERATION.value}","args":{{"patterns":["pattern"]}}}},
@@ -256,7 +257,7 @@ class ConductorTests(unittest.TestCase):
     def test_state_manipulation_sets_only_T(self):
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
-            {{"action":"state_manipulation","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
+            {{"action":"state_manipulation","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"column_sources":{{"t1":{{"a":[],"b":[]}}}}}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
         ]}}""",
             "T set",
@@ -288,7 +289,7 @@ class ConductorTests(unittest.TestCase):
 
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
-            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
+            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"column_sources":{{"t1":{{"a":[]}}}}}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
         ]}}""",
             "T-only refinement done",
@@ -309,7 +310,7 @@ class ConductorTests(unittest.TestCase):
     def test_state_manipulation_sets_S_and_T(self):
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
-            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"S":"result = pd.DataFrame({{'sum': [tables['t1']['a'].sum()]}})"}}}},
+            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"column_sources":{{"t1":{{"a":[],"b":[]}}}},"S":"result = pd.DataFrame({{'sum': [tables['t1']['a'].sum()]}})"}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
         ]}}""",
             "state done",
@@ -345,7 +346,7 @@ class ConductorTests(unittest.TestCase):
         # First STATE_MANIPULATION: define T={t1}
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
-            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
+            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"column_sources":{{"t1":{{"a":[],"b":[]}}}}}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
         ]}}""",
             "T set",
@@ -374,7 +375,7 @@ class ConductorTests(unittest.TestCase):
         # Second STATE_MANIPULATION: redefine T={t2}
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
-            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t2":["a","b"]}},"column_descriptions":{{"t2":{{"a":"col a"}}}}}}}},
+            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t2":["a","b"]}},"column_descriptions":{{"t2":{{"a":"col a"}}}},"column_sources":{{"t2":{{"a":[],"b":[]}}}}}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
         ]}}""",
             "T reset",
@@ -413,7 +414,7 @@ class ConductorTests(unittest.TestCase):
 
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
-            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b","c"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
+            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b","c"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"column_sources":{{"t1":{{"a":[],"b":[],"c":[]}}}}}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
         ]}}""",
             "T redefined",
@@ -445,7 +446,7 @@ class ConductorTests(unittest.TestCase):
 
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
-            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
+            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"column_sources":{{"t1":{{"a":[]}}}}}}}},
             {{"action":"{ActionNames.MATERIALIZER.value}","args":{{"note":"add col","mode":"update"}}}}
         ]}}""",
             f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{}}}}]}}""",
@@ -475,7 +476,7 @@ class ConductorTests(unittest.TestCase):
 
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
-            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
+            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"column_sources":{{"t1":{{"a":[]}}}}}}}},
             {{"action":"{ActionNames.MATERIALIZER.value}","args":{{"note":""}}}}
         ]}}""",
             f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{}}}}]}}""",
@@ -505,7 +506,7 @@ class ConductorTests(unittest.TestCase):
 
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
-            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
+            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"column_sources":{{"t1":{{"a":[]}}}}}}}},
             {{"action":"{ActionNames.MATERIALIZER.value}","args":{{"note":"","mode":"reset"}}}}
         ]}}""",
             f"""{{"plan": [{{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{}}}}]}}""",
@@ -532,7 +533,7 @@ class ConductorTests(unittest.TestCase):
         what prevents it here, not a handler-level guard."""
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
-                {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"S":"result = pd.DataFrame({{'sum': [tables['t1']['a'].sum()]}})"}}}},
+                {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"column_sources":{{"t1":{{"a":[],"b":[]}}}},"S":"result = pd.DataFrame({{'sum': [tables['t1']['a'].sum()]}})"}}}},
                 {{"action":"{ActionNames.MATERIALIZER.value}","args":{{"note":""}}}},
                 {{"action":"{ActionNames.PYTHON_EXECUTOR.value}","args":{{}}}}
             ]}}""",
@@ -574,7 +575,7 @@ class ConductorTests(unittest.TestCase):
         A second degenerate result in the same turn is accepted."""
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
-                {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"S":"x"}}}},
+                {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"column_sources":{{"t1":{{"a":[]}}}},"S":"x"}}}},
                 {{"action":"{ActionNames.MATERIALIZER.value}","args":{{"note":""}}}}
             ]}}""",
             f"""{{"plan": [{{"action":"{ActionNames.PYTHON_EXECUTOR.value}","args":{{}}}}]}}""",
@@ -798,7 +799,7 @@ class ConductorTests(unittest.TestCase):
         Conductor doesn't have to infer what happened from environment state alone."""
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
-                {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"S":"result = pd.DataFrame({{'sum': [tables['t1']['a'].sum()]}})"}}}},
+                {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"column_sources":{{"t1":{{"a":[],"b":[]}}}},"S":"result = pd.DataFrame({{'sum': [tables['t1']['a'].sum()]}})"}}}},
                 {{"action":"{ActionNames.MATERIALIZER.value}","args":{{"note":""}}}}
             ]}}""",
             "materialization and execution done",
@@ -871,7 +872,7 @@ class ConductorTests(unittest.TestCase):
 
         self.conductor.language_model_api.llm._responses = [
             f"""{{"plan": [
-            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"S":"result = 1"}}}},
+            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"column_sources":{{"t1":{{"a":[]}}}},"S":"result = 1"}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
         ]}}""",
             "both updated",
@@ -892,7 +893,7 @@ class ConductorTests(unittest.TestCase):
 
         self.conductor.language_model_api.llm._responses = [
             f"""{{"plan": [
-            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}}}}}},
+            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"column_sources":{{"t1":{{"a":[]}}}}}}}},
             {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args": {{}}}}
         ]}}""",
             "T only",
@@ -998,7 +999,7 @@ class ConductorTests(unittest.TestCase):
                 {{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}
             ]}}""",
             f"""{{"plan": [
-                {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"S":"result = tables['t1']"}}}},
+                {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a","b"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"column_sources":{{"t1":{{"a":[],"b":[]}}}},"S":"result = tables['t1']"}}}},
                 {{"action":"{ActionNames.USER_FACING_COMMUNICATION.value}","args":{{}}}}
             ]}}""",
             "Here is my proposed plan.",
@@ -1036,7 +1037,7 @@ class ConductorTests(unittest.TestCase):
         self.conductor.config.ENABLE_PLAN_MODE = False
         self.conductor.language_model_api.llm._responses = [  # type: ignore
             f"""{{"plan": [
-                {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"S":"result = 1"}}}},
+                {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"column_sources":{{"t1":{{"a":[]}}}},"S":"result = 1"}}}},
                 {{"action":"{ActionNames.MATERIALIZER.value}","args":{{}}}}
             ]}}""",
             "materialized for real",
@@ -1146,42 +1147,6 @@ class ConductorTests(unittest.TestCase):
         self.assertEqual(self.conductor.actions, [])
         self.assertEqual(self.conductor.llm_messages, [])
 
-    def test_information_needs_grounding_records_leads_for_the_gate(self):
-        """Grounding records hedged leads as a situational analysis and hands them
-        to the gate in place of the bare plan, once per turn."""
-        self.conductor._information_needs = "1. Which records are in scope?"
-        self.conductor.retrieved_tables = [MagicMock()]
-        self.conductor.language_model_api.llm._responses = [  # type: ignore
-            "1. Which records are in scope?\n   - probably t.excluded_flag"
-        ]
-        with patch(
-            "pneuma_seeker.services.core.conductor.prompt_factory.convert_retrieval_results_to_str",
-            return_value="",
-        ):
-            self.conductor._ground_information_needs("question", "ds")
-
-        self.assertTrue(self.conductor._information_needs_grounded)
-        self.assertIn("probably t.excluded_flag", self.conductor._information_needs)
-        self.assertEqual(len(self.conductor.actions), 1)
-        self.assertIn(ActionNames.SITUATIONAL_ANALYSIS.value, self.conductor.actions[0])
-        self.assertIn("hypotheses to verify", self.conductor.actions[0])
-
-    def test_information_needs_grounding_failure_keeps_plan(self):
-        """If grounding fails, the bare plan stays in the gate and it is not retried."""
-        self.conductor._information_needs = "1. Which records are in scope?"
-        with patch.object(
-            self.conductor.language_model_api,
-            "chat",
-            side_effect=RuntimeError("LLM unavailable"),
-        ):
-            self.conductor._ground_information_needs("question", "ds")
-
-        self.assertTrue(self.conductor._information_needs_grounded)
-        self.assertEqual(
-            self.conductor._information_needs, "1. Which records are in scope?"
-        )
-        self.assertEqual(self.conductor.actions, [])
-
     def test_information_needs_prompt_forbids_assuming_data(self):
         """The planning prompt must frame needs as data-blind and provisional,
         and both conductor modes must treat the plan as a revisable checklist."""
@@ -1196,21 +1161,22 @@ class ConductorTests(unittest.TestCase):
         """The plan's needs are repeated in the state prompt, with the demand to
         resolve them from data, only after there are tables to check against."""
         factory = self.conductor.prompt_factory
-        needs = "1. Does the data mark some records as excluded?"
+        needs = ["Does the data mark some records as excluded?", "Which year?"]
         args = (1, self.conductor.state, [], [], [], "q", [], [])
 
         without_tables = factory.get_curr_state_prompt(*args, information_needs=needs)
-        self.assertNotIn(needs, without_tables)
+        self.assertNotIn(needs[0], without_tables)
 
         args_with_tables = (1, self.conductor.state, [], [], [MagicMock()], "q", [], [])
         with patch(
-            "pneuma_seeker.services.core.conductor.prompt_factory.convert_retrieval_results_to_str",
+            "pneuma_seeker.services.core.conductor.prompt_factory.render_retrieved_tables",
             return_value="",
         ):
             with_tables = factory.get_curr_state_prompt(
-                *args_with_tables, information_needs=needs
+                *args_with_tables, information_needs=needs, need_resolutions={2: "assumption: 2020"}
             )
-        self.assertIn(needs, with_tables)
+        self.assertIn("1. Does the data mark some records as excluded?\n   -> UNRESOLVED", with_tables)
+        self.assertIn("2. Which year?\n   -> resolved: assumption: 2020", with_tables)
         self.assertIn("resolve your information needs from the data", with_tables)
 
 

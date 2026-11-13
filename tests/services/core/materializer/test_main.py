@@ -19,7 +19,7 @@ from pneuma_seeker.provenance.graph import NodeKind, ProvenanceGraph
 from pneuma_seeker.services.core.action_set.main import ActionSet
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
-from pneuma_seeker.services.core.materializer.main import Materializer
+from pneuma_seeker.services.core.materializer.main import MaterializationIncomplete, Materializer
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.schemas.core.action import ActionNames
 from pneuma_seeker.shared.schemas.core.ir_system import RetrieverType, Table, Text
@@ -70,6 +70,22 @@ class MaterializerTests(unittest.TestCase):
             db_api=self.db_api,
             language_model_api=self.lm_api,
         )
+        # The up-front integration plan would consume the first scripted LLM
+        # response; step-loop tests stub it out (it has its own test).
+        self.materializer._plan_integration = MagicMock()  # type: ignore
+
+        # The Materializer no longer retrieves: it is given the tables T's sources
+        # name. Tests script their tables through the retrieval mock; pass what it
+        # returns (one call per materialization) as those provided tables.
+        materialize_T = self.materializer.materialize_T
+
+        def with_provided_tables(*args, **kwargs):
+            retrieve = self.action_set.retrieve_multi_topic_documents
+            if "prefetched_tables" not in kwargs and isinstance(retrieve, MagicMock):
+                kwargs["prefetched_tables"] = retrieve([], RetrieverType.PNEUMA_RETRIEVER, "", 10, True, 3)
+            return materialize_T(*args, **kwargs)
+
+        self.materializer.materialize_T = with_provided_tables  # type: ignore
 
     def tearDown(self):
         patch.stopall()
@@ -103,7 +119,7 @@ class MaterializerTests(unittest.TestCase):
 
     def test_table_retrieve_and_table_projection_materializes_T(self):
         # LLM will ask to call table_retrieve then table_projection to materialize t1
-        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}'
+        plan1 = f'{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"Using the provided tables."}}}}'
         plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
         self.lm_api.llm._responses = [f"""{{"plan": [{plan1}, {plan2}]}}"""]  # type: ignore
 
@@ -148,7 +164,7 @@ class MaterializerTests(unittest.TestCase):
 
     def test_web_search_sets_web_search_result(self):
         # LLM will call table_retrieve, web_search, then table_projection to finish
-        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}'
+        plan1 = f'{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"Using the provided tables."}}}}'
         plan2 = (
             f'{{"action":"{ActionNames.WEB_SEARCH.value}","args":{{"prompt":"query"}}}}'
         )
@@ -213,7 +229,7 @@ class MaterializerTests(unittest.TestCase):
 
     def test_web_crawl_sets_web_crawl_result(self):
         # LLM will call table_retrieve, web_crawl, then table_projection to finish
-        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}'
+        plan1 = f'{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"Using the provided tables."}}}}'
         plan2 = f'{{"action":"{ActionNames.WEB_CRAWL.value}","args":{{"url":"http://example.com"}}}}'
         plan3 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
         self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}, {plan3}]}}']  # type: ignore
@@ -277,7 +293,7 @@ class MaterializerTests(unittest.TestCase):
     def test_semantic_column_generator_adds_column(self):
         self.config.ENABLE_SEMANTIC_COL_GEN = True
         # LLM will call table_retrieve, table_projection, then semantic_column_generator
-        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}'
+        plan1 = f'{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"Using the provided tables."}}}}'
         plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
         plan3 = f'{{"action":"{ActionNames.SEMANTIC_COLUMN_GENERATION.value}","args":{{"table_id":"t1","new_column_name":"newcol","relevant_columns":["b"],"instruction":"make new"}}}}'
 
@@ -399,7 +415,7 @@ class MaterializerTests(unittest.TestCase):
         """If recording a model-driven step for replay fails, materialization
         still succeeds; the script stops at that step with an explanation."""
         self.config.ENABLE_SEMANTIC_COL_GEN = True
-        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}'
+        plan1 = f'{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"Using the provided tables."}}}}'
         plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
         plan3 = f'{{"action":"{ActionNames.SEMANTIC_COLUMN_GENERATION.value}","args":{{"table_id":"t1","new_column_name":"newcol","relevant_columns":["b"],"instruction":"make new"}}}}'
         self.lm_api.llm._responses = [  # type: ignore
@@ -480,7 +496,7 @@ df["revenue_k"] = df["revenue"] / 1000
 db_api.register_temporary_df(user_id, chat_id, df, "t2_tmp")
 db_api.execute_query(user_id, chat_id, 'CREATE OR REPLACE TABLE "t2" AS SELECT * FROM t2_tmp')"""
         plan = [
-            {"action": ActionNames.TABLE_RETRIEVE.value, "args": {"prompts": ["sales"]}},
+            {"action": ActionNames.SITUATIONAL_ANALYSIS.value, "args": {"message": "Using the provided tables."}},
             {
                 "action": ActionNames.TABLE_PROJECTION.value,
                 "args": {
@@ -626,7 +642,7 @@ db_api.execute_query(user_id, chat_id, 'CREATE OR REPLACE TABLE "t2" AS SELECT *
 
     def _run_fresh_t1_materialization(self) -> None:
         """Helper: run a fresh materialize_T that produces t1 with columns [a, b]."""
-        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}'
+        plan1 = f'{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"Using the provided tables."}}}}'
         plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
         self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}]}}']  # type: ignore
 
@@ -729,7 +745,7 @@ db_api.execute_query(user_id, chat_id, 'CREATE OR REPLACE TABLE "t2" AS SELECT *
         self.assertIn("t1", tables_after_first)
 
         # Second fresh run targeting t2 — t1 must be dropped
-        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find t2 tables"]}}}}'
+        plan1 = f'{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"Using the provided tables."}}}}'
         plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t2":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
         self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}]}}']  # type: ignore
         # retrieval mock already set from first run; reset to same table with new side_effect
@@ -765,7 +781,7 @@ db_api.execute_query(user_id, chat_id, 'CREATE OR REPLACE TABLE "t2" AS SELECT *
         """update_mode=False (reset) drops previous intermediates, same as fresh."""
         self._run_fresh_t1_materialization()
 
-        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find t2"]}}}}'
+        plan1 = f'{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"Using the provided tables."}}}}'
         plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t2":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
         self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}]}}']  # type: ignore
         table_df = pd.DataFrame({"a": [5, 6], "b": [7, 8]})
@@ -808,7 +824,7 @@ db_api.execute_query(user_id, chat_id, 'CREATE OR REPLACE TABLE "t2" AS SELECT *
         )
 
         # Second fresh run targeting t2
-        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find t2"]}}}}'
+        plan1 = f'{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"Using the provided tables."}}}}'
         plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t2":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
         self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}]}}']  # type: ignore
         table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
@@ -837,7 +853,7 @@ db_api.execute_query(user_id, chat_id, 'CREATE OR REPLACE TABLE "t2" AS SELECT *
 
     def test_update_mode_with_empty_saved_intermediates_completes_normally(self):
         """update_mode=True with no prior run pre-loads nothing and still completes."""
-        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}'
+        plan1 = f'{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"Using the provided tables."}}}}'
         plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
         self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}]}}']  # type: ignore
 
@@ -909,7 +925,7 @@ db_api.execute_query(user_id, chat_id, 'CREATE OR REPLACE TABLE "t2" AS SELECT *
         self.assertTrue(len(first_mat_node_ids) > 0)
 
         # Second fresh run targeting t2
-        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find t2"]}}}}'
+        plan1 = f'{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"Using the provided tables."}}}}'
         plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t2":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
         self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}]}}']  # type: ignore
         table_df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
@@ -971,9 +987,9 @@ db_api.execute_query(user_id, chat_id, 'CREATE OR REPLACE TABLE "t2" AS SELECT *
         self.assertIn("b", result_df.columns)
 
     def test_rematerialize_cleans_previous_intermediate_tables(self):
-        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find tables"]}}}}'
+        plan1 = f'{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"Using the provided tables."}}}}'
         plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
-        plan3 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find other tables"]}}}}'
+        plan3 = f'{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"Using the provided tables."}}}}'
         plan4 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t2":{{"id":"test_ds.table_2","columns":{{"a":"a","b":"b"}}}}}}}}'
 
         self.lm_api.llm._responses = [  # type: ignore
@@ -1071,7 +1087,7 @@ db_api.execute_query(user_id, chat_id, 'CREATE OR REPLACE TABLE "t2" AS SELECT *
         long as enough steps remain in the budget."""
         self.materializer.config.MAX_MATERIALIZER_STEPS = 2  # 1 wasted + 1 real step
 
-        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{"prompts":["find"]}}}}'
+        plan1 = f'{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"Using the provided tables."}}}}'
         plan2 = f'{{"action":"{ActionNames.TABLE_PROJECTION.value}","args":{{"t1":{{"id":"test_ds.table_1","columns":{{"a":"a","b":"b"}}}}}}}}'
         self.lm_api.llm._responses = [  # type: ignore
             '{"plan": "not a list"}',  # bad — consumes step 1
@@ -1111,9 +1127,10 @@ db_api.execute_query(user_id, chat_id, 'CREATE OR REPLACE TABLE "t2" AS SELECT *
         self.lm_api.llm._responses = ['{"plan": "not a list"}'] * 5  # type: ignore
 
         T = {"t1": pd.DataFrame(columns=["a", "b"])}
-        self.materializer.materialize_T(
-            T=T, column_descriptions={}, S="", dataset_name=self.dataset_name
-        )
+        with self.assertRaises(MaterializationIncomplete):
+            self.materializer.materialize_T(
+                T=T, column_descriptions={}, S="", dataset_name=self.dataset_name
+            )
 
         self.assertEqual(
             len(self.lm_api.llm._responses),
@@ -1130,7 +1147,7 @@ db_api.execute_query(user_id, chat_id, 'CREATE OR REPLACE TABLE "t2" AS SELECT *
         )
         self.db_api.ingest_dataset("test_ds", str(Path(self.tmpdir) / "test_ds"))
 
-        plan1 = f'{{"action":"{ActionNames.TABLE_RETRIEVE.value}","args":{{}}}}'  # missing 'prompts' -> ERROR
+        plan1 = f'{{"action":"{ActionNames.REPORT_BLOCKER.value}","args":{{}}}}'  # missing 'reason' -> ERROR
         plan2 = f'{{"action":"{ActionNames.WEB_SEARCH.value}","args":{{"prompt":"x"}}}}'
         self.lm_api.llm._responses = [f'{{"plan": [{plan1}, {plan2}]}}']  # type: ignore
         self.materializer.config.MAX_MATERIALIZER_STEPS = 1
@@ -1138,9 +1155,10 @@ db_api.execute_query(user_id, chat_id, 'CREATE OR REPLACE TABLE "t2" AS SELECT *
         self.action_set.retrieve_documents = MagicMock(return_value=[])
 
         T = {"t1": pd.DataFrame(columns=["a", "b"])}
-        self.materializer.materialize_T(
-            T=T, column_descriptions={}, S="", dataset_name=self.dataset_name
-        )
+        with self.assertRaises(MaterializationIncomplete):  # t1 is never built
+            self.materializer.materialize_T(
+                T=T, column_descriptions={}, S="", dataset_name=self.dataset_name
+            )
 
         self.action_set.retrieve_documents.assert_not_called()
         abort_messages = [
@@ -1151,6 +1169,68 @@ db_api.execute_query(user_id, chat_id, 'CREATE OR REPLACE TABLE "t2" AS SELECT *
         self.assertTrue(
             abort_messages, "Expected an abort note in llm_messages after the error"
         )
+
+
+    def test_blocker_stops_materialization_with_its_reason(self):
+        os.makedirs(Path(self.tmpdir) / "test_ds", exist_ok=True)
+        pd.DataFrame({"a": [1]}).to_csv(Path(self.tmpdir) / "test_ds" / "table_1.csv", index=False)
+        self.db_api.ingest_dataset("test_ds", str(Path(self.tmpdir) / "test_ds"))
+        plan = f'{{"action":"{ActionNames.REPORT_BLOCKER.value}","args":{{"reason":"no table has a jul column"}}}}'
+        self.lm_api.llm._responses = [f'{{"plan": [{plan}]}}'] * 3  # type: ignore
+        T = {"t1": pd.DataFrame(columns=["a"])}
+        with self.assertRaises(MaterializationIncomplete) as raised:
+            self.materializer.materialize_T(T=T, column_descriptions={}, S="", dataset_name=self.dataset_name)
+        self.assertIn("no table has a jul column", str(raised.exception))
+        self.assertEqual(len(self.lm_api.llm._responses), 2)  # stopped after the first step
+
+    def test_incomplete_T_is_never_reported_as_success(self):
+        os.makedirs(Path(self.tmpdir) / "test_ds", exist_ok=True)
+        pd.DataFrame({"a": [1]}).to_csv(Path(self.tmpdir) / "test_ds" / "table_1.csv", index=False)
+        self.db_api.ingest_dataset("test_ds", str(Path(self.tmpdir) / "test_ds"))
+        self.materializer.config.MAX_MATERIALIZER_STEPS = 2
+        self.lm_api.llm._responses = [  # type: ignore
+            f'{{"plan": [{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"thinking"}}}}]}}'
+        ] * 2
+        T = {"t1": pd.DataFrame(columns=["a"])}
+        with self.assertRaises(MaterializationIncomplete) as raised:
+            self.materializer.materialize_T(T=T, column_descriptions={}, S="", dataset_name=self.dataset_name)
+        self.assertIn("t1", str(raised.exception))
+
+    def test_unfinished_step_gets_guidance_but_not_before_step_one(self):
+        os.makedirs(Path(self.tmpdir) / "test_ds", exist_ok=True)
+        pd.DataFrame({"a": [1]}).to_csv(Path(self.tmpdir) / "test_ds" / "table_1.csv", index=False)
+        self.db_api.ingest_dataset("test_ds", str(Path(self.tmpdir) / "test_ds"))
+        self.materializer.config.MAX_MATERIALIZER_STEPS = 2
+        partial = f'{{"action":"{ActionNames.QUERY_EXECUTOR.value}","args":{{"assign_to":"t1","query":"CREATE OR REPLACE TABLE t1 AS SELECT 1 AS a"}}}}'
+        self.lm_api.llm._responses = [  # type: ignore
+            f'{{"plan": [{partial}]}}',
+            f'{{"plan": [{{"action":"{ActionNames.SITUATIONAL_ANALYSIS.value}","args":{{"message":"stuck"}}}}]}}',
+        ]
+        T = {"t1": pd.DataFrame(columns=["a", "b"])}
+        with self.assertRaises(MaterializationIncomplete) as raised:
+            self.materializer.materialize_T(T=T, column_descriptions={}, S="", dataset_name=self.dataset_name)
+
+        guidance = [m["content"] for m in self.materializer.llm_messages if str(m["content"]).startswith("Not done yet")]
+        self.assertEqual(len(guidance), 2)  # one per unfinished step, none before step 1
+        self.assertEqual(
+            guidance[0],
+            "Not done yet (step 1 of 2 used): `t1` is missing columns: b.\n"
+            "Continue with your integration plan, or revise it if the data requires.\n"
+            f"If T cannot be built from the provided tables, call {ActionNames.REPORT_BLOCKER.value} with what is missing.",
+        )
+        first_step = next(i for i, m in enumerate(self.materializer.llm_messages) if m["role"] == "assistant")
+        self.assertFalse(any(str(m["content"]).startswith("Not done yet") for m in self.materializer.llm_messages[:first_step]))
+        self.assertIn("`t1` is missing columns: b.", str(raised.exception))
+
+    def test_integration_plan_opens_the_conversation(self):
+        del self.materializer._plan_integration  # the real method, not setUp's stub
+        self.lm_api.llm._responses = ["1. Read src.t; project a."]  # type: ignore
+        self.materializer.state.T = {"t1": pd.DataFrame(columns=["a"])}
+        self.materializer._column_sources = {"t1": {"a": ["src.t.a"]}}
+        self.materializer.llm_messages = []
+        self.materializer._plan_integration("")
+        self.assertIn("Integration plan (provisional", self.materializer.llm_messages[-1]["content"])
+        self.assertIn("1. Read src.t; project a.", self.materializer.llm_messages[-1]["content"])
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # src/pneuma_seeker/services/db/memory/manager.py
 from logging import Logger
-from typing import Any
+from typing import Any, LiteralString
 from uuid import uuid4
 
 import psycopg
@@ -11,7 +11,7 @@ from pneuma_seeker.shared.config import Config
 
 _UNSET = object()
 
-_COLUMNS = (
+_COLUMNS: tuple[LiteralString, ...] = (
     "memory_id",
     "memory_type",
     "group_id",
@@ -229,7 +229,7 @@ class MemoryManager:
         (dataset_metadata/table_metadata/column_metadata) always require an exact match,
         since those rows are never created without a dataset_name in the first place.
         """
-        clauses = ["memory_type = %s"]
+        clauses: list[LiteralString] = ["memory_type = %s"]
         params: list[Any] = [memory_type]
 
         if group_ids is not None:
@@ -283,10 +283,10 @@ class MemoryManager:
             ).fetchone()
         finally:
             con.close()
-        return [str(v) for v in row]
+        return [str(v) for v in row or ()]
 
     def corpus(self, memory_type: str) -> list[tuple[str, str]]:
-        """(memory_id, content) of every entry of `memory_type`, in a stable order."""
+        """Returns (memory_id, content) of every entry of `memory_type`, in a stable order."""
         con = self._get_connection()
         try:
             rows = con.execute(

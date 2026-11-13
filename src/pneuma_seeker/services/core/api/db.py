@@ -84,7 +84,7 @@ class DBAPI:
     def rank_tribal_knowledge(
         self, dataset_name: str, group_ids: list[str], query: str
     ) -> list[dict[str, Any]]:
-        """The visible tribal knowledge, best BM25 match to `query` first."""
+        """Returns the visible tribal knowledge, best BM25 match to `query` first."""
         return self.pneuma_db.rank_tribal_knowledge(dataset_name, group_ids, query)
 
     # ------------------------------------------------------------------
@@ -123,6 +123,21 @@ class DBAPI:
     # ------------------------------------------------------------------
     # Chat Session Persistence
     # ------------------------------------------------------------------
+    def drop_relation(self, user_id: str, chat_id: str, name: str) -> None:
+        """Drops the workspace table or view `name`, if it exists (whichever it is)."""
+        kinds = self.execute_query(
+            user_id,
+            chat_id,
+            "SELECT table_type FROM information_schema.tables "
+            "WHERE table_name = ? AND table_catalog = current_database()",
+            (name,),
+        )["table_type"].tolist()
+        quoted = '"' + name.replace('"', '""') + '"'
+        for kind in kinds:
+            self.execute_query(
+                user_id, chat_id, f"DROP {'VIEW' if kind == 'VIEW' else 'TABLE'} IF EXISTS {quoted}"
+            )
+
     def register_temporary_df(
         self, user_id: str, chat_id: str, df: DataFrame, table_name: str
     ):

@@ -154,7 +154,7 @@ class MethodSettingTests(unittest.TestCase):
         saved = {k: os.environ.pop(k, None) for k in ("TABLE_DISCOVERY_METHOD", "TRIBAL_KNOWLEDGE_RETRIEVAL_METHOD")}
         try:
             config = Config(".env.test")
-            self.assertEqual(config.TABLE_DISCOVERY_METHOD, "pneuma_retriever")
+            self.assertEqual(config.TABLE_DISCOVERY_METHOD, "m1")
             self.assertEqual(config.TRIBAL_KNOWLEDGE_RETRIEVAL_METHOD, "m1")
             for name, bad in (("TABLE_DISCOVERY_METHOD", "pneuma"), ("TRIBAL_KNOWLEDGE_RETRIEVAL_METHOD", "hybrid")):
                 os.environ[name] = bad

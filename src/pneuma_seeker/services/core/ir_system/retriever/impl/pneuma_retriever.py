@@ -51,7 +51,7 @@ INDEX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "indices",
 
 
 def is_dataset_indexed(dataset_name: str) -> bool:
-    """Whether Table Retrieve can search `dataset_name` (its indices exist)."""
+    """Checks whether Table Retrieve can search `dataset_name` (its indices exist)."""
     return Path(INDEX_PATH, f"vector-index-{dataset_name}").exists() and Path(
         INDEX_PATH, f"fulltext-index-{dataset_name}"
     ).exists()

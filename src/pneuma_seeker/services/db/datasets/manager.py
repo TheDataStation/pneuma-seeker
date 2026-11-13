@@ -314,8 +314,10 @@ class DatasetManager:
         return str(description)
 
     def dataset_fingerprint(self, dataset_name: str) -> str:
-        """Changes when the dataset's data may have: the DB file's size and mtime,
-        or for Postgres, its connection (changes inside it aren't detected)."""
+        """
+        Returns a fingerprint that changes when the dataset's data may have: the DB file's
+        size and mtime, or for Postgres, its connection (changes inside it aren't detected).
+        """
         if dataset_name in self._pg_registry:
             digest = hashlib.sha256(self._pg_registry[dataset_name].encode()).hexdigest()
             return f"pg:{digest[:16]}"

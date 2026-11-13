@@ -23,11 +23,16 @@ from pneuma_seeker.services.core.dataset_context import (
     dataset_of,
     in_scope,
     merge_retrieved,
+    table_key,
 )
-from pneuma_seeker.services.core.materializer.main import Materializer
+from pneuma_seeker.services.core.retrieved_tables import source_tables
+from pneuma_seeker.services.core.materializer.main import (
+    MaterializationIncomplete,
+    Materializer,
+)
 from pneuma_seeker.services.core.materializer.models import MaterializerMode
 from pneuma_seeker.shared.config import Config
-from pneuma_seeker.shared.logger import formatted_log
+from pneuma_seeker.shared.logger import format_timing, formatted_log
 from pneuma_seeker.shared.parser import parse_json
 from pneuma_seeker.shared.str_processor import dataframe_to_preview_str
 from pneuma_seeker.shared.schemas.core.action import ActionExecutionStatus, ActionNames
@@ -44,8 +49,10 @@ from pneuma_seeker.shared.schemas.language_model.role import Role
 
 
 def split_information_needs(needs: str) -> list[str]:
-    """Splits the planned numbered list of information needs into one string per
-    need (continuation lines stay with their need). Unnumbered text is one need."""
+    """
+    Splits the planned numbered list of information needs into one string per need
+    (continuation lines stay with their need). Unnumbered text is one need.
+    """
     items: list[str] = []
     for line in needs.splitlines():
         stripped = line.strip()
@@ -119,6 +126,10 @@ class Conductor:
         self._memory_group_ids: list[str] = []
         self._memory_datasets_seen: set[str] = set()
         self._tribal_knowledge_queries: list[str] = []
+        self.found_by: dict[str, list[str]] = {}  # "<dataset>.<table>" -> queries that found it
+        self.latest_retrieval: set[str] = set()
+        self._needs: list[str] = []
+        self._need_resolutions: dict[int, str] = {}
 
         self.user_facing_response = ""
         self.actions: list[str] = []
@@ -129,7 +140,6 @@ class Conductor:
         self._plan_mode: bool = False
         self._degenerate_result_flagged: bool = False
         self._information_needs: str | None = None
-        self._information_needs_grounded: bool = False
 
         self._action_handlers: dict[str, Any] = {
             ActionNames.SITUATIONAL_ANALYSIS.value: self._handle_situational_analysis,
@@ -223,11 +233,9 @@ class Conductor:
             )
         ]
         self._plan_information_needs(user_message, dataset_name)
-        # Tribal knowledge is retrieved per planned information need (falling
-        # back to the user's message), keeping only entries that match one.
-        self._tribal_knowledge_queries = split_information_needs(
-            self._information_needs or ""
-        ) or [user_message]
+        # Tribal knowledge is retrieved per planned need (or for the user's message).
+        self._needs = split_information_needs(self._information_needs or "")
+        self._tribal_knowledge_queries = self._needs or [user_message]
         self.used_memory_entries = self._fetch_tribal_knowledge(dataset_name)
         if self.used_memory_entries:
             self.llm_messages.append(
@@ -242,6 +250,7 @@ class Conductor:
         prev_accumulated_in_tokens = self.language_model_api.llm.total_input_tokens
         prev_accumulated_out_tokens = self.language_model_api.llm.total_output_tokens
         prev_accumulated_llm_time = self.language_model_api.llm.total_llm_time
+        prev_accumulated_cached_tokens = self.language_model_api.llm.total_cached_input_tokens
 
         while (
             self.user_facing_response == ""
@@ -270,7 +279,10 @@ class Conductor:
                     self.web_search_result,
                     self.web_crawl_result,
                     self.join_paths,
-                    information_needs=self._information_needs,
+                    information_needs=self._needs,
+                    need_resolutions=self._need_resolutions,
+                    spotlight=self._spotlight(),
+                    found_by=self.found_by,
                     dataset_scope=self.dataset_ctx.describe(),
                 ),
             )
@@ -367,13 +379,6 @@ class Conductor:
                     break
 
             self.actions.append(str(executed_plan))
-            if (
-                self._information_needs
-                and not self._information_needs_grounded
-                and self.retrieved_tables
-                and self.user_facing_response == ""
-            ):
-                self._ground_information_needs(user_message, dataset_name)
 
             step_end_time = time()
             llm = self.language_model_api.llm
@@ -381,16 +386,19 @@ class Conductor:
             step_input_tokens = llm.total_input_tokens - prev_accumulated_in_tokens
             step_output_tokens = llm.total_output_tokens - prev_accumulated_out_tokens
             step_llm_time = llm.total_llm_time - prev_accumulated_llm_time
+            step_cached_tokens = llm.total_cached_input_tokens - prev_accumulated_cached_tokens
 
             prev_accumulated_in_tokens = llm.total_input_tokens
             prev_accumulated_out_tokens = llm.total_output_tokens
             prev_accumulated_llm_time = llm.total_llm_time
+            prev_accumulated_cached_tokens = llm.total_cached_input_tokens
 
             self._log_step_profiling(
                 step_input_tokens,
                 step_output_tokens,
                 step_end_time - step_start_time,
                 step_llm_time,
+                step_cached_tokens,
             )
 
         if self.user_facing_response == "":
@@ -468,60 +476,8 @@ class Conductor:
             llm.total_output_tokens,
             time() - planning_start_time,
             llm.total_llm_time,
+            llm.total_cached_input_tokens,
         )
-
-    def _ground_information_needs(self, user_message: str, dataset_name: str) -> None:
-        """Adds hedged leads into the retrieved tables under each planned need.
-
-        Runs once per turn. The leads only point Conductor at what to check; the
-        gate in the state prompt still requires it to verify them against the data.
-        """
-        self._information_needs_grounded = True
-        message = "Linking information needs to retrieved tables..."
-        self.frontend_callback(ConductorResponse(ConductorResponseType.LOG, message))
-        self._log(message)
-        try:
-            leads = "".join(
-                self.language_model_api.chat(
-                    [
-                        LLMMessage(
-                            role=Role.SYSTEM.value,
-                            content=self.prompt_factory.get_needs_grounding_sys_prompt(),
-                        ),
-                        LLMMessage(
-                            role=Role.USER.value,
-                            content=self.prompt_factory.get_needs_grounding_user_prompt(
-                                user_message,
-                                self._information_needs or "",
-                                self.retrieved_tables,
-                            ),
-                        ),
-                    ],
-                    LLMOption(stream=True, top_p=0.1),
-                )
-            ).strip()
-        except Exception as exc:
-            self._log(f"Linking information needs failed, continuing without it: {exc}")
-            return
-        if not leads:
-            self._log("Linking information needs returned nothing, continuing without it.")
-            return
-        self._information_needs = leads
-
-        action_plan = {
-            "action": ActionNames.SITUATIONAL_ANALYSIS.value,
-            "args": {
-                "message": (
-                    "Leads for each information need in the retrieved tables "
-                    f"(hypotheses to verify, not conclusions):\n{leads}"
-                )
-            },
-        }
-        self._log(f"Executing action: {action_plan}")
-        self._execute_action(
-            user_message, action_plan["action"], action_plan["args"], dataset_name
-        )
-        self.actions.append(str([action_plan]))
 
     def _validate_plan(self, plan: Any) -> list[dict[str, Any]]:
         if not isinstance(plan, list):
@@ -772,17 +728,18 @@ class Conductor:
     ) -> tuple[str, ActionExecutionStatus]:
         self._log(f"Table Retrieve request with params: {action_args}")
         if not isinstance(action_args, dict):
-            error_msg = "=> `args` must be an object with a `prompt` property"
+            error_msg = "`args` must be an object with `prompts` and/or `tables`"
             self._log(f"=> {error_msg}")
             return error_msg, ActionExecutionStatus.ERROR
-        if "prompts" not in action_args:
-            error_msg = "=> `args` must have a `prompts` property"
-            self._log(f"=> {error_msg}")
-            return error_msg, ActionExecutionStatus.ERROR
-        if not isinstance(action_args["prompts"], list) or not all(
-            isinstance(p, str) for p in action_args["prompts"]
-        ):
-            error_msg = "=> `prompts` must be a list of strings"
+        prompts = action_args.get("prompts") or []
+        names = action_args.get("tables") or []
+        for key, value in (("prompts", prompts), ("tables", names)):
+            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+                error_msg = f"`{key}` must be a list of strings"
+                self._log(f"=> {error_msg}")
+                return error_msg, ActionExecutionStatus.ERROR
+        if not prompts and not names:
+            error_msg = "Provide `prompts` (to search) and/or `tables` (names, `*` allowed)"
             self._log(f"=> {error_msg}")
             return error_msg, ActionExecutionStatus.ERROR
         try:
@@ -792,34 +749,51 @@ class Conductor:
             return str(e), ActionExecutionStatus.ERROR
 
         new_tables: list[AbstractDocument] = []
+        found_by: dict[str, list[str]] = {}
         for ds in datasets:
-            new_tables += self._retrieve_tables_from(action_args["prompts"], ds)
-        replaced: list[str] = []
-        if self.dataset_ctx.multi:
-            self.retrieved_tables, replaced = merge_retrieved(
-                self.retrieved_tables, new_tables, datasets
-            )
-        else:
-            self.retrieved_tables = new_tables
+            tables, topics = self._retrieve_tables_from(prompts, ds) if prompts else ([], {})
+            new_tables += tables
+            for key, queries in topics.items():
+                found_by.setdefault(key, []).extend(queries)
+        missing: list[str] = []
+        if names:
+            loaded, missing = self.action_set.load_tables_by_name(names, datasets, 3)
+            new_tables += loaded
+            for doc in loaded:
+                found_by.setdefault(table_key(doc), []).append("by name")
 
-        self._log(f"Retrieved tables:\n {[i.doc_id for i in self.retrieved_tables]}")
+        self.retrieved_tables, replaced = merge_retrieved(self.retrieved_tables, new_tables)
+        for key, queries in found_by.items():
+            known = self.found_by.setdefault(key, [])
+            known.extend(q for q in queries if q not in known)
+        self.latest_retrieval = {table_key(doc) for doc in new_tables}
+
+        self._log(f"Retrieved tables:\n {[i.doc_id for i in new_tables]}")
         try:
             self.join_paths = self.action_set.discover_join_paths(self.retrieved_tables)
         except Exception as e:
             self._log(f"=> Error during join path extraction: {e}")
-        success_msg = "Successfully retrieved tables from Table Retrieve. Notice that the `RETRIEVED TABLES` has been updated."
+        success_msg = (
+            f"Table Retrieve returned {len(new_tables)} table(s); they are added to "
+            "`RETRIEVED TABLES` and shown with sample rows."
+        )
+        if missing:
+            success_msg += f" Not found: {', '.join(missing)}."
+        if replaced:
+            success_msg += " Note: " + " ".join(replaced)
         if self.dataset_ctx.multi:
-            success_msg += self._multi_dataset_retrieval_notes(
-                user_message, datasets, replaced
-            )
+            success_msg += self._multi_dataset_retrieval_notes(datasets)
         self._log(success_msg)
         self._log_table_repr_tokens(self.retrieved_tables)
         return success_msg, ActionExecutionStatus.SUCCESS
 
     def _retrieve_tables_from(
         self, prompts: list[str], dataset_name: str
-    ) -> list[AbstractDocument]:
-        """Retrieves, deduplicates and (optionally) column-compacts one dataset's tables."""
+    ) -> tuple[list[AbstractDocument], dict[str, list[str]]]:
+        """
+        Retrieves one dataset's tables for `prompts`, deduplicated (and optionally
+        column-compacted), with the prompts that found each table.
+        """
         retrieved = self.action_set.retrieve_multi_topic_documents(
             prompts,
             RetrieverType.PNEUMA_RETRIEVER,
@@ -832,7 +806,11 @@ class Conductor:
         # Deduplicate: same table may appear for multiple prompts — keep first occurrence
         seen: set[str] = set()
         deduped: list[AbstractDocument] = []
+        found_by: dict[str, list[str]] = {}
         for doc in retrieved:
+            topic = doc.metadata.get("topic")
+            if topic and topic not in found_by.setdefault(table_key(doc), []):
+                found_by[table_key(doc)].append(topic)
             if doc.doc_id not in seen:
                 seen.add(doc.doc_id)
                 deduped.append(doc)
@@ -851,16 +829,11 @@ class Conductor:
                 sim_threshold=self.config.COLUMN_COMPACTION_SIM_THRESHOLD,
                 use_llm_threshold=self.config.COLUMN_COMPACTION_USE_LLM_THRESHOLD,
             )
-        return deduped
+        return deduped, found_by
 
-    def _multi_dataset_retrieval_notes(
-        self, user_message: str, datasets: list[str], replaced: list[str]
-    ) -> str:
-        """Extra feedback for a multi-dataset retrieval: same-named tables that
-        replaced one another, and tribal knowledge of datasets first touched this turn."""
+    def _multi_dataset_retrieval_notes(self, datasets: list[str]) -> str:
+        """Returns the tribal knowledge of datasets first searched this turn."""
         notes = ""
-        if replaced:
-            notes += "\nNote: " + " ".join(replaced)
         for ds in datasets:
             if ds in self._memory_datasets_seen:
                 continue
@@ -873,7 +846,7 @@ class Conductor:
         return notes
 
     def _fetch_tribal_knowledge(self, dataset_name: str) -> list[dict[str, Any]]:
-        """Tribal knowledge for `dataset_name` matching this turn's information needs."""
+        """Fetches tribal knowledge for `dataset_name` matching this turn's information needs."""
         try:
             entries = self.tribal_knowledge_retriever.retrieve(
                 dataset_name,
@@ -977,9 +950,7 @@ class Conductor:
                 action_args["patterns"], RetrieverType.ENUMERATOR, ds, 20, True, 2
             )
         if self.dataset_ctx.multi:
-            self.enumerated_tables, _ = merge_retrieved(
-                self.enumerated_tables, enumerated, datasets
-            )
+            self.enumerated_tables, _ = merge_retrieved(self.enumerated_tables, enumerated)
             # Enumerated tables are handed to the Materializer alongside the
             # retrieved ones, so names must not clash across datasets.
             retrieved_ds = {t.doc_id: dataset_of(t) for t in self.retrieved_tables}
@@ -1014,53 +985,101 @@ class Conductor:
         column_descriptions: dict[str, dict[str, str]] | None = action_args.get(
             "column_descriptions"
         )
+        column_sources = action_args.get("column_sources")
         S: str | None = action_args.get("S")
+        resolutions = action_args.get("need_resolutions") or {}
 
-        is_T_modified = False
-        if T is not None and len(T) > 0:
-            if column_descriptions is not None:
-                # STATE_MANIPULATION is a pure in-memory schema operation.
-                # MATERIALIZER owns the DB lifecycle of T tables (drop/create).
-                T_docs: dict[str, AbstractDocument] = dict()
-                for schema_id in T:
-                    target_schema_df = DataFrame(columns=T[schema_id])
-                    T_docs[schema_id] = Table(
-                        doc_id=schema_id,
-                        retriever_type=RetrieverType.CONDUCTOR,
-                        content=target_schema_df,
-                        metadata={},
-                        path=schema_id,
-                    )
-                self.state.T = T_docs
-                self.state.column_descriptions = column_descriptions
-                self.state.is_T_materialized = False
-                self.state.is_S_executed = False  # S must be re-run if T changes.
-                is_T_modified = True
-            else:
-                error_msg = "If you want to change T, make sure to also define column_descriptions."
-                self._log(error_msg)
-                return error_msg, ActionExecutionStatus.ERROR
+        def error(msg: str) -> tuple[str, ActionExecutionStatus]:
+            self._log(f"=> {msg}")
+            return msg, ActionExecutionStatus.ERROR
 
-        is_S_modified = False
+        is_T_modified = bool(T)
+        if T:
+            if column_descriptions is None:
+                return error("If you want to change T, make sure to also define column_descriptions.")
+            if not isinstance(column_sources, dict):
+                return error(
+                    "If you want to change T, also define column_sources: for each table and column, "
+                    'a list of "<dataset>.<table>.<column>" it comes from.'
+                )
+            missing = [
+                f"{t}.{c}" for t, cols in T.items() for c in cols
+                if not isinstance((column_sources.get(t) or {}).get(c), list)
+            ]
+            if missing:
+                return error(f"column_sources must give a list for every column of T; missing: {', '.join(missing)}")
+        if not isinstance(resolutions, dict) or not all(
+            str(k).isdigit() and 1 <= int(k) <= len(self._needs) and isinstance(v, str) and v.strip()
+            for k, v in resolutions.items()
+        ):
+            return error(
+                f"need_resolutions must map need numbers (1-{len(self._needs)}) to how each is resolved."
+            )
+        if not is_T_modified and S is None:
+            return error("No modification is done.")
+
+        resolved = {**self._need_resolutions, **{int(k): v.strip() for k, v in resolutions.items()}}
+        will_be_complete = bool(T or self.state.T) and (S is not None or bool(self.state.S))
+        unresolved = [i for i in range(1, len(self._needs) + 1) if i not in resolved]
+        if will_be_complete and unresolved:
+            return error(
+                f"Unresolved information needs: {', '.join(map(str, unresolved))}. When T and S are both "
+                "defined, give need_resolutions for every need: the evidence that resolves it (a column "
+                f"you saw, a {ActionNames.CONTEXT_EXTRACTION.value} result, a tribal-knowledge note) or "
+                "the assumption you make."
+            )
+        self._need_resolutions = resolved
+
+        warnings = ""
+        if T and column_descriptions is not None and isinstance(column_sources, dict):  # validated above
+            # STATE_MANIPULATION is a pure in-memory schema operation.
+            # MATERIALIZER owns the DB lifecycle of T tables (drop/create).
+            self.state.T = {
+                schema_id: Table(
+                    doc_id=schema_id,
+                    retriever_type=RetrieverType.CONDUCTOR,
+                    content=DataFrame(columns=T[schema_id]),
+                    metadata={},
+                    path=schema_id,
+                )
+                for schema_id in T
+            }
+            self.state.column_descriptions = column_descriptions
+            self.state.column_sources = {
+                t: {c: [str(e) for e in column_sources[t][c]] for c in cols} for t, cols in T.items()
+            }
+            self.state.is_T_materialized = False
+            self.state.is_S_executed = False  # S must be re-run if T changes.
+            _, unmatched = source_tables(self.state.column_sources, self._source_candidates())
+            if unmatched:
+                warnings = (
+                    f" Warning: these column sources match no retrieved or external table: "
+                    f"{', '.join(unmatched)}. The Materializer only receives the tables T's sources name."
+                )
+
         if S is not None:
             self.state.S = S
             self.state.is_S_executed = False
             self.state.s_description = ""
-            is_S_modified = True
 
-        if is_T_modified and is_S_modified:
+        if is_T_modified and S is not None:
             success_msg = "Successfully modified both T and S."
         elif is_T_modified:
             success_msg = "Successfully modified T."
-        elif is_S_modified:
-            success_msg = "Successfully modified S."
         else:
-            error_msg = "No modification is done."
-            self._log(error_msg)
-            return error_msg, ActionExecutionStatus.ERROR
-
+            success_msg = "Successfully modified S."
+        success_msg += warnings
         self._log(success_msg)
         return success_msg, ActionExecutionStatus.SUCCESS
+
+    def _spotlight(self) -> set[str]:
+        """Tables shown with sample rows: the latest retrieval's, and those T's sources use."""
+        used, _ = source_tables(self.state.column_sources, self._source_candidates())
+        return self.latest_retrieval | used
+
+    def _source_candidates(self) -> list[AbstractDocument]:
+        """Returns the tables T's column sources may name."""
+        return self.retrieved_tables + self.enumerated_tables + self.external_tables
 
     def _handle_materializer(
         self, user_message: str, action_args: dict[str, Any], dataset_name: str
@@ -1080,35 +1099,44 @@ class Conductor:
         update_mode = mode == MaterializerMode.UPDATE.value
         self._log(f"Materializer called (note: {note}, mode={mode})")
 
-        (
-            retrieved_tables,
-            web_search_result,
-            web_crawl_result,
-            join_paths,
-            materialized_T_dfs,
-        ) = self.materializer.materialize_T(
-            {T_id: T_doc.content for T_id, T_doc in self.state.T.items()},
-            self.state.column_descriptions,
-            self.state.S,
-            note,
-            update_mode,
-            self.external_tables,
-            self.retrieved_tables + self.enumerated_tables,
-            self.web_search_result,
-            self.web_crawl_result,
-            dataset_name=dataset_name,
-            dataset_ctx=self.dataset_ctx,
-        )
+        # The Materializer gets only the tables T's column sources name.
+        used, _ = source_tables(self.state.column_sources, self._source_candidates())
+        contract_tables = [
+            doc for doc in self.retrieved_tables + self.enumerated_tables if table_key(doc) in used
+        ]
+        try:
+            (
+                _,
+                web_search_result,
+                web_crawl_result,
+                _,
+                materialized_T_dfs,
+            ) = self.materializer.materialize_T(
+                {T_id: T_doc.content for T_id, T_doc in self.state.T.items()},
+                self.state.column_descriptions,
+                self.state.S,
+                note,
+                update_mode,
+                self.external_tables,
+                contract_tables,
+                self.web_search_result,
+                self.web_crawl_result,
+                dataset_name=dataset_name,
+                dataset_ctx=self.dataset_ctx,
+                column_sources=self.state.column_sources,
+            )
+        except MaterializationIncomplete as exc:
+            error_msg = (
+                f"Materialization did not complete: {exc} Revise T or its column sources (e.g., "
+                f"retrieve a missing source table and name it), then call {ActionNames.MATERIALIZER.value} again."
+            )
+            self._log(f"=> {error_msg}")
+            return error_msg, ActionExecutionStatus.ERROR
 
-        if len(retrieved_tables) > 0:
-            self.retrieved_tables = retrieved_tables
         if web_search_result is not None:
             self.web_search_result = web_search_result
         if web_crawl_result is not None:
             self.web_crawl_result = web_crawl_result
-        if join_paths is not None:
-            self.join_paths = join_paths
-
         for T_id, T_df in materialized_T_dfs.items():
             self.state.T[T_id].content = T_df
 
@@ -1182,16 +1210,10 @@ class Conductor:
                 )
                 execution_result_str = dataframe_to_preview_str(execution_result)
                 self._log(f"Legacy Context Extraction result: {execution_result_str}")
-                for cleanup_stmt in (
-                    "DROP TABLE IF EXISTS conductor_assumption_check;",
-                    "DROP VIEW IF EXISTS conductor_assumption_check;",
-                ):
-                    try:
-                        self.db_api.execute_query(
-                            self.user_id, self.chat_id, cleanup_stmt
-                        )
-                    except Exception as cleanup_exc:
-                        self._log(f"Cleanup warning ({cleanup_stmt}): {cleanup_exc}")
+                try:
+                    self.db_api.drop_relation(self.user_id, self.chat_id, "conductor_assumption_check")
+                except Exception as cleanup_exc:
+                    self._log(f"Cleanup warning (conductor_assumption_check): {cleanup_exc}")
                 return (
                     f"Executed Context Extraction, which resulted in this output: {execution_result_str}",
                     ActionExecutionStatus.SUCCESS,
@@ -1223,14 +1245,10 @@ class Conductor:
                 ConductorResponse(ConductorResponseType.LOG, log_msg)
             )
         self._log(f"Context Extraction summary: {summary}")
-        for cleanup_stmt in (
-            "DROP TABLE IF EXISTS conductor_assumption_check;",
-            "DROP VIEW IF EXISTS conductor_assumption_check;",
-        ):
-            try:
-                self.db_api.execute_query(self.user_id, self.chat_id, cleanup_stmt)
-            except Exception as cleanup_exc:
-                self._log(f"Cleanup warning ({cleanup_stmt}): {cleanup_exc}")
+        try:
+            self.db_api.drop_relation(self.user_id, self.chat_id, "conductor_assumption_check")
+        except Exception as cleanup_exc:
+            self._log(f"Cleanup warning (conductor_assumption_check): {cleanup_exc}")
         return (
             f"Context Extraction result:\n{summary}",
             ActionExecutionStatus.SUCCESS,
@@ -1244,18 +1262,25 @@ class Conductor:
         self._plan_mode = False
         self._degenerate_result_flagged = False
         self._information_needs = None
-        self._information_needs_grounded = False
+        self._needs = []
+        self._need_resolutions = {}
 
         self.language_model_api.llm.reset_metrics()
 
     def _log_step_profiling(
-        self, input_tokens: int, output_tokens: int, total_time: float, llm_time: float
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        total_time: float,
+        llm_time: float,
+        cached_tokens: int = 0,
     ) -> None:
         self._log(
-            f"[STEP PROFILING] Time taken: {total_time:.2f}s (CPU: {total_time - llm_time:.2f}s, LLM: {llm_time:.2f}s)"
+            f"[STEP PROFILING] Time taken: {format_timing(total_time, llm_time)}"
         )
         self._log(
-            f"[STEP PROFILING] Input tokens: {input_tokens}, Output tokens: {output_tokens}"
+            f"[STEP PROFILING] Input tokens: {input_tokens} ({cached_tokens} cached), "
+            f"Output tokens: {output_tokens}"
         )
 
     def _log_overall_profiling(self, start_time: float, end_time: float) -> None:
@@ -1263,10 +1288,11 @@ class Conductor:
         total_time = end_time - start_time
         llm_time = llm.total_llm_time
         self._log(
-            f"[OVERALL PROFILING] Total Time taken: {total_time:.2f}s (CPU: {total_time - llm_time:.2f}s, LLM: {llm_time:.2f}s)"
+            f"[OVERALL PROFILING] Total Time taken: {format_timing(total_time, llm_time)}"
         )
         self._log(
-            f"[OVERALL PROFILING] Total Input tokens: {llm.total_input_tokens}, Total Output tokens: {llm.total_output_tokens}"
+            f"[OVERALL PROFILING] Total Input tokens: {llm.total_input_tokens} "
+            f"({llm.total_cached_input_tokens} cached), Total Output tokens: {llm.total_output_tokens}"
         )
 
     def _log_table_repr_tokens(self, tables: list[AbstractDocument]) -> None:

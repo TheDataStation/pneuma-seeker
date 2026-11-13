@@ -15,9 +15,11 @@ class StateManipulation(Action):
             f"**{ActionNames.STATE_MANIPULATION.value}**:\n"
             "  Update T, S, or both.\n"
             "  - **Args**:\n"
-            '  {"T": {...}, "column_descriptions": {...}}\n'
+            '  {"T": {...}, "column_descriptions": {...}, "column_sources": {...}}\n'
             '  OR { "S": "..." }\n'
-            '  OR {"T": {...}, "column_descriptions": {...}, "S": "..."}.\n'
+            '  OR {"T": {...}, "column_descriptions": {...}, "column_sources": {...}, "S": "..."},\n'
+            '  each optionally with "need_resolutions": {"<need number>": "<evidence or assumption>", ...}.\n'
             "  - **Notes**:\n"
-            f"    - A `{ActionNames.STATE_MANIPULATION.value}` call resets previous T rather than appending."
+            f"    - A `{ActionNames.STATE_MANIPULATION.value}` call resets previous T rather than appending.\n"
+            "    - `need_resolutions` accumulate across calls; T and S cannot both be defined while a need is unresolved."
         )

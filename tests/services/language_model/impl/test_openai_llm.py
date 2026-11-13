@@ -101,6 +101,34 @@ class OpenAILLMTests(unittest.TestCase):
         self.assertEqual(responses, ["full response", "full response"])
         self.assertEqual(bs, 4)
 
+    def test_temperature_is_sent_only_when_configured(self):
+        from openai import Omit
+
+        sent = []
+        llm = OpenAILLM(self.cfg, self.logger)
+        llm.client.chat.completions.create = lambda **kw: sent.append(kw["temperature"]) or types.SimpleNamespace(
+            choices=[types.SimpleNamespace(message=types.SimpleNamespace(content="ok"))]
+        )
+        self.cfg.LLM_TEMPERATURE = None
+        list(llm.chat([]))
+        self.cfg.LLM_TEMPERATURE = 0.0
+        list(llm.chat([]))
+        list(llm.chat([], LLMOption(temperature=0.7)))
+        self.assertIsInstance(sent[0], Omit)
+        self.assertEqual(sent[1:], [0.0, 0.7])
+
+    def test_usage_counts_cached_input_tokens(self):
+        llm = OpenAILLM(self.cfg, self.logger)
+        accumulate = llm._OpenAILLM__accumulate_usage
+        accumulate(types.SimpleNamespace(
+            prompt_tokens=100, completion_tokens=5,
+            prompt_tokens_details=types.SimpleNamespace(cached_tokens=80),
+        ))
+        accumulate(types.SimpleNamespace(prompt_tokens=10, completion_tokens=1))  # no cache details
+        self.assertEqual((llm.total_input_tokens, llm.total_cached_input_tokens), (110, 80))
+        llm.reset_metrics()
+        self.assertEqual(llm.total_cached_input_tokens, 0)
+
     def test_encode_raises_not_implemented(self):
         llm = OpenAILLM(self.cfg, self.logger)
         with self.assertRaises(NotImplementedError):

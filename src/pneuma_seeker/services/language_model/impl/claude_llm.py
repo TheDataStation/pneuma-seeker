@@ -29,6 +29,7 @@ class ClaudeLLM(AbstractModel):
         self.total_llm_time = 0.0
         self.total_input_tokens = 0
         self.total_output_tokens = 0
+        self.total_cached_input_tokens = 0
 
     def load_model(self):
         # Claude API does not require model loading
@@ -43,7 +44,7 @@ class ClaudeLLM(AbstractModel):
     ) -> Generator[str, None, None]:
         start_llm_time = time()
         max_tokens = 7000
-        temperature = None
+        temperature = self.config.LLM_TEMPERATURE
 
         if llm_option:
             if llm_option.max_new_tokens is not None:
@@ -84,11 +85,13 @@ class ClaudeLLM(AbstractModel):
         if usage is not None:
             self.total_input_tokens += usage.input_tokens
             self.total_output_tokens += usage.output_tokens
+            self.total_cached_input_tokens += getattr(usage, "cache_read_input_tokens", 0) or 0
 
     def reset_metrics(self):
         self.total_llm_time = 0.0
         self.total_input_tokens = 0
         self.total_output_tokens = 0
+        self.total_cached_input_tokens = 0
 
     def batch_chat(
         self,

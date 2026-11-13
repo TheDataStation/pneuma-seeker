@@ -10,16 +10,14 @@ _PREVIEW_TABLES = 5
 
 
 class DatasetListing(Action, Applicable):
-    """Lists the datasets the user may access — names, sizes and descriptions; no table search.
-
-    Like Agentic Catalog's list_accessible_datasets(): purely about datasets.
-    Finding tables inside a dataset is Table Retrieve's job (with `datasets`).
-    Only available in multi-dataset mode: gated by the ENABLE_MULTI_DATASET
-    config flag and the per-request `multi_dataset` mode.
+    """
+    Lists the datasets the user may access: names, sizes and descriptions, without
+    searching tables (Table Retrieve does that, with `datasets`). Available only in
+    multi-dataset mode (ENABLE_MULTI_DATASET and the per-request `multi_dataset`).
     """
 
     action_name = ActionNames.DATASET_LISTING
-    agents = frozenset({AgentType.CONDUCTOR, AgentType.MATERIALIZER})
+    agents = frozenset({AgentType.CONDUCTOR})
     flag = "ENABLE_MULTI_DATASET"
     mode = MULTI_DATASET_MODE
     order = 0
@@ -39,6 +37,8 @@ class DatasetListing(Action, Applicable):
 
     def apply(self, input: dict[str, Any]) -> str:
         """
+        Lists the accessible datasets.
+
         Expected input keys:
             datasets  list[str]  — the accessible datasets
         """
@@ -64,7 +64,7 @@ class DatasetListing(Action, Applicable):
         return "\n".join(lines)
 
     def _description_of(self, dataset: str) -> str:
-        """The dataset's description on one line ("" if none or unavailable)."""
+        """Returns the dataset's description on one line ("" if none or unavailable)."""
         try:
             return " ".join((self.db_api.get_dataset_description(dataset) or "").split())
         except Exception:

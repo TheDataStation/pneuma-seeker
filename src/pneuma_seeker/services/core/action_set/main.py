@@ -1,3 +1,4 @@
+import re
 from logging import Logger
 from typing import Any
 
@@ -20,6 +21,7 @@ from pneuma_seeker.services.core.action_set.impl.join_path_extraction import (
 from pneuma_seeker.services.core.action_set.registry import ActionRegistry
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
+from pneuma_seeker.services.core.dataset_context import table_key
 from pneuma_seeker.services.core.ir_system.main import Retriever
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.schemas.core.action import ActionNames
@@ -114,6 +116,38 @@ class ActionSet:
                 doc.metadata["topic"] = topic
             aggregated.extend(docs)
         return aggregated
+
+    def load_tables_by_name(
+        self,
+        names: list[str],
+        datasets: list[str],
+        sample_size: int,
+    ) -> tuple[list[AbstractDocument], list[str]]:
+        """
+        Loads tables by name, no search: "<dataset>.<table>", or "<table>" looked
+        up in each of `datasets`; `*` matches any characters. A plain name loads
+        its first match, a pattern every match. Returns (tables, names not found).
+        """
+        found: list[AbstractDocument] = []
+        missing: list[str] = []
+        seen: set[str] = set()
+        for name in names:
+            prefix, _, rest = name.partition(".")
+            candidates = [(prefix, rest)] if rest and prefix in datasets else [(ds, name) for ds in datasets]
+            docs: list[AbstractDocument] = []
+            for ds, table in candidates:
+                is_pattern = "*" in table
+                regex = "^" + ".*".join(re.escape(part) for part in table.split("*")) + "$"
+                docs += self.retrieve_documents(regex, RetrieverType.ENUMERATOR, ds, 1, True, sample_size)
+                if docs and not is_pattern:
+                    break
+            new = [d for d in docs if table_key(d) not in seen]
+            seen |= {table_key(d) for d in new}
+            if docs:
+                found.extend(new)
+            else:
+                missing.append(name)
+        return found, missing
 
     def list_datasets(self, datasets: list[str]) -> str:
         """Lists the accessible datasets (names and sizes; no table search)."""

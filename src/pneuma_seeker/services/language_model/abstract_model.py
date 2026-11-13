@@ -19,6 +19,7 @@ class AbstractModel(ABC):
     total_llm_time: float = 0.0
     total_input_tokens: int = 0
     total_output_tokens: int = 0
+    total_cached_input_tokens: int = 0
 
     @abstractmethod
     def __init__(self, config: Config, logger: Logger, **kwargs):
@@ -28,6 +29,7 @@ class AbstractModel(ABC):
         self.total_llm_time = 0.0
         self.total_input_tokens = 0
         self.total_output_tokens = 0
+        self.total_cached_input_tokens = 0
 
     @abstractmethod
     def load_model(self):

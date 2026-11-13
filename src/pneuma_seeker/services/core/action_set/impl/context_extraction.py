@@ -112,12 +112,11 @@ class ContextExtraction(Action, Applicable):
 
     def _drop_question_tables(self, result_table_name: str, indices: list[int]) -> None:
         for i in indices:
-            name = self._question_table_name(result_table_name, i).replace('"', '""')
-            for stmt in (f'DROP VIEW IF EXISTS "{name}";', f'DROP TABLE IF EXISTS "{name}";'):
-                try:
-                    self.db_api.execute_query(self.user_id, self.chat_id, stmt)
-                except Exception as exc:
-                    self.__log(f"Cleanup warning ({stmt}): {exc}")
+            name = self._question_table_name(result_table_name, i)
+            try:
+                self.db_api.drop_relation(self.user_id, self.chat_id, name)
+            except Exception as exc:
+                self.__log(f"Cleanup warning ({name}): {exc}")
 
     # ------------------------------------------------------------------
     # Inner loop

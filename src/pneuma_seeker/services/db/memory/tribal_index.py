@@ -4,8 +4,6 @@ RETRIEVAL_INDEX_ROOT/tribal_knowledge and rebuilt before answering whenever the
 entries' fingerprint changes. Visibility is decided by the caller.
 """
 
-from __future__ import annotations
-
 import fcntl
 import json
 import os
@@ -13,6 +11,7 @@ import shutil
 import threading
 import uuid
 from pathlib import Path
+from typing import cast
 
 import bm25s
 import numpy as np
@@ -29,7 +28,7 @@ class TribalKnowledgeIndex:
         self._loaded: tuple[str, dict, bm25s.BM25 | None, list[str]] | None = None
 
     def scores(self, query: str) -> dict[str, float]:
-        """Every entry's BM25 score for `query`, by memory_id."""
+        """Returns every entry's BM25 score for `query`, by memory_id."""
         fingerprint = self.memory_manager.fingerprint("tribal_knowledge")
         loaded = self._load()
         if loaded is None or loaded[1].get("fingerprint") != fingerprint:
@@ -42,7 +41,8 @@ class TribalKnowledgeIndex:
         _, _, retriever, ids = loaded
         if retriever is None or not query.strip():
             return {memory_id: 0.0 for memory_id in ids}
-        tokens = bm25s.tokenize(query, stemmer=_STEMMER, show_progress=False, return_ids=False)[0]
+        tokenized = bm25s.tokenize(query, stemmer=_STEMMER, show_progress=False, return_ids=False)
+        tokens = cast(list[list[str]], tokenized)[0]
         values = np.asarray(retriever.get_scores(tokens), dtype=np.float64)
         return {memory_id: float(v) for memory_id, v in zip(ids, values)}
 

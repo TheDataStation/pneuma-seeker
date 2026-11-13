@@ -24,7 +24,6 @@ from pneuma_seeker.services.core.materializer.state import MaterializerState
 from pneuma_seeker.services.core.dataset_context import (
     DatasetContext,
     dataset_of,
-    merge_retrieved,
 )
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.schemas.language_model.role import Role
@@ -33,12 +32,16 @@ from pneuma_seeker.provenance.graph import NodeKind, ProvenanceGraph, Provenance
 from pneuma_seeker.provenance.provenance_helper import quote_ident, table_ref
 from pneuma_seeker.provenance.text_usage import uses_document
 from pneuma_seeker.shared.config import Config
-from pneuma_seeker.shared.logger import formatted_log
+from pneuma_seeker.shared.logger import format_timing, formatted_log
 from pneuma_seeker.shared.parser import parse_code, parse_json
 from pneuma_seeker.shared.str_processor import (
     clean_column_table_name,
     dataframe_to_preview_str,
 )
+
+
+class MaterializationIncomplete(Exception):
+    """T could not be fully built from the tables in its contract; the message says why."""
 
 
 class Materializer:
@@ -79,11 +82,9 @@ class Materializer:
 
         self._action_handlers: dict[str, Any] = {
             ActionNames.SITUATIONAL_ANALYSIS.value: self._handle_situational_analysis,
-            ActionNames.TABLE_RETRIEVE.value: self._handle_table_retrieve,
             ActionNames.WEB_SEARCH.value: self._handle_web_search,
             ActionNames.WEB_CRAWL.value: self._handle_web_crawl,
-            ActionNames.TABLE_ENUMERATION.value: self._handle_table_enumeration,
-            ActionNames.DATASET_LISTING.value: self._handle_dataset_listing,
+            ActionNames.REPORT_BLOCKER.value: self._handle_report_blocker,
             ActionNames.TABLE_PROJECTION.value: self._handle_table_projection,
             ActionNames.EQUALITY_JOIN.value: self._handle_equality_join,
             ActionNames.TABLE_UNION.value: self._handle_table_union,
@@ -109,6 +110,7 @@ class Materializer:
         precomputed_join_paths: str | None = None,
         dataset_name: str = "",
         dataset_ctx: DatasetContext | None = None,
+        column_sources: dict[str, dict[str, list[str]]] | None = None,
     ) -> tuple[
         list[AbstractDocument],
         AbstractDocument | None,
@@ -126,6 +128,8 @@ class Materializer:
         self.state.T = T
         self.state.column_descriptions = column_descriptions
         self.state.S = S
+        self._column_sources = column_sources or {}
+        self._blocker: str | None = None
 
         self.dataset_ctx = dataset_ctx or DatasetContext.single(dataset_name)
         if self.dataset_ctx.multi:
@@ -160,23 +164,25 @@ class Materializer:
                     prior_intermediate_table_ids=[
                         i.doc_id for i in self.state.intermediate_tables
                     ],
+                    column_sources=self._column_sources,
                 ),
             )
         ]
+        self._plan_integration(client_note)
 
         current_step = 0
         llm = self.language_model_api.llm
         prev_accumulated_in_tokens = llm.total_input_tokens
         prev_accumulated_out_tokens = llm.total_output_tokens
         prev_accumulated_llm_time = llm.total_llm_time
+        prev_accumulated_cached_tokens = llm.total_cached_input_tokens
+        baseline_cached_tokens = prev_accumulated_cached_tokens
         baseline_in_tokens = prev_accumulated_in_tokens
         baseline_out_tokens = prev_accumulated_out_tokens
         baseline_llm_time = prev_accumulated_llm_time
 
-        while (
-            not self._check_completion(self.state.T)
-            and current_step < self.config.MAX_MATERIALIZER_STEPS
-        ):
+        completed = self._check_completion(self.state.T)
+        while not completed and current_step < self.config.MAX_MATERIALIZER_STEPS:
             step_start_time = time()
 
             current_step += 1
@@ -196,7 +202,6 @@ class Materializer:
                     self.state.web_search_result,
                     self.state.web_crawl_result,
                     self.state.join_paths,
-                    dataset_scope=self.dataset_ctx.describe(),
                 ),
             )
 
@@ -259,6 +264,22 @@ class Materializer:
                         )
                     )
                     break
+            if self._blocker is not None:
+                raise MaterializationIncomplete(f"The Materializer reported a blocker: {self._blocker}")
+            completed = self._check_completion(self.state.T)
+            if not completed:
+                self.llm_messages.append(
+                    LLMMessage(
+                        role=Role.USER.value,
+                        content=(
+                            f"Not done yet (step {current_step} of {self.config.MAX_MATERIALIZER_STEPS} "
+                            f"used): {self._completion_issues}\n"
+                            "Continue with your integration plan, or revise it if the data requires.\n"
+                            "If T cannot be built from the provided tables, call "
+                            f"{ActionNames.REPORT_BLOCKER.value} with what is missing."
+                        ),
+                    )
+                )
 
             step_end_time = time()
             llm = self.language_model_api.llm
@@ -266,16 +287,19 @@ class Materializer:
             step_input_tokens = llm.total_input_tokens - prev_accumulated_in_tokens
             step_output_tokens = llm.total_output_tokens - prev_accumulated_out_tokens
             step_llm_time = llm.total_llm_time - prev_accumulated_llm_time
+            step_cached_tokens = llm.total_cached_input_tokens - prev_accumulated_cached_tokens
 
             prev_accumulated_in_tokens = llm.total_input_tokens
             prev_accumulated_out_tokens = llm.total_output_tokens
             prev_accumulated_llm_time = llm.total_llm_time
+            prev_accumulated_cached_tokens = llm.total_cached_input_tokens
 
             self._log_step_profiling(
                 step_input_tokens,
                 step_output_tokens,
                 step_end_time - step_start_time,
                 step_llm_time,
+                step_cached_tokens,
             )
 
         materializer_end_time = time()
@@ -286,9 +310,15 @@ class Materializer:
             llm.total_input_tokens - baseline_in_tokens,
             llm.total_output_tokens - baseline_out_tokens,
             llm.total_llm_time - baseline_llm_time,
+            llm.total_cached_input_tokens - baseline_cached_tokens,
         )
 
-        message = f"Materialization completed successfuly!"
+        if not completed:
+            raise MaterializationIncomplete(
+                f"T was not fully built within {self.config.MAX_MATERIALIZER_STEPS} steps. "
+                + (self._completion_issues or "")
+            )
+        message = "Materialization completed successfully!"
         self._log(message)
         self.log_callback(message)
 
@@ -353,56 +383,50 @@ class Materializer:
             ActionExecutionStatus.SUCCESS,
         )
 
-    def _handle_table_retrieve(
+    def _plan_integration(self, client_note: str) -> None:
+        """Plans the integration steps up front; the step loop revises the plan as needed."""
+        try:
+            plan = "".join(
+                self.language_model_api.chat(
+                    [
+                        LLMMessage(
+                            role=Role.SYSTEM.value,
+                            content=self.prompt_factory.get_integration_plan_sys_prompt(),
+                        ),
+                        LLMMessage(
+                            role=Role.USER.value,
+                            content=self.prompt_factory.get_integration_plan_user_prompt(
+                                self.state.T,
+                                self.state.column_descriptions,
+                                self._column_sources,
+                                self.state.S,
+                                client_note,
+                                self.state.retrieved_tables + self.state.external_tables,
+                            ),
+                        ),
+                    ],
+                    LLMOption(),
+                )
+            ).strip()
+        except Exception as exc:
+            self._log(f"Integration planning failed, continuing without it: {exc}")
+            return
+        if plan:
+            self._log(f"Integration plan:\n{plan}")
+            self.__execute_action(
+                ActionNames.SITUATIONAL_ANALYSIS.value,
+                {"message": f"Integration plan (provisional; revise as the data requires):\n{plan}"},
+                "",
+            )
+
+    def _handle_report_blocker(
         self, action_args: dict[str, Any], dataset_name: str
     ) -> tuple[str, ActionExecutionStatus]:
-        prompts = action_args.get("prompts", [])
-        if not isinstance(prompts, list) or not all(
-            isinstance(p, str) for p in prompts
-        ):
-            error_msg = "The 'prompts' argument must be a list of strings."
-            self._log(f"==> {error_msg}")
-            return error_msg, ActionExecutionStatus.ERROR
-        if len(prompts) == 0:
-            error_msg = "The 'prompts' list cannot be empty."
-            self._log(f"==> {error_msg}")
-            return error_msg, ActionExecutionStatus.ERROR
-        try:
-            datasets = self.dataset_ctx.resolve(action_args.get("datasets"))
-        except ValueError as e:
-            self._log(f"==> {e}")
-            return str(e), ActionExecutionStatus.ERROR
-        retrieved: list[AbstractDocument] = []
-        for ds in datasets:
-            retrieved += self.action_set.retrieve_multi_topic_documents(
-                prompts, RetrieverType.PNEUMA_RETRIEVER, ds, 10, True, 5
-            )
-        replaced: list[str] = []
-        if self.dataset_ctx.multi:
-            if len(retrieved) == 0:
-                error_msg = "No tables were retrieved."
-                self._log(f"==> {error_msg}")
-                return error_msg, ActionExecutionStatus.ERROR
-            retrieved, replaced = merge_retrieved(
-                self.state.retrieved_tables, retrieved, datasets
-            )
-        self.state.retrieved_tables = retrieved
-        if len(self.state.retrieved_tables) == 0:
-            error_msg = "No tables were retrieved."
-            self._log(f"==> {error_msg}")
-            return error_msg, ActionExecutionStatus.ERROR
-        self.state.join_paths = self.action_set.discover_join_paths(
-            self.state.retrieved_tables
-        )
-        success_msg = 'Successfully retrieved tables. Notice that the "retrieved internal tables" have been filled.'
-        if replaced:
-            success_msg += " Note: " + " ".join(replaced)
-        self._log(f"==> {success_msg}")
-        self._log(
-            f"Retrieved tables:\n {[i.doc_id for i in self.state.retrieved_tables]}"
-        )
-        self._log_table_repr_tokens(self.state.retrieved_tables)
-        return success_msg, ActionExecutionStatus.SUCCESS
+        reason = str(action_args.get("reason", "")).strip()
+        if not reason:
+            return "The 'reason' argument is required.", ActionExecutionStatus.ERROR
+        self._blocker = reason
+        return f"Reported a blocker: {reason}", ActionExecutionStatus.SUCCESS
 
     def _handle_web_search(
         self, action_args: dict[str, Any], dataset_name: str
@@ -453,68 +477,6 @@ class Materializer:
         self.state.web_crawl_result.metadata.setdefault("url", prompt)
         self._context_node_for(self.state.web_crawl_result)
         return success_msg, ActionExecutionStatus.SUCCESS
-
-    def _handle_table_enumeration(
-        self, action_args: dict[str, Any], dataset_name: str
-    ) -> tuple[str, ActionExecutionStatus]:
-        patterns = action_args.get("patterns", [])
-        if not isinstance(patterns, list) or not all(
-            isinstance(p, str) for p in patterns
-        ):
-            error_msg = "The 'patterns' argument must be a list of strings."
-            self._log(f"==> {error_msg}")
-            return error_msg, ActionExecutionStatus.ERROR
-        if len(patterns) == 0:
-            error_msg = "The 'patterns' list cannot be empty."
-            self._log(f"==> {error_msg}")
-            return error_msg, ActionExecutionStatus.ERROR
-        try:
-            datasets = self.dataset_ctx.resolve(
-                action_args.get("datasets")
-                or (
-                    self.dataset_ctx.datasets_of(self.state.retrieved_tables)
-                    if self.dataset_ctx.multi
-                    else None
-                )
-            )
-        except ValueError as e:
-            self._log(f"==> {e}")
-            return str(e), ActionExecutionStatus.ERROR
-        extra_tables: list[AbstractDocument] = []
-        for ds in datasets:
-            extra_tables += self.action_set.retrieve_multi_topic_documents(
-                patterns, RetrieverType.ENUMERATOR, ds, 20, True, 5
-            )
-        pattern_desc = str(patterns)
-        if len(extra_tables) == 0:
-            error_msg = "There are no tables that match the pattern."
-            self._log(f"==> {error_msg}")
-            return error_msg, ActionExecutionStatus.ERROR
-        success_msg = f'Successfully retrieved all tables that match the pattern(s) {pattern_desc}. You can use them to materialize T, even if you have not called {ActionNames.TABLE_RETRIEVE.value} before, as these tables have been included to "retrieved internal tables".'
-        self._log(f"==> {success_msg}")
-        if self.dataset_ctx.multi:
-            # Set union keys on doc_id alone, which would drop same-named
-            # tables from different datasets.
-            self.state.retrieved_tables, replaced = merge_retrieved(
-                self.state.retrieved_tables, extra_tables, []
-            )
-            if replaced:
-                success_msg += " Note: " + " ".join(replaced)
-        else:
-            self.state.retrieved_tables = list(
-                set(self.state.retrieved_tables).union(set(extra_tables))
-            )
-        self._log(
-            f"Retrieved tables:\n {[i.doc_id for i in self.state.retrieved_tables]}"
-        )
-        return success_msg, ActionExecutionStatus.SUCCESS
-
-    def _handle_dataset_listing(
-        self, action_args: dict[str, Any], dataset_name: str
-    ) -> tuple[str, ActionExecutionStatus]:
-        listing = self.action_set.list_datasets(list(self.dataset_ctx.accessible))
-        self._log(f"==> {listing}")
-        return listing, ActionExecutionStatus.SUCCESS
 
     def _handle_table_projection(
         self, action_args: dict[str, Any], dataset_name: str
@@ -567,7 +529,6 @@ class Materializer:
                 self._log(f"==> {error_msg}")
                 return error_msg, ActionExecutionStatus.ERROR
             output_columns = list(column_mapping.keys())
-            source_columns = list(column_mapping.values())
             if table_id_to_project.split(".")[-1].strip('"') not in all_table_doc_ids:
                 error_msg = "Invalid table ID to select. Ensure the table exists."
                 self._log(f"==> {error_msg}")
@@ -1097,16 +1058,10 @@ class Materializer:
                     f"Context extraction result: {dataframe_to_preview_str(exec_res)}"
                 )
                 self._log(f"==> {success_msg}")
-                for cleanup_stmt in (
-                    "DROP TABLE IF EXISTS materializer_assumption_check;",
-                    "DROP VIEW IF EXISTS materializer_assumption_check;",
-                ):
-                    try:
-                        self.db_api.execute_query(
-                            self.user_id, self.chat_id, cleanup_stmt
-                        )
-                    except Exception as cleanup_exc:
-                        self._log(f"Cleanup warning ({cleanup_stmt}): {cleanup_exc}")
+                try:
+                    self.db_api.drop_relation(self.user_id, self.chat_id, "materializer_assumption_check")
+                except Exception as cleanup_exc:
+                    self._log(f"Cleanup warning (materializer_assumption_check): {cleanup_exc}")
                 return success_msg, ActionExecutionStatus.SUCCESS
             except Exception as exception:
                 error_msg = f"Error during context extraction: {exception}"
@@ -1131,14 +1086,10 @@ class Materializer:
             for msg in log_msgs:
                 self.log_callback(msg)
             self._log(f"==> Context Extraction summary: {summary}")
-            for cleanup_stmt in (
-                "DROP VIEW IF EXISTS materializer_assumption_check;",
-                "DROP TABLE IF EXISTS materializer_assumption_check;",
-            ):
-                try:
-                    self.db_api.execute_query(self.user_id, self.chat_id, cleanup_stmt)
-                except Exception as cleanup_exc:
-                    self._log(f"Cleanup warning ({cleanup_stmt}): {cleanup_exc}")
+            try:
+                self.db_api.drop_relation(self.user_id, self.chat_id, "materializer_assumption_check")
+            except Exception as cleanup_exc:
+                self._log(f"Cleanup warning (materializer_assumption_check): {cleanup_exc}")
             return (
                 f"Context extraction result:\n{summary}",
                 ActionExecutionStatus.SUCCESS,
@@ -1510,82 +1461,26 @@ class Materializer:
         return table_ref(table_id, dataset_name)
 
     def _check_completion(self, T: dict[str, DataFrame]) -> bool:
-        """Check if all target tables (T) have been materialized correctly."""
-        self._log("Checking completion...")
-        all_T_ids = set(T.keys())
-        id_dfs: dict[str, DataFrame] = {}
-
-        materialized_table_ids: set[str] = set()
-        for doc in self.state.intermediate_tables:
-            if isinstance(doc.content, DataFrame):
-                id_dfs[doc.doc_id] = doc.content
-                materialized_table_ids.add(doc.doc_id)
-            else:
-                self._log(
-                    f"=> Warning: doc {doc.doc_id} has invalid content type {type(doc.content)}"
-                )
-
-        self._log(f"=> all_T_ids: {all_T_ids}")
-        self._log(f"=> materialized_table_ids: {materialized_table_ids}")
-        ids_complete = all_T_ids <= materialized_table_ids
-        is_complete = ids_complete
-
-        warning_messages: list[str] = []
-        if not ids_complete:
-            warning_msg = f"You have not materialized these tables: {all_T_ids - materialized_table_ids}"
-            self._log(f"=> {warning_msg}")
-            warning_messages.append(warning_msg)
-
-        column_issues: list[str] = []
-        if ids_complete:
-            for target_table_id in all_T_ids:
-                df = id_dfs.get(target_table_id)
-                if df is None or not isinstance(df, DataFrame):
-                    issue_msg = f"- For table `{target_table_id}`: no valid table was materialized."
-                    self._log(issue_msg)
-                    column_issues.append(issue_msg)
-                    is_complete = False
-                    continue
-
-                self._log(f"=> Checking the target schema {target_table_id}.")
-                target_cols = set(T[target_table_id].columns)
-                materialized_cols = set(df.columns)
-
-                self._log(f"==> target_cols {target_cols}")
-                self._log(f"==> materialized_cols {materialized_cols}")
-
-                missing_cols = target_cols - materialized_cols
-                extra_cols = materialized_cols - target_cols
-
-                # Treat the target schema as a *required subset* of the materialized schema.
-                # Extra columns are allowed and should not trigger a "repair" projection that
-                # could drop useful data (e.g., wide sample columns like s001..s153).
-                if missing_cols:
-                    is_complete = False
-                    issue_msg = f"- For table `{target_table_id}`: missing columns {sorted(missing_cols)}."
-                    column_issues.append(issue_msg)
-
-                if extra_cols:
-                    self._log(
-                        f"==> Note: `{target_table_id}` has extra columns (allowed): {sorted(extra_cols)}"
-                    )
-
-        if ids_complete and not is_complete:
-            warning_msg = f"There are issues with the columns of materialized tables: {'\n'.join(column_issues)}"
-            self._log(f"=> {warning_msg}")
-            warning_messages.append(warning_msg)
-
-        if warning_messages:
-            self.llm_messages.append(
-                LLMMessage(
-                    role=Role.USER.value,
-                    content="\n".join(warning_messages),
-                )
-            )
-        self._log(
-            f"Completion check: {is_complete} ({len(materialized_table_ids)}/{len(all_T_ids)} tables materialized)"
-        )
-        return is_complete
+        """
+        Checks whether every table of T is built with all its columns (extra columns are
+        allowed), and records what is still missing in self._completion_issues.
+        """
+        built = {
+            doc.doc_id: doc.content
+            for doc in self.state.intermediate_tables
+            if isinstance(doc.content, DataFrame)
+        }
+        issues: list[str] = []
+        for table_id, target in T.items():
+            if table_id not in built:
+                issues.append(f"`{table_id}` has not been built.")
+                continue
+            missing = [c for c in target.columns if c not in built[table_id].columns]
+            if missing:
+                issues.append(f"`{table_id}` is missing columns: {', '.join(map(str, missing))}.")
+        self._completion_issues = " ".join(issues)
+        self._log(f"Completion check: {'complete' if not issues else self._completion_issues}")
+        return not issues
 
     def _reset_materializer(self, update_mode: bool = False):
         """Reset the state and clear intermediate files.
@@ -1628,13 +1523,19 @@ class Materializer:
         self._log("Materializer reset complete.")
 
     def _log_step_profiling(
-        self, input_tokens: int, output_tokens: int, total_time: float, llm_time: float
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        total_time: float,
+        llm_time: float,
+        cached_tokens: int = 0,
     ) -> None:
         self._log(
-            f"[STEP PROFILING] Time taken: {total_time:.2f}s (CPU: {total_time - llm_time:.2f}s, LLM: {llm_time:.2f}s)"
+            f"[STEP PROFILING] Time taken: {format_timing(total_time, llm_time)}"
         )
         self._log(
-            f"[STEP PROFILING] Input tokens: {input_tokens}, Output tokens: {output_tokens}"
+            f"[STEP PROFILING] Input tokens: {input_tokens} ({cached_tokens} cached), "
+            f"Output tokens: {output_tokens}"
         )
 
     def _log_overall_profiling(
@@ -1644,13 +1545,15 @@ class Materializer:
         input_tokens: int,
         output_tokens: int,
         llm_time: float,
+        cached_tokens: int = 0,
     ) -> None:
         total_time = end_time - start_time
         self._log(
-            f"[OVERALL PROFILING] Total Time taken: {total_time:.2f}s (CPU: {total_time - llm_time:.2f}s, LLM: {llm_time:.2f}s)"
+            f"[OVERALL PROFILING] Total Time taken: {format_timing(total_time, llm_time)}"
         )
         self._log(
-            f"[OVERALL PROFILING] Total Input tokens: {input_tokens}, Total Output tokens: {output_tokens}"
+            f"[OVERALL PROFILING] Total Input tokens: {input_tokens} ({cached_tokens} cached), "
+            f"Total Output tokens: {output_tokens}"
         )
 
     def _log_table_repr_tokens(self, tables: list[AbstractDocument]) -> None:
