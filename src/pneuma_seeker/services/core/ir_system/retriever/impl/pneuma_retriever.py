@@ -29,7 +29,7 @@ from pneuma_seeker.services.core.ir_system.retriever.impl.attribute_retriever im
 )
 from pneuma_seeker.services.core.ir_system.retriever.interface import AbstractRetriever
 from pneuma_seeker.services.language_model.abstract_model import AbstractModel
-from pneuma_seeker.shared.config import Config
+from pneuma_seeker.shared.config import Config, pneuma_index_path
 from pneuma_seeker.shared.parser import parse_json
 from pneuma_seeker.shared.schemas.core.ir_system import (
     AbstractDocument,
@@ -47,7 +47,7 @@ from pneuma_seeker.shared.schemas.language_model.role import Role
 from pneuma_seeker.shared.str_processor import clean_column_table_name
 
 
-INDEX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "indices", "pneuma")
+INDEX_PATH = pneuma_index_path()
 
 
 def is_dataset_indexed(dataset_name: str) -> bool:

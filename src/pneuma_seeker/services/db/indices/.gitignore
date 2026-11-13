@@ -1,3 +1,8 @@
 # Generated retrieval indices (see Config.RETRIEVAL_INDEX_ROOT).
 *
 !.gitignore
+# The Pneuma retriever's indices of the benchmark datasets are tracked, since
+# building them calls an LLM per column (pneuma/.gitignore excludes the rest).
+!pneuma/
+!pneuma/**
+.DS_Store

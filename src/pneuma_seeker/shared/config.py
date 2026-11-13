@@ -205,3 +205,8 @@ class Config:
         self.POSTGRES_DB = getenv("POSTGRES_DB", "pneuma_users")
         self.POSTGRES_USER = getenv("POSTGRES_USER", "pneuma")
         self.POSTGRES_PASSWORD = getenv("POSTGRES_PASSWORD", "pneuma_password")
+
+
+def pneuma_index_path() -> str:
+    """Returns the folder of the Pneuma retriever's indices: <RETRIEVAL_INDEX_ROOT>/pneuma."""
+    return str(Path(Config().RETRIEVAL_INDEX_ROOT) / "pneuma")

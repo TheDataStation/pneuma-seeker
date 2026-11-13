@@ -6,15 +6,14 @@ import numpy as np
 from tqdm import tqdm
 
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
+from pneuma_seeker.shared.config import pneuma_index_path
 from pneuma_seeker.shared.schemas.core.ir_system import AbstractDocument, Table
 from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.schemas.language_model.option import LLMOption
 from pneuma_seeker.shared.schemas.language_model.role import Role
 from pneuma_seeker.shared.str_processor import clean_column_table_name
 
-_INDEX_BASE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "indices", "pneuma"
-)
+_INDEX_BASE = pneuma_index_path()
 
 
 def _attr_index_dir(dataset: str) -> str:

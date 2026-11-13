@@ -19,6 +19,7 @@ import shutil
 import threading
 import uuid
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -180,6 +181,20 @@ class DiscoveryIndex:
         assert loaded is not None
         return loaded[2], loaded[3]
 
+    def rebuild(self, dataset_name: str, fingerprint: str, scan) -> int:
+        """Rebuilds the dataset's index even if it looks current; returns its candidate count."""
+        directory = self.root / dataset_name
+        with _dataset_lock(str(directory)):
+            self._build(directory, dataset_name, fingerprint, scan, force=True)
+            loaded = self._load(directory)
+        assert loaded is not None
+        return len(loaded[2])
+
+    def status(self, dataset_name: str) -> dict | None:
+        """Returns the current index's metadata (built_at, candidates), or None if never built."""
+        loaded = self._load(self.root / dataset_name)
+        return loaded[1] if loaded else None
+
     def _load(self, directory: Path):
         try:
             version = (directory / "CURRENT").read_text().strip()
@@ -199,12 +214,12 @@ class DiscoveryIndex:
         _cache[key] = (version, meta, candidates, index)
         return _cache[key]
 
-    def _build(self, directory: Path, dataset_name: str, fingerprint: str, scan) -> None:
+    def _build(self, directory: Path, dataset_name: str, fingerprint: str, scan, force: bool = False) -> None:
         directory.mkdir(parents=True, exist_ok=True)
         with open(directory / ".lock", "w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             current = self._load(directory)
-            if current and current[1].get("fingerprint") == fingerprint:
+            if current and current[1].get("fingerprint") == fingerprint and not force:
                 return
             candidates = scan()
             version = uuid.uuid4().hex
@@ -213,7 +228,11 @@ class DiscoveryIndex:
             TermIndex.build([c["content"] for c in candidates]).save(staging)
             (staging / "candidates.json").write_text(json.dumps(candidates))
             (staging / "meta.json").write_text(
-                json.dumps({"fingerprint": fingerprint, "candidates": len(candidates)})
+                json.dumps({
+                    "fingerprint": fingerprint,
+                    "candidates": len(candidates),
+                    "built_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                })
             )
             os.replace(staging, directory / version)
             pointer = directory / f".CURRENT-{version}"
@@ -297,8 +316,21 @@ class NewDiscovery(AbstractRetriever):
             for name in c["tables"]
         ]
 
+    def rebuild_index(self, dataset_name: str) -> int:
+        """Rebuilds the dataset's index now (e.g. after a connected database changed); returns its candidate count."""
+        return self.discovery_index.rebuild(dataset_name, self._fingerprint(dataset_name), lambda: self._scan(dataset_name))
+
+    def index_status(self, dataset_name: str) -> dict | None:
+        """Returns the dataset's index metadata (built_at, candidates), or None if never built."""
+        return self.discovery_index.status(dataset_name)
+
     def _index(self, dataset_name: str) -> tuple[list[dict], TermIndex]:
-        fingerprint = "|".join(
+        return self.discovery_index.get(
+            dataset_name, self._fingerprint(dataset_name), lambda: self._scan(dataset_name)
+        )
+
+    def _fingerprint(self, dataset_name: str) -> str:
+        return "|".join(
             [
                 _INDEX_VERSION,
                 self.db_api.dataset_fingerprint(dataset_name),
@@ -306,7 +338,6 @@ class NewDiscovery(AbstractRetriever):
                 str(self.config.TABLE_DISCOVERY_GROUP_MAX_NAMES),
             ]
         )
-        return self.discovery_index.get(dataset_name, fingerprint, lambda: self._scan(dataset_name))
 
     def _scan(self, dataset_name: str) -> list[dict]:
         self.db_api.link_dataset_tables(self.user_id, self.chat_id, dataset_name)
