@@ -187,6 +187,14 @@ class Config:
             getenv("TABLE_DISCOVERY_GROUP_MAX_NAMES", "100")
         )
 
+        # Local (uploaded) datasets: <DATASETS_ROOT>/<dataset>/<table>/<table>.parquet,
+        # by default services/db/datasets/_data (untracked; see services/db/datasets/download.py).
+        self.DATASETS_ROOT = getenv(
+            "DATASETS_ROOT",
+            str(Path(__file__).resolve().parent.parent / "services" / "db" / "datasets" / "_data"),
+        )
+        self.UPLOAD_MAX_BYTES = int(getenv("UPLOAD_MAX_BYTES", str(5 * 1024**3)))
+
         # Persisted retrieval indices (mounted by docker-compose).
         self.RETRIEVAL_INDEX_ROOT = getenv(
             "RETRIEVAL_INDEX_ROOT",

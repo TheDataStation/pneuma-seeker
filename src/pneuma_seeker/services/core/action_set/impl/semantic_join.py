@@ -163,14 +163,37 @@ class SemanticJoin(Action, Applicable):
                 f"Unknown semantic join mode: {mode!r}. "
                 "Expected 'jarowinkler', 'embedding', or 'hybrid'."
             )
-        needs_embedding = mode in ("embedding", "hybrid")
 
         left_table_ref = self.__resolve_table_ref(
-            left_table_id, left_dataset_name or dataset_name
+            left_table_id, left_dataset_name or dataset_name, "__semantic_join_left"
         )
         right_table_ref = self.__resolve_table_ref(
-            right_table_id, right_dataset_name or dataset_name
+            right_table_id, right_dataset_name or dataset_name, "__semantic_join_right"
         )
+        try:
+            return self.__join(
+                left_table_ref, right_table_ref, relevant_left_cols, relevant_right_cols,
+                joined_table_id, alpha, top_k, delimiter, embed_batch_size, mode, use_llm,
+            )
+        finally:
+            for copy in ("__semantic_join_left", "__semantic_join_right"):
+                self.db_api.execute_query(self.user_id, self.chat_id, f'DROP TABLE IF EXISTS temp."{copy}";')
+
+    def __join(
+        self,
+        left_table_ref: str,
+        right_table_ref: str,
+        relevant_left_cols: list[str],
+        relevant_right_cols: list[str],
+        joined_table_id: str,
+        alpha: float,
+        top_k: int,
+        delimiter: str,
+        embed_batch_size: int,
+        mode: str,
+        use_llm: bool,
+    ) -> DataFrame:
+        needs_embedding = mode in ("embedding", "hybrid")
         left_all_cols = self.__get_table_columns(left_table_ref)
         right_all_cols = self.__get_table_columns(right_table_ref)
 
@@ -370,14 +393,23 @@ class SemanticJoin(Action, Applicable):
             f'SELECT * FROM "{joined_table_id}" LIMIT 5;',
         )
 
-    def __resolve_table_ref(self, table_id: str, dataset_name: str) -> str:
+    def __resolve_table_ref(self, table_id: str, dataset_name: str, copy_name: str) -> str:
+        """
+        Returns a reference to the table: a workspace table as is, a dataset table
+        (a view, without the rowids the join pages by) copied into a temporary table.
+        """
         db_tables = self.db_api.execute_query(
             self.user_id, self.chat_id, "SHOW TABLES;"
         )
         if "name" in db_tables.columns and table_id in db_tables["name"].tolist():
             return f'"{table_id}"'
         self.db_api.link_dataset_tables(self.user_id, self.chat_id, dataset_name)
-        return f'{dataset_name}."{table_id}"'
+        self.db_api.execute_query(
+            self.user_id,
+            self.chat_id,
+            f'CREATE OR REPLACE TEMP TABLE "{copy_name}" AS SELECT * FROM {dataset_name}."{table_id}";',
+        )
+        return f'temp."{copy_name}"'
 
     def __get_table_columns(self, table_ref: str) -> list[str]:
         df = self.db_api.execute_query(

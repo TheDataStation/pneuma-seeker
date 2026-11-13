@@ -50,9 +50,11 @@ services:
     networks:
       - backend-net
     volumes:
-      - ./src/pneuma_seeker/services/db/datasets:/app/src/pneuma_seeker/services/db/datasets
+      - ./src/pneuma_seeker/services/db/datasets/_data:/app/src/pneuma_seeker/services/db/datasets/_data
       - ./src/pneuma_seeker/services/db/workspaces:/app/src/pneuma_seeker/services/db/workspaces
       - ./src/pneuma_seeker/services/db/indices:/app/src/pneuma_seeker/services/db/indices
+      # Folders and files the CSV/Parquet folder and DuckDB/SQLite connectors can read, as /data/...
+      - ${CONNECTOR_DATA_DIR:-./data_src}:/data:ro
     env_file:
       - .env
 

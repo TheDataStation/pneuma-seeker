@@ -1,189 +1,194 @@
-# src/pneuma_seeker/services/db/datasets/manager.py
-import csv
-import hashlib
-import os
 from logging import Logger
 from pathlib import Path
 
 import duckdb
-from pandas import isna, read_csv
-from tqdm import tqdm
 
 from pneuma_seeker.models import PermissionKey
+from pneuma_seeker.services.db.datasets import uploads
+from pneuma_seeker.services.db.datasets.connectors import (
+    CONNECTOR_TYPES,
+    DatasetConnector,
+    DatasetUnavailable,
+    build,
+    quote_ident,
+)
+from pneuma_seeker.services.db.datasets.registry import (
+    LOCAL_TYPE,
+    DatasetRegistry,
+    DatasetSource,
+    check_name,
+)
 from pneuma_seeker.shared.str_processor import clean_column_table_name
 
 
-def sniff_csv_dialect_options(dataset_con, file_path: str) -> str:
-    """Returns explicit DELIM/QUOTE/ESCAPE options to pin a CSV's dialect.
-
-    STRICT_MODE=FALSE is needed so a few malformed rows don't abort a whole
-    file, but it also relaxes DuckDB's dialect sniffer, which can then settle
-    on a quoting scheme that silently mis-parses a correctly-quoted file and
-    drops large contiguous blocks of rows. Sniffing separately (sniff_csv runs
-    strict) and pinning the result keeps the tolerant row handling without
-    letting the dialect drift.
-    """
-    try:
-        delim, quote, escape = dataset_con.execute(
-            "SELECT Delimiter, Quote, Escape FROM sniff_csv(?)", [file_path]
-        ).fetchone()
-    except Exception:
-        return ""
-    options = []
-    for name, value in (("DELIM", delim), ("QUOTE", quote), ("ESCAPE", escape)):
-        # sniff_csv reports absent settings as a multi-char marker, e.g. "(empty)"
-        if isinstance(value, str) and len(value) == 1:
-            options.append(f"""{name}='{value.replace("'", "''")}'""")
-    return ("," + ", ".join(options)) if options else ""
-
-
 class DatasetManager:
-    """Manages dataset databases and dataset linking into workspaces."""
+    """
+    Manages datasets: each is registered with a connector (uploaded Parquet
+    tables, a folder of files, a database file or a Postgres database) that
+    attaches it into DuckDB as <dataset>."<table>" views.
+    """
 
-    def __init__(self, dataset_db_path: Path, logger: Logger) -> None:
-        self.dataset_db_path = Path(dataset_db_path)
+    def __init__(self, dataset_db_path: Path, logger: Logger, registry: DatasetRegistry) -> None:
         self.logger = logger
-        self._pg_registry: dict[str, str] = {}
+        self.registry = registry
+        self.dataset_db_path = Path(dataset_db_path)
+        # (connection id, alias) -> fingerprint of the data the attached views show
+        self._attached: dict[tuple[int, str], str] = {}
 
-        os.makedirs(self.dataset_db_path, exist_ok=True)
+    @property
+    def dataset_db_path(self) -> Path:
+        """Gets the root folder of local (uploaded) datasets."""
+        return self._root
 
-    def get_dataset_connection(self, dataset_name: str, read_only: bool = True):
-        """Returns a DuckDB connection to the dataset DB file (uses .db extension)."""
-        os.makedirs(self.dataset_db_path / dataset_name, exist_ok=True)
-        dataset_db_file = self.dataset_db_path / dataset_name / f"{dataset_name}.db"
-        if read_only and not dataset_db_file.exists():
-            temp_con = duckdb.connect(
-                database=dataset_db_file.as_posix(), read_only=False
-            )
-            temp_con.close()
-        con = duckdb.connect(database=dataset_db_file.as_posix(), read_only=read_only)
-        return con
+    @dataset_db_path.setter
+    def dataset_db_path(self, value: str | Path) -> None:
+        """Sets the root folder of local datasets."""
+        self._root = Path(value)
+        self._root.mkdir(parents=True, exist_ok=True)
+        self.registry.root = self._root
 
-    def ingest_dataset(
+    # ------------------------------------------------------------------
+    # Sources
+    # ------------------------------------------------------------------
+    def list_datasets(self) -> list[DatasetSource]:
+        """Lists every registered dataset."""
+        return self.registry.list_sources()
+
+    def get_source(self, dataset_name: str) -> DatasetSource | None:
+        """Returns a dataset's registration, or None."""
+        return self.registry.get(dataset_name)
+
+    def connector(self, dataset_name: str) -> DatasetConnector:
+        """Returns the connector of a dataset. Raises DatasetUnavailable if it isn't registered."""
+        source = self.registry.get(dataset_name)
+        if source is None:
+            raise DatasetUnavailable(f"No dataset named {dataset_name!r}.")
+        return self._build(source)
+
+    def is_local(self, source: DatasetSource) -> bool:
+        """Checks whether a dataset is stored under the datasets root (so uploads may change it)."""
+        if source.connector_type != LOCAL_TYPE:
+            return False
+        path = Path(source.config.get("path", ""))
+        resolved = (path if path.is_absolute() else self._root / path).resolve()
+        return resolved.is_relative_to(self._root.resolve()) and resolved != self._root.resolve()
+
+    def test_source(self, connector_type: str, config: dict) -> tuple[bool, str | None, int]:
+        """Checks whether a source can be read: (reachable, error, table count). Raises ValueError for a bad config."""
+        return build(connector_type, config).health_check()
+
+    def add_source(self, name: str, connector_type: str, config: dict, created_by: str | None) -> DatasetSource:
+        """Registers a dataset over an existing source after checking it can be read. Raises ValueError."""
+        check_name(name)
+        if connector_type not in CONNECTOR_TYPES:
+            raise ValueError(f"Unknown connector type: {connector_type!r}")
+        connector = build(connector_type, config)
+        ok, error, _ = connector.health_check()
+        if not ok:
+            raise ValueError(f"Couldn't read the source: {error}")
+        return self.registry.add(DatasetSource(name, connector_type, connector.stored_config(), created_by))
+
+    def update_source(self, name: str, config: dict) -> DatasetSource:
+        """Replaces a dataset's connector config, keeping stored secrets left blank. Raises ValueError."""
+        source = self.registry.get(name)
+        if source is None:
+            raise ValueError(f"No dataset named {name!r}.")
+        cls = CONNECTOR_TYPES[source.connector_type]
+        merged = {
+            **config,
+            **{f: source.config.get(f, "") for f in cls.SECRET_FIELDS if not config.get(f)},
+        }
+        connector = build(source.connector_type, merged)
+        ok, error, _ = connector.health_check()
+        if not ok:
+            raise ValueError(f"Couldn't read the source: {error}")
+        return self.registry.update_config(name, connector.stored_config())
+
+    def remove_dataset(self, dataset_name: str) -> None:
+        """Unregisters a dataset, deleting its files if it's local."""
+        source = self.registry.get(dataset_name)
+        if source is None:
+            raise ValueError(f"No dataset named {dataset_name!r}.")
+        if self.is_local(source):
+            uploads.delete_dataset_files(self._root, dataset_name)
+        self.registry.remove(dataset_name)
+
+    # ------------------------------------------------------------------
+    # Local data
+    # ------------------------------------------------------------------
+    def add_file(
         self,
         dataset_name: str,
-        dataset_path: str,
-        metadata_path: str | None = None,
-        overwrite: bool = True,
-    ) -> None:
-        """
-        Stores CSV files inside the dataset's own DuckDB file.
-        - table name = cleaned(Path(csv_file).stem)
-        - cleans column names
-        - only reads file once for ingestion (fast path)
-        """
-        if (
-            os.path.exists(self.dataset_db_path / dataset_name / f"{dataset_name}.db")
-            and not overwrite
-        ):
-            self.logger.warning(
-                "Dataset DB already exists for '%s' at %s. Skipping ingestion. Set overwrite=True to force re-ingestion.",
-                dataset_name,
-                self.dataset_db_path / dataset_name / f"{dataset_name}.db",
-            )
-            return
+        file: Path,
+        file_name: str,
+        *,
+        create: bool = False,
+        replace: bool = False,
+        created_by: str | None = None,
+    ) -> uploads.UploadResult:
+        """Adds an uploaded file's tables to a local dataset, registering it if created. Raises UploadRefused."""
+        source = self.registry.get(dataset_name)
+        if source is not None and not self.is_local(source):
+            raise uploads.UploadRefused("invalid", f"{dataset_name!r} is a connected source; files can't be added to it.")
+        if source is None and not create:
+            raise uploads.UploadRefused("not_found", f"No dataset named {dataset_name!r}.")
+        result = uploads.add_file(self._root, dataset_name, file, file_name, create=create, replace=replace)
+        if result.created_dataset:
+            self.registry.register_local(dataset_name, created_by)
+        return result
 
-        if metadata_path is not None and os.path.exists(metadata_path):
-            try:
-                metadata = read_csv(metadata_path)
-                if (
-                    "table_name" in metadata.columns
-                    and "description" in metadata.columns
-                ):
-                    metadata["table_name"] = metadata["table_name"].apply(
-                        clean_column_table_name
-                    )
-                    dest_metadata_path = (
-                        self.dataset_db_path / dataset_name / "metadata.csv"
-                    )
-                    os.makedirs(dest_metadata_path.parent, exist_ok=True)
-                    metadata.to_csv(dest_metadata_path, index=False)
-            except Exception as e:
-                self.logger.warning(
-                    "Failed to process metadata CSV at %s: %s", metadata_path, e
-                )
+    def delete_table(self, dataset_name: str, table_name: str) -> None:
+        """Deletes a table of a local dataset. Raises UploadRefused."""
+        source = self.registry.get(dataset_name)
+        if source is None or not self.is_local(source):
+            raise uploads.UploadRefused("invalid", f"{dataset_name!r} isn't a local dataset.")
+        uploads.delete_table(self._root, dataset_name, table_name)
 
-        dataset_con = self.get_dataset_connection(dataset_name, read_only=False)
+    def ingest_dataset(self, dataset_name: str, dataset_path: str, overwrite: bool = True) -> None:
+        """Stores every CSV file in `dataset_path` as a table of a local dataset (replacing it if `overwrite`)."""
+        if (self._root / dataset_name).is_dir():
+            if not overwrite:
+                self.logger.warning(f"[DatasetManager] Dataset '{dataset_name}' exists; skipping ingestion.")
+                return
+            uploads.delete_dataset_files(self._root, dataset_name)
+        for file in sorted(Path(dataset_path).iterdir()):
+            if file.is_file() and file.suffix.lower() == ".csv":
+                uploads.add_file(self._root, dataset_name, file, file.name, create=True, replace=True)
+
+    # ------------------------------------------------------------------
+    # Reading
+    # ------------------------------------------------------------------
+    def get_dataset_connection(
+        self, dataset_name: str, tables: set[str] | None = None
+    ) -> duckdb.DuckDBPyConnection:
+        """
+        Returns a new connection with only this dataset attached (as the current
+        database), or only its `tables`, and file access limited to its own files.
+        Raises DatasetUnavailable.
+        """
+        connector = self.connector(dataset_name)
+        alias = clean_column_table_name(dataset_name)
+        con = duckdb.connect()
         try:
-            dataset_con.begin()
-            for table_file_name in tqdm(sorted(os.listdir(dataset_path))):
-                if not table_file_name.lower().endswith(".csv"):
-                    continue
-
-                file_path = (Path(dataset_path) / table_file_name).as_posix()
-                table_stem = Path(table_file_name).stem
-                cleaned_table_name = clean_column_table_name(table_stem)
-
-                original_cols = None
-                try:
-                    # utf-8-sig so a leading BOM does not end up glued to the
-                    # first column name (DuckDB strips it, so the names must match)
-                    with open(file_path, "r", encoding="utf-8-sig") as f:
-                        header_line = f.readline().strip()
-                        original_cols = list(csv.reader([header_line]))[0]
-                except Exception:
-                    original_cols = None
-
-                dialect_options = sniff_csv_dialect_options(
-                    dataset_con, file_path
-                )
-
-                if original_cols:
-                    cleaned_cols = self.__dedupe_columns(
-                        [clean_column_table_name(c) for c in original_cols]
-                    )
-                    select_clause = ", ".join(
-                        f'"{orig}" AS "{cleaned}"'
-                        for orig, cleaned in zip(original_cols, cleaned_cols)
-                    )
-
-                    dataset_con.execute(f"""
-                        CREATE OR REPLACE TABLE "{cleaned_table_name}" AS
-                        SELECT {select_clause}
-                        FROM read_csv_auto(
-                            '{file_path}',
-                            HEADER=TRUE,
-                            IGNORE_ERRORS=TRUE,
-                            STRICT_MODE=FALSE,
-                            NULL_PADDING=TRUE,
-                            SAMPLE_SIZE=100_000,
-                            PARALLEL=FALSE
-                            {dialect_options}
-                        );
-                        """)
-                else:
-                    dataset_con.execute(f"""
-                        CREATE OR REPLACE TABLE "{cleaned_table_name}" AS
-                        SELECT * FROM read_csv_auto(
-                            '{file_path}',
-                            HEADER=TRUE,
-                            IGNORE_ERRORS=TRUE,
-                            STRICT_MODE=FALSE,
-                            NULL_PADDING=TRUE,
-                            SAMPLE_SIZE=100_000,
-                            PARALLEL=FALSE
-                            {dialect_options}
-                        );
-                        """)
-            dataset_con.commit()
-        except Exception as exception:
-            dataset_con.rollback()
-            self.logger.error(
-                "[DatasetManager] Failed to ingest dataset '%s': %s",
-                dataset_name,
-                exception,
-            )
+            connector.attach(con, alias, tables)
+            con.execute(f"USE {quote_ident(alias)}")
+            connector.lockdown(con)
+        except Exception:
+            con.close()
             raise
-        finally:
-            dataset_con.close()
+        return con
 
     def list_tables(self, dataset_name: str) -> list[str]:
-        """Lists table names directly from the dataset's own DB file (no chat/workspace needed)."""
-        con = self.get_dataset_connection(dataset_name, read_only=True)
+        """Lists a dataset's table names ([] if it's missing or unreadable)."""
         try:
-            return con.execute("SHOW TABLES").fetchdf()["name"].tolist()
-        finally:
-            con.close()
+            return self.connector(dataset_name).table_names()
+        except DatasetUnavailable as exc:
+            self.logger.warning(f"[DatasetManager] {exc}")
+            return []
+
+    def dataset_fingerprint(self, dataset_name: str) -> str:
+        """Returns a fingerprint that changes when the dataset's data may have."""
+        return self.connector(dataset_name).fingerprint()
 
     def query_table(
         self,
@@ -196,82 +201,42 @@ class DatasetManager:
         search: str | None,
     ):
         """
-        Queries a table directly from the dataset's own DB file, bypassing the
-        per-chat workspace connection used by `link_dataset_tables` — this lets
-        dataset browsing work without an active chat session.
-
+        Queries one table of a dataset, without a chat session, for browsing.
         Returns (rows_df, total_count, columns).
         """
-        con = self.get_dataset_connection(dataset_name, read_only=True)
+        con = self.get_dataset_connection(dataset_name, tables={table_name})
         try:
-            columns = list(
-                con.execute(f'SELECT * FROM "{table_name}" LIMIT 0').fetchdf().columns
-            )
-
+            table = quote_ident(table_name)
+            columns = list(con.execute(f"SELECT * FROM {table} LIMIT 0").fetchdf().columns)
             where_sql = ""
             params: list[str] = []
             if search and columns:
-                conditions = " OR ".join(
-                    f'CAST("{col}" AS VARCHAR) ILIKE ?' for col in columns
-                )
-                where_sql = f" WHERE {conditions}"
+                where_sql = " WHERE " + " OR ".join(f"CAST({quote_ident(c)} AS VARCHAR) ILIKE ?" for c in columns)
                 params = [f"%{search}%"] * len(columns)
-
-            total_count = con.execute(
-                f'SELECT COUNT(*) FROM "{table_name}"{where_sql}', params
-            ).fetchone()[  # type: ignore
-                0
-            ]
-
+            (total_count,) = con.execute(f"SELECT COUNT(*) FROM {table}{where_sql}", params).fetchone()  # type: ignore[misc]
             order_sql = ""
             if order_by and order_by in columns:
-                order_sql = f' ORDER BY "{order_by}" {order_dir.upper()}'
-
+                order_sql = f" ORDER BY {quote_ident(order_by)} {'DESC' if order_dir.lower() == 'desc' else 'ASC'}"
             rows_df = con.execute(
-                f'SELECT * FROM "{table_name}"{where_sql}{order_sql} LIMIT {limit} OFFSET {offset}',
-                params,
+                f"SELECT * FROM {table}{where_sql}{order_sql} LIMIT {int(limit)} OFFSET {int(offset)}", params
             ).fetchdf()
-
             return rows_df, int(total_count), columns
         finally:
             con.close()
 
-    def query_sql(
-        self,
-        dataset_name: str,
-        sql: str,
-        params: tuple = (),
-        limit: int = 500,
-    ):
+    def query_sql(self, dataset_name: str, sql: str, params: tuple = (), limit: int = 500):
         """
-        Runs a single read-only SELECT/WITH...SELECT against exactly one
-        dataset's own DB file — the general-query counterpart to query_table
-        (which only supports a fixed paginate/sort/search template). This is
-        deliberately scoped to one dataset: get_dataset_connection opens only
-        that dataset's .db file (no ATTACH of any other dataset), so even
-        arbitrary SQL text can't reach data outside it. The connection is
-        opened read_only=True, so DuckDB itself rejects any write regardless
-        of query text — the statement-shape check below (single statement,
-        must start with SELECT/WITH) is a second, independent layer on top of
-        that, not the only guard.
-
-        Returns (rows_df, total_count, columns). Raises ValueError for a
-        malformed/non-read statement, propagates DuckDB errors otherwise.
+        Runs a single SELECT/WITH statement against one dataset, without a chat
+        session. Only that dataset is attached and its connection can't read other
+        files, so the statement can't reach data outside it. Returns (rows_df,
+        total_count, columns). Raises ValueError for a malformed or non-read statement.
         """
         cleaned = self.__require_single_read_statement(sql)
-        con = self.get_dataset_connection(dataset_name, read_only=True)
+        con = self.get_dataset_connection(dataset_name)
         try:
-            total_count = con.execute(
-                f"SELECT COUNT(*) FROM ({cleaned}) AS _agentic_catalog_count", params
-            ).fetchone()[  # type: ignore
-                0
-            ]
-            rows_df = con.execute(
-                f"SELECT * FROM ({cleaned}) AS _agentic_catalog_rows LIMIT {limit}",
-                params,
-            ).fetchdf()
-            columns = list(rows_df.columns)
-            return rows_df, int(total_count), columns
+            (total_count,) = con.execute(f"SELECT COUNT(*) FROM ({cleaned}) AS _count", params).fetchone()  # type: ignore[misc]
+            rows_df = con.execute(f"SELECT * FROM ({cleaned}) AS _rows LIMIT {int(limit)}", params).fetchdf()
+            return rows_df, int(total_count), list(rows_df.columns)
         finally:
             con.close()
 
@@ -288,123 +253,51 @@ class DatasetManager:
             raise ValueError("sql must be a SELECT/WITH...SELECT statement.")
         return stripped
 
-    def get_table_description(self, dataset_name: str, table_name: str) -> str:
-        """Returns the description of a table in the dataset."""
-        os.makedirs(self.dataset_db_path / dataset_name, exist_ok=True)
-        metadata_path = self.dataset_db_path / dataset_name / "metadata.csv"
-        if os.path.exists(metadata_path) is False:
-            return ""
-        try:
-            metadata = read_csv(metadata_path)
-        except Exception:
-            return ""
-
-        if (
-            "table_name" not in metadata.columns
-            or "description" not in metadata.columns
-        ):
-            return ""
-
-        table_meta = metadata[metadata["table_name"] == table_name]
-        if table_meta.empty:
-            return ""
-        description = table_meta.iloc[0]["description"]
-        if description is None or isna(description):
-            return ""
-        return str(description)
-
-    def dataset_fingerprint(self, dataset_name: str) -> str:
+    # ------------------------------------------------------------------
+    # Access and workspaces
+    # ------------------------------------------------------------------
+    def is_dataset_accessible(self, dataset_name: str, is_admin: bool, group_permissions: dict[str, str]) -> bool:
         """
-        Returns a fingerprint that changes when the dataset's data may have: the DB file's
-        size and mtime, or for Postgres, its connection (changes inside it aren't detected).
+        Checks whether a dataset exists and is accessible to a user with the given
+        admin status and group permissions. Every code path that reads or exposes
+        dataset data must call this first.
         """
-        if dataset_name in self._pg_registry:
-            digest = hashlib.sha256(self._pg_registry[dataset_name].encode()).hexdigest()
-            return f"pg:{digest[:16]}"
-        db_file = self.dataset_db_path / dataset_name / f"{dataset_name}.db"
-        stat = db_file.stat()
-        return f"file:{stat.st_size}:{stat.st_mtime_ns}"
-
-    def register_postgres_dataset(
-        self, dataset_name: str, connection_string: str
-    ) -> None:
-        """Registers a PostgreSQL-backed dataset by storing its connection string."""
-        self._pg_registry[dataset_name] = connection_string
-
-    def is_dataset_accessible(
-        self, dataset_name: str, is_admin: bool, group_permissions: dict[str, str]
-    ) -> bool:
-        """
-        Single source of truth for whether a dataset is accessible to a user with
-        the given admin status and group permissions. Every code path that reads
-        or exposes dataset data — not just the dataset-listing endpoint — must
-        call this before touching `dataset_name`.
-        """
-        dataset_db_file = self.dataset_db_path / dataset_name / f"{dataset_name}.db"
-        if not dataset_db_file.exists():
+        if self.registry.get(dataset_name) is None:
             return False
         if is_admin:
             return True
-        permission_key = f"{PermissionKey.DATASET_ACCESS_PREFIX.value}:{dataset_name}"
-        return permission_key in group_permissions
+        return f"{PermissionKey.DATASET_ACCESS_PREFIX.value}:{dataset_name}" in group_permissions
 
-    def get_accessible_local_datasets(
-        self, is_admin: bool, group_permissions: dict[str, str]
-    ) -> list[str]:
-        """
-        Returns a list of local datasets accessible to the user based on their admin status and group membership.
-        """
+    def get_accessible_datasets(self, is_admin: bool, group_permissions: dict[str, str]) -> list[str]:
+        """Returns the datasets accessible to a user with the given admin status and group permissions."""
+        prefix = PermissionKey.DATASET_ACCESS_PREFIX.value
         return [
-            dataset_name
-            for dataset_name in os.listdir(self.dataset_db_path)
-            if self.is_dataset_accessible(dataset_name, is_admin, group_permissions)
+            s.name
+            for s in self.registry.list_sources()
+            if is_admin or f"{prefix}:{s.name}" in group_permissions
         ]
 
-    def link_dataset_tables(
-        self,
-        user_id: str,
-        chat_id: str,
-        dataset_name: str,
-        get_ws_connection,
-    ) -> None:
+    def link_dataset_tables(self, user_id: str, chat_id: str, dataset_name: str, get_ws_connection) -> None:
         """
-        Attach a dataset into the workspace connection under a safe alias.
-
-        - If dataset_name was registered via register_postgres_dataset, attaches
-          using DuckDB's postgres extension (READ_ONLY).
-        - Otherwise, attaches a local .db file.
+        Attaches a dataset into the chat's workspace connection under its alias,
+        re-attaching it if its data changed since. Raises DatasetUnavailable.
         """
         ws_db_con = get_ws_connection(user_id, chat_id)
-
+        connector = self.connector(dataset_name)
         alias = clean_column_table_name(dataset_name)
-        attached = ws_db_con.execute("PRAGMA database_list").fetchdf()
-        if "name" in attached.columns and alias in attached["name"].tolist():
-            return
+        key = (id(ws_db_con), alias)
+        fingerprint = connector.fingerprint()
+        attached = {row[0] for row in ws_db_con.execute("SELECT database_name FROM duckdb_databases()").fetchall()}
+        if alias in attached:
+            if self._attached.get(key) == fingerprint:
+                return
+            connector.detach(ws_db_con, alias)
+        connector.attach(ws_db_con, alias)
+        self._attached[key] = fingerprint
 
-        if dataset_name in self._pg_registry:
-            conn_str = self._pg_registry[dataset_name]
-            ws_db_con.execute(
-                f"ATTACH '{conn_str}' AS \"{alias}\" (TYPE postgres, READ_ONLY)"
-            )
-        else:
-            dataset_db_file = self.dataset_db_path / dataset_name / f"{dataset_name}.db"
-            if not dataset_db_file.exists():
-                raise FileNotFoundError(
-                    f"Dataset DB not found: {dataset_db_file.as_posix()}"
-                )
-            ws_db_con.execute(
-                f"ATTACH DATABASE '{dataset_db_file.as_posix()}' AS \"{alias}\" (READ_ONLY)"
-            )
+    def _build(self, source: DatasetSource) -> DatasetConnector:
+        config = dict(source.config)
+        if source.connector_type == LOCAL_TYPE and not Path(config.get("path", "")).is_absolute():
+            config["path"] = (self._root / config.get("path", source.name)).as_posix()
+        return build(source.connector_type, config)
 
-    def __dedupe_columns(self, cols):
-        """Deduplicates column names by appending _1, _2, etc. to duplicates."""
-        seen = {}
-        result = []
-        for c in cols:
-            if c not in seen:
-                seen[c] = 0
-                result.append(c)
-            else:
-                seen[c] += 1
-                result.append(f"{c}_{seen[c]}")
-        return result

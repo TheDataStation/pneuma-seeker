@@ -62,12 +62,12 @@ class EnumeratorTests(unittest.TestCase):
         df.to_csv(path, index=False)
         return path
 
-    def _write_metadata(self, rows: list[dict]) -> Path:
-        ds_dir = self.dataset_root / self.dataset_name
-        ds_dir.mkdir(parents=True, exist_ok=True)
-        metadata_path = ds_dir / "metadata.csv"
-        pd.DataFrame(rows).to_csv(metadata_path, index=False)
-        return metadata_path
+    def _write_metadata(self, rows: list[dict]) -> None:
+        """Stands in for table descriptions stored in the memory layer (Postgres)."""
+        descriptions = {r["table_name"]: r["description"] for r in rows}
+        self.db_api.pneuma_db.get_table_description = (  # type: ignore[method-assign]
+            lambda dataset_name, table_name: descriptions.get(table_name, "")
+        )
 
     def test_retrieve_filters_by_regex_and_returns_tables(self):
         self._write_csv("users", pd.DataFrame({"id": [1, 2], "name": ["A", "B"]}))

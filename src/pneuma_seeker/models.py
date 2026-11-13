@@ -8,6 +8,7 @@ from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 
 class EndpointTag(Enum):
     INDEXING = "indexing"
+    DATASETS = "datasets"
     CORE = "core"
     CHAT = "chat"
     AUTH = "auth"
@@ -32,21 +33,25 @@ class ChatHistoryResponse(BaseModel):
 
 
 class IndexDatasetRequest(BaseModel):
-    dataset_name: str = Field(min_length=1)
-    connector_config: dict[str, Any]
-    overwrite: bool
+    overwrite: bool = True
     schema_summaries: list[dict[str, Any]] | None = None
 
 
-class IndexDatasetResponse(BaseModel):
-    run_id: str
-    dataset_name: str
-    latest_metadata: dict[str, Any] | None
+class DatasetSourceRequest(BaseModel):
+    name: str = Field(min_length=1)
+    connector_type: str
+    config: dict[str, Any]
 
 
-class DatasetMetadataResponse(BaseModel):
-    dataset_name: str
-    latest_metadata: dict[str, Any]
+class TestDatasetSourceRequest(BaseModel):
+    connector_type: str
+    config: dict[str, Any]
+    # Set when editing an existing dataset: blank secrets keep its stored ones.
+    name: str | None = None
+
+
+class UpdateDatasetSourceRequest(BaseModel):
+    config: dict[str, Any]
 
 
 class DatasetQueryRequest(BaseModel):

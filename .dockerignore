@@ -16,3 +16,4 @@ dist/
 .ipynb_checkpoints/
 data_src/
 temp/
+src/pneuma_seeker/services/db/datasets/_data/

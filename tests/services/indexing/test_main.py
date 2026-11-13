@@ -1,171 +1,110 @@
 import os
-import shutil
 import sys
-import tempfile
 import unittest
+from logging import getLogger
+from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(
     0,
     os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../src")),
 )
 
-from logging import getLogger
-
 import pneuma_seeker.services.indexing.main as indexing_main
-from pneuma_seeker.services.indexing.connectors.base import SourceConnector
+from pneuma_seeker.services.db.datasets.registry import DatasetSource
 from pneuma_seeker.shared.config import Config
-from typing import cast
+from pneuma_seeker.shared.schemas.core.ir_system import Table, TableContext
 
 
 class DummyDBAPI:
-    def __init__(self, config, logger):
-        self.logger = logger
-        self.registered = None
-        self.ingested = None
+    def __init__(self, tables: list[str], descriptions: dict[str, str] | None = None):
+        self.tables = tables
+        self.descriptions = descriptions or {}
+        sources = {
+            "ds": DatasetSource("ds", "postgres", {"host": "h", "dbname": "d", "user": "u", "password": "secret"})
+        }
+        self.pneuma_db = SimpleNamespace(get_dataset_source=sources.get)
 
-    def register_postgres_dataset(self, dataset_name, connection_string):
-        self.registered = (dataset_name, connection_string)
+    def list_dataset_tables(self, dataset_name):
+        return self.tables
 
-    def ingest_dataset(self, dataset_name, tmpdir, metadata_path, overwrite):
-        self.ingested = (dataset_name, tmpdir, metadata_path, overwrite)
+    def get_table_description(self, dataset_name, table_name):
+        return self.descriptions.get(table_name, "")
 
-
-class DummyLM:
-    def __init__(self, config, logger):
-        pass
+    def dataset_fingerprint(self, dataset_name):
+        return "fp-1"
 
 
 class DummyRetriever:
     def __init__(self, user_id, chat_id, config, db_api, language_model_api):
-        self.user_id = user_id
-        self.chat_id = chat_id
-        self.index_called = False
-        self.index_with_existing_schema_summaries_called = False
         self.indexed_docs = None
-        self.existing_schema_summaries = None
+        self.summaries = None
 
     def index(self, documents, overwrite):
-        self.index_called = True
         self.indexed_docs = documents
 
-    def index_with_existing_schema_summaries(
-        self, documents, existing_schema_summaries
-    ):
-        self.index_with_existing_schema_summaries_called = True
+    def index_with_existing_schema_summaries(self, documents, existing_schema_summaries, overwrite):
         self.indexed_docs = documents
-        self.existing_schema_summaries = existing_schema_summaries
+        self.summaries = existing_schema_summaries
 
 
 class DummyMetadataStore:
     def __init__(self):
-        self.started_runs = []
+        self.started = []
         self.succeeded = None
         self.failed = None
 
     def record_run_started(self, dataset_name, source_type, source_config, snapshot_id):
-        run_id = f"run-{len(self.started_runs)+1}"
-        self.started_runs.append({"id": run_id, "dataset": dataset_name})
-        return run_id
+        self.started.append((dataset_name, source_type, source_config, snapshot_id))
+        return f"run-{len(self.started)}"
 
     def mark_run_succeeded(self, run_id, indexed_stream_count, indexed_table_count):
-        self.succeeded = (run_id, indexed_stream_count, indexed_table_count)
+        self.succeeded = (run_id, indexed_table_count)
 
     def mark_run_failed(self, run_id, reason):
         self.failed = (run_id, reason)
 
     def get_latest_run(self, dataset_name):
-        return {"id": "latest", "dataset": dataset_name}
+        return None
 
     def close(self):
         pass
 
 
-class TestIndexingService(unittest.TestCase):
-    def setUp(self):
-        # Patch module-level dependencies so IndexingService doesn't create real DB/LM/retriever
-        indexing_main.DBAPI = DummyDBAPI
-        indexing_main.LanguageModelAPI = DummyLM
-        indexing_main.PneumaRetriever = DummyRetriever
-        indexing_main.IndexingMetadataStore = DummyMetadataStore
+class IndexingServiceTests(unittest.TestCase):
+    def service(self, db_api: DummyDBAPI) -> indexing_main.IndexingService:
+        with patch.object(indexing_main, "LanguageModelAPI", lambda c, l: None), \
+                patch.object(indexing_main, "PneumaRetriever", DummyRetriever), \
+                patch.object(indexing_main, "IndexingMetadataStore", DummyMetadataStore):
+            return indexing_main.IndexingService(Config(), getLogger("t"), db_api)  # type: ignore[arg-type]
 
-        self.logger = getLogger("test")
-        self.config = Config()
+    def test_run_is_recorded_with_redacted_config_and_fingerprint(self):
+        service = self.service(DummyDBAPI(["t"]))
+        run_id = service.start_indexing_run("ds")
+        self.assertEqual(run_id, "run-1")
+        dataset, source_type, config, snapshot = service.metadata_store.started[0]
+        self.assertEqual((dataset, source_type, snapshot), ("ds", "postgres", "fp-1"))
+        self.assertNotIn("secret", str(config))
 
-    def _make_tmp_csv_dir(self):
-        tmpdir = tempfile.mkdtemp()
-        # top-level CSVs
-        with open(os.path.join(tmpdir, "users.csv"), "w") as f:
-            f.write("id,name\n1,Alice\n2,Bob\n")
-        with open(os.path.join(tmpdir, "orders.csv"), "w") as f:
-            f.write("order_id,amount\n10,100\n")
+    def test_unknown_dataset_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.service(DummyDBAPI(["t"])).start_indexing_run("nope")
 
-        nested = os.path.join(tmpdir, "nested")
-        os.makedirs(nested, exist_ok=True)
-        with open(os.path.join(nested, "users.csv"), "w") as f:
-            f.write("id,name\n3,Carol\n")
+    def test_indexes_every_table_with_its_description(self):
+        service = self.service(DummyDBAPI(["orders", "users"], {"users": "People"}))
+        service.run_indexing_job("ds", "run-1")
+        docs = service.retriever.indexed_docs
+        tables = [d for d in docs if isinstance(d, Table)]
+        contexts = [d for d in docs if isinstance(d, TableContext)]
+        self.assertEqual([t.metadata["table_name"] for t in tables], ["orders", "users"])
+        self.assertEqual([(c.metadata["table_name"], c.content) for c in contexts], [("users", "People")])
+        self.assertEqual(service.metadata_store.succeeded, ("run-1", 2))
 
-        return tmpdir
-
-    def tearDown(self):
-        # nothing global to clean here
-        pass
-
-    def test_register_and_instantiate_custom_connector(self):
-        service = indexing_main.IndexingService(self.config, self.logger)
-
-        class FakeConnector(SourceConnector):
-            def __init__(self, cfg):
-                self.cfg = cfg
-
-            @property
-            def source_type(self) -> str:
-                return "fake"
-
-            def check_connection(self):
-                return True
-
-            def discover(self):
-                return []
-
-            def read(self, stream):  # type: ignore
-                return iter([])
-
-        service.register_connector("fake", FakeConnector)
-        inst = service.instantiate_connector({"type": "fake", "x": 1})
-        self.assertIsInstance(inst, FakeConnector)
-
-    def test_index_dataset_csv_calls_retriever_and_ingest(self):
-        tmpdir = self._make_tmp_csv_dir()
-        try:
-            service = indexing_main.IndexingService(self.config, self.logger)
-
-            # ensure metadata_store and db_api are the dummy instances we expect
-            self.assertIsInstance(service.metadata_store, DummyMetadataStore)
-            self.assertIsInstance(service.db_api, DummyDBAPI)
-
-            connector_config = {"type": "csv", "directory_path": tmpdir}
-
-            run_id = service.index_dataset("mydataset", connector_config)
-
-            # run should be recorded and succeeded
-            self.assertIsNotNone(run_id)
-            self.assertIsNotNone(
-                cast(DummyMetadataStore, service.metadata_store).succeeded
-            )
-
-            # retriever should have been called
-            retriever = cast(DummyRetriever, service.retriever)
-            self.assertTrue(
-                retriever.index_called
-                or retriever.index_with_existing_schema_summaries_called
-            )
-
-            # ingest_dataset should have been called on the dummy DBAPI
-            dbapi = cast(DummyDBAPI, service.db_api)
-            self.assertIsNotNone(dbapi.ingested)
-            self.assertEqual(dbapi.ingested[0], "mydataset")  # type: ignore
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
+    def test_dataset_without_tables_marks_the_run_failed(self):
+        service = self.service(DummyDBAPI([]))
+        with self.assertRaises(ValueError):
+            service.run_indexing_job("ds", "run-1")
+        self.assertEqual(service.metadata_store.failed[0], "run-1")
 
 
 if __name__ == "__main__":

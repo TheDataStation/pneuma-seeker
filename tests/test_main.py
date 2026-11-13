@@ -41,7 +41,7 @@ class TestMainApplication(unittest.TestCase):
         self.assertEqual(response.json(), {"status": "ok"})
 
     def test_expected_routers_are_registered(self):
-        """Ensures that the auth, chat, and indexing router groups are attached to the app layout."""
+        """Ensures that the auth, chat, and datasets router groups are attached to the app layout."""
         # Extract path definitions from registered routes
         registered_paths = {route.path for route in self.app.routes}
 
@@ -55,12 +55,12 @@ class TestMainApplication(unittest.TestCase):
             "Chat router missing.",
         )
         self.assertTrue(
-            any(path.startswith("/api/index") for path in registered_paths),
-            "Indexing router missing.",
+            any(path.startswith("/api/datasets") for path in registered_paths),
+            "Datasets router missing.",
         )
 
     def test_all_router_routes_live_under_api_prefix(self):
-        """Every route contributed by the auth/chat/indexing routers must be
+        """Every route contributed by the auth/chat/datasets routers must be
         under /api — the routes contributed by those three routers are
         exactly the ones known to potentially collide with a same-named
         frontend page route (e.g. the chat router's DELETE /{chat_id}
@@ -112,7 +112,7 @@ class TestAdminBootstrap(unittest.TestCase):
             main, "MemoryManager"
         ), patch.object(main, "Config"), patch.object(
             main, "setup_logger", return_value=logger
-        ), patch.dict(
+        ), patch.object(main, "legacy_datasets", return_value=[]), patch.dict(
             os.environ, {"ADMIN_EMAIL": "admin@x.com", "ADMIN_PASSWORD": "from-env"}
         ):
             asyncio.run(run())

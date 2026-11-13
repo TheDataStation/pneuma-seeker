@@ -11,3 +11,6 @@ temp
 pneuma-seeker-ui
 .idea
 .claude
+
+# Datasets (downloaded or uploaded) and their archives
+/src/pneuma_seeker/services/db/datasets/_data/

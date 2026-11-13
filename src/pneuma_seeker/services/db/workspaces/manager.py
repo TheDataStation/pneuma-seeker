@@ -12,6 +12,7 @@ from pandas import DataFrame, isna
 from pneuma_seeker.provenance.graph import ProvenanceGraph, ProvenanceNode
 from pneuma_seeker.services.core.conductor.state import ConductorState
 from pneuma_seeker.provenance.provenance_helper import quote_ident
+from pneuma_seeker.services.db.datasets.connectors import source_alias
 from pneuma_seeker.services.db.datasets.manager import DatasetManager
 from pneuma_seeker.shared.config import Config
 from pneuma_seeker.shared.schemas.core.ir_system import (
@@ -79,12 +80,17 @@ class WorkspaceManager:
             self.__define_all_persistence_tables(ws_db_con)
 
             self._conn_cache[key] = ws_db_con
-            self._conn_locks[key] = threading.RLock()
+            # Keep a lock a caller already holds for this key (see __connection_lock).
+            self._conn_locks.setdefault(key, threading.RLock())
             return ws_db_con
 
     def __connection_lock(self, user_id: str, chat_id: str) -> threading.RLock:
         with self._conn_cache_lock:
             return self._conn_locks.setdefault((user_id, chat_id), threading.RLock())
+
+    def connection_lock(self, user_id: str, chat_id: str) -> threading.RLock:
+        """Returns the lock every use of the chat's workspace connection holds (re-entrant)."""
+        return self.__connection_lock(user_id, chat_id)
 
     def __define_all_persistence_tables(self, con: duckdb.DuckDBPyConnection):
         """Defines all necessary tables for state persistence in the workspace DB."""
@@ -258,7 +264,8 @@ class WorkspaceManager:
         ws_db_con = self.get_ws_db_connection(user_id, chat_id)
         with self.__connection_lock(user_id, chat_id):
             (current,) = ws_db_con.execute("SELECT current_database()").fetchone()
-            keep = set(keep_aliases) | {current, "system", "temp", "memory"}
+            keep = set(keep_aliases) | {source_alias(a) for a in keep_aliases}
+            keep |= {current, "system", "temp", "memory"}
             attached = ws_db_con.execute("PRAGMA database_list").fetchdf()
             detached: list[str] = []
             for alias in attached.get("name", []):
@@ -1071,12 +1078,13 @@ class WorkspaceManager:
         # A multi-dataset chat may have no default dataset ("").
         linked_datasets: set[str] = set()
         if not doc_rows.empty and dataset_name:
-            self.dataset_manager.link_dataset_tables(
-                user_id,
-                chat_id,
-                dataset_name,
-                self.get_ws_db_connection,
-            )
+            with self.__connection_lock(user_id, chat_id):
+                self.dataset_manager.link_dataset_tables(
+                    user_id,
+                    chat_id,
+                    dataset_name,
+                    self.get_ws_db_connection,
+                )
             linked_datasets.add(dataset_name)
 
         documents: list[AbstractDocument] = []
@@ -1127,12 +1135,13 @@ class WorkspaceManager:
                     source_dataset = metadata.get("dataset_name") or dataset_name
                     if source_dataset not in linked_datasets:
                         try:
-                            self.dataset_manager.link_dataset_tables(
-                                user_id,
-                                chat_id,
-                                source_dataset,
-                                self.get_ws_db_connection,
-                            )
+                            with self.__connection_lock(user_id, chat_id):
+                                self.dataset_manager.link_dataset_tables(
+                                    user_id,
+                                    chat_id,
+                                    source_dataset,
+                                    self.get_ws_db_connection,
+                                )
                             linked_datasets.add(source_dataset)
                         except Exception as e:
                             self.__log(

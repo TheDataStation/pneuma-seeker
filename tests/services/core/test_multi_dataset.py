@@ -273,10 +273,8 @@ class MultiDatasetConductorTests(unittest.TestCase):
     def _make_dataset(self, root: Path, name: str) -> None:
         import duckdb
 
-        (root / name).mkdir(parents=True)
-        con = duckdb.connect(str(root / name / f"{name}.db"))
-        con.execute("CREATE TABLE t AS SELECT 1 AS x")
-        con.close()
+        (root / name / "t").mkdir(parents=True)
+        duckdb.sql(f"COPY (SELECT 1 AS x) TO '{root / name / 't' / 't.parquet'}' (FORMAT parquet)")
 
     def test_turn_detaches_datasets_outside_its_scope(self):
         """A multi-dataset turn attaches several datasets on the cached workspace

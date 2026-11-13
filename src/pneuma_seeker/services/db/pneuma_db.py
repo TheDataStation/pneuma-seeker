@@ -1,13 +1,16 @@
 import os
+import shutil
 from logging import Logger
 from pathlib import Path
 from typing import Any
 
-from pandas import DataFrame
+from pandas import DataFrame, read_csv
 
 from pneuma_seeker.provenance.graph import ProvenanceGraph
 from pneuma_seeker.services.core.conductor.state import ConductorState
 from pneuma_seeker.services.db.datasets.manager import DatasetManager
+from pneuma_seeker.services.db.datasets.registry import DatasetRegistry, DatasetSource
+from pneuma_seeker.services.db.datasets.uploads import UploadResult
 from pneuma_seeker.services.db.memory.manager import MemoryManager
 from pneuma_seeker.services.db.memory.tribal_index import TribalKnowledgeIndex
 from pneuma_seeker.services.db.workspaces.manager import WorkspaceManager
@@ -22,7 +25,7 @@ class PneumaDB:
     """
     Facade for dataset, workspace, and memory database operations.
 
-    - DatasetManager: dataset .db files and dataset metadata
+    - DatasetManager: datasets (registered sources attached as DuckDB views)
     - WorkspaceManager: per-user workspace DBs, session persistence, queries
     - MemoryManager: tribal knowledge and dataset/table/column metadata
       (all Postgres-backed, same instance as UserDB)
@@ -38,10 +41,7 @@ class PneumaDB:
         self.config = config
         self.logger = logger
 
-        if dataset_db_path:
-            self.dataset_db_path = Path(dataset_db_path)
-        else:
-            self.dataset_db_path = Path(__file__).resolve().parent / "datasets"
+        self.dataset_db_path = Path(dataset_db_path or config.DATASETS_ROOT)
 
         if workspace_db_path:
             self.workspace_db_path = Path(workspace_db_path)
@@ -51,7 +51,11 @@ class PneumaDB:
         os.makedirs(self.dataset_db_path, exist_ok=True)
         os.makedirs(self.workspace_db_path, exist_ok=True)
 
-        self.dataset_manager = DatasetManager(self.dataset_db_path, self.logger)
+        self.dataset_manager = DatasetManager(
+            self.dataset_db_path,
+            self.logger,
+            DatasetRegistry(self.config, self.logger, self.dataset_db_path),
+        )
 
         # Try to connect to the Postgres session index.  If Postgres is unavailable
         # (e.g. local dev without a running DB), we log a warning and fall back to
@@ -90,7 +94,6 @@ class PneumaDB:
         self._tribal_index: TribalKnowledgeIndex | None = None
 
         self._conn_cache = self.workspace_manager._conn_cache
-        self._pg_registry = self.dataset_manager._pg_registry
 
         self.target_tables_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
@@ -129,9 +132,9 @@ class PneumaDB:
     # ------------------------------------------------------------------
     # Dataset Management
     # ------------------------------------------------------------------
-    def get_dataset_connection(self, dataset_name: str, read_only: bool = True):
-        """Gets a connection to the specified dataset."""
-        return self.dataset_manager.get_dataset_connection(dataset_name, read_only)
+    def get_dataset_connection(self, dataset_name: str):
+        """Gets a new connection with only the specified dataset attached (as the current database)."""
+        return self.dataset_manager.get_dataset_connection(dataset_name)
 
     def ingest_dataset(
         self,
@@ -140,13 +143,32 @@ class PneumaDB:
         metadata_path: str | None = None,
         overwrite: bool = True,
     ) -> None:
-        """Ingests a dataset from the specified path, with optional metadata."""
-        self.dataset_manager.ingest_dataset(
-            dataset_name, dataset_path, metadata_path, overwrite
-        )
+        """
+        Ingests the CSV files at `dataset_path` as a local dataset. Table
+        descriptions in `metadata_path` (a CSV with table_name and description
+        columns) are stored in the memory layer.
+        """
+        self.dataset_manager.ingest_dataset(dataset_name, dataset_path, overwrite)
+        if metadata_path:
+            self.import_table_descriptions(dataset_name, metadata_path)
+
+    def import_table_descriptions(self, dataset_name: str, metadata_path: str | Path) -> int:
+        """Stores the table descriptions of a metadata CSV (table_name, description) in the memory layer."""
+        if self.memory_manager is None:
+            self.logger.warning("[PneumaDB] Memory layer unavailable; table descriptions not stored.")
+            return 0
+        metadata = read_csv(metadata_path)
+        if not {"table_name", "description"} <= set(metadata.columns):
+            return 0
+        rows = [
+            {"key_text": clean_column_table_name(str(name)), "content": description.strip()}
+            for name, description in zip(metadata["table_name"], metadata["description"])
+            if isinstance(description, str) and description.strip()
+        ]
+        return self.memory_manager.replace_dataset_rows(dataset_name, "table_metadata", rows)
 
     def dataset_fingerprint(self, dataset_name: str) -> str:
-        """Changes when the dataset's data may have."""
+        """Returns a fingerprint that changes when the dataset's data may have."""
         return self.dataset_manager.dataset_fingerprint(dataset_name)
 
     def list_dataset_tables(self, dataset_name: str) -> list[str]:
@@ -179,21 +201,11 @@ class PneumaDB:
         return self.dataset_manager.query_sql(dataset_name, sql, params, limit)
 
     def get_table_description(self, dataset_name: str, table_name: str) -> str:
-        """
-        Gets the description of a table in the specified dataset.
-
-        Checks the memory layer's admin-editable table_metadata first (settable any
-        time via CSV upload or the Memory page), falling back to the legacy
-        ingest-time metadata.csv baked into the dataset directory if no memory
-        entry exists yet.
-        """
-        if self.memory_manager is not None:
-            entry = self.memory_manager.get_by_key(
-                "table_metadata", dataset_name, table_name
-            )
-            if entry is not None:
-                return entry.content
-        return self.dataset_manager.get_table_description(dataset_name, table_name)
+        """Gets the description of a table ("" if nobody wrote one)."""
+        if self.memory_manager is None:
+            return ""
+        entry = self.memory_manager.get_by_key("table_metadata", dataset_name, table_name)
+        return entry.content if entry is not None else ""
 
     def get_dataset_description(self, dataset_name: str) -> str:
         """Gets the description of a dataset ("" if nobody wrote one)."""
@@ -204,17 +216,59 @@ class PneumaDB:
         )
         return entry.content if entry is not None else ""
 
-    def register_postgres_dataset(
-        self, dataset_name: str, connection_string: str
-    ) -> None:
-        """Registers a PostgreSQL dataset with the specified name and connection string."""
-        self.dataset_manager.register_postgres_dataset(dataset_name, connection_string)
+    # ------------------------------------------------------------------
+    # Dataset Sources
+    # ------------------------------------------------------------------
+    def list_datasets(self) -> list[DatasetSource]:
+        """Lists every registered dataset."""
+        return self.dataset_manager.list_datasets()
+
+    def get_dataset_source(self, dataset_name: str) -> DatasetSource | None:
+        """Gets a dataset's registration, or None."""
+        return self.dataset_manager.get_source(dataset_name)
+
+    def add_file_to_dataset(
+        self,
+        dataset_name: str,
+        file: Path,
+        file_name: str,
+        *,
+        create: bool,
+        replace: bool,
+        created_by: str | None = None,
+    ) -> UploadResult:
+        """Adds an uploaded file's tables to a local dataset, dropping descriptions of columns a replace removed."""
+        result = self.dataset_manager.add_file(
+            dataset_name, file, file_name, create=create, replace=replace, created_by=created_by
+        )
+        if self.memory_manager is not None:
+            for table in result.tables:
+                if table.replaced:
+                    self.memory_manager.delete_metadata(dataset_name, table.name, keep_columns=set(table.columns))
+        return result
+
+    def delete_dataset_table(self, dataset_name: str, table_name: str) -> None:
+        """Deletes a table of a local dataset with its descriptions."""
+        self.dataset_manager.delete_table(dataset_name, table_name)
+        if self.memory_manager is not None:
+            self.memory_manager.delete_metadata(dataset_name, table_name)
+
+    def remove_dataset(self, dataset_name: str) -> None:
+        """Removes a dataset (deleting its files if it's local), its descriptions and its M1 index."""
+        self.dataset_manager.remove_dataset(dataset_name)
+        if self.memory_manager is not None:
+            self.memory_manager.delete_metadata(dataset_name)
+        shutil.rmtree(Path(self.config.RETRIEVAL_INDEX_ROOT) / "discovery" / dataset_name, ignore_errors=True)
 
     def link_dataset_tables(self, user_id: str, chat_id: str, dataset_name: str):
-        """Links tables from the specified dataset into the user's workspace for the current chat session."""
-        self.dataset_manager.link_dataset_tables(
-            user_id, chat_id, dataset_name, self.get_ws_db_connection
-        )
+        """
+        Links tables from the specified dataset into the user's workspace for the
+        current chat session, holding the connection's lock so no query runs meanwhile.
+        """
+        with self.workspace_manager.connection_lock(user_id, chat_id):
+            self.dataset_manager.link_dataset_tables(
+                user_id, chat_id, dataset_name, self.get_ws_db_connection
+            )
 
     def detach_datasets_except(
         self, user_id: str, chat_id: str, allowed: set[str]
@@ -224,13 +278,11 @@ class PneumaDB:
             user_id, chat_id, {clean_column_table_name(name) for name in allowed}
         )
 
-    def get_accessible_local_datasets(
+    def get_accessible_datasets(
         self, is_admin: bool, group_permissions: dict[str, str]
     ) -> list[str]:
-        """Gets a list of local datasets accessible to the user based on their admin status and group permissions."""
-        return self.dataset_manager.get_accessible_local_datasets(
-            is_admin, group_permissions
-        )
+        """Gets the datasets accessible to the user based on their admin status and group permissions."""
+        return self.dataset_manager.get_accessible_datasets(is_admin, group_permissions)
 
     def is_dataset_accessible(
         self, dataset_name: str, is_admin: bool, group_permissions: dict[str, str]

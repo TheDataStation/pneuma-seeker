@@ -21,7 +21,7 @@ import uuid
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -316,9 +316,14 @@ class NewDiscovery(AbstractRetriever):
             for name in c["tables"]
         ]
 
-    def rebuild_index(self, dataset_name: str) -> int:
-        """Rebuilds the dataset's index now (e.g. after a connected database changed); returns its candidate count."""
-        return self.discovery_index.rebuild(dataset_name, self._fingerprint(dataset_name), lambda: self._scan(dataset_name))
+    def rebuild_index(self, dataset_name: str, progress: Callable[[int, int], None] | None = None) -> int:
+        """
+        Rebuilds the dataset's index now (e.g. after a connected database changed);
+        `progress(done, total)` is called per table read. Returns the candidate count.
+        """
+        return self.discovery_index.rebuild(
+            dataset_name, self._fingerprint(dataset_name), lambda: self._scan(dataset_name, progress)
+        )
 
     def index_status(self, dataset_name: str) -> dict | None:
         """Returns the dataset's index metadata (built_at, candidates), or None if never built."""
@@ -339,10 +344,13 @@ class NewDiscovery(AbstractRetriever):
             ]
         )
 
-    def _scan(self, dataset_name: str) -> list[dict]:
+    def _scan(self, dataset_name: str, progress: Callable[[int, int], None] | None = None) -> list[dict]:
         self.db_api.link_dataset_tables(self.user_id, self.chat_id, dataset_name)
+        names = self.db_api.list_dataset_tables(dataset_name)
         tables = []
-        for name in self.db_api.list_dataset_tables(dataset_name):
+        for done, name in enumerate(names):
+            if progress:
+                progress(done, len(names))
             columns = self._column_types(dataset_name, name)
             rows = self.db_api.execute_query(
                 self.user_id, self.chat_id, f'SELECT * FROM {dataset_name}."{name}" LIMIT {SAMPLE_ROWS}'
@@ -356,6 +364,8 @@ class NewDiscovery(AbstractRetriever):
                     "sample_rows": rows.astype(object).where(rows.notna(), None).values.tolist(),
                 }
             )
+        if progress:
+            progress(len(names), len(names))
         return build_candidates(
             dataset_name,
             tables,

@@ -85,11 +85,10 @@ def get_retrievable_datasets(current_user: UserRecord) -> list[str]:
     In multi-dataset mode, agents may draw tables only from these.
     """
     is_admin, group_permissions = _resolve_dataset_permissions(current_user)
-    return sorted(
-        name
-        for name in pneuma_db.get_accessible_local_datasets(is_admin, group_permissions)
-        if is_dataset_indexed(name)
-    )
+    accessible = pneuma_db.get_accessible_datasets(is_admin, group_permissions)
+    if config.TABLE_DISCOVERY_METHOD == "m1":  # M1 indexes a dataset on its first search
+        return sorted(accessible)
+    return sorted(name for name in accessible if is_dataset_indexed(name))
 
 
 def require_dataset_access(dataset_name: str, current_user: UserRecord) -> None:
@@ -306,7 +305,7 @@ def get_accessible_datasets(
     current_user: UserRecord = Depends(get_current_user),
 ):
     is_admin, group_permissions = _resolve_dataset_permissions(current_user)
-    datasets = pneuma_db.get_accessible_local_datasets(is_admin, group_permissions)
+    datasets = pneuma_db.get_accessible_datasets(is_admin, group_permissions)
     return JSONResponse(
         content={
             "datasets": datasets,

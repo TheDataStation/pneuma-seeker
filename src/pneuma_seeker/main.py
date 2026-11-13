@@ -1,11 +1,13 @@
 # src/pneuma_seeker/main.py
 from contextlib import asynccontextmanager
 from os import getenv
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from pneuma_seeker.routers import auth, chat, indexing, memory
+from pneuma_seeker.routers import auth, chat, datasets, memory
+from pneuma_seeker.services.db.datasets.migrate import legacy_datasets
 from pneuma_seeker.services.db.memory.manager import MemoryManager
 from pneuma_seeker.services.db.users.manager import UserDB
 from pneuma_seeker.shared.config import Config
@@ -25,6 +27,14 @@ async def lifespan(app: FastAPI):
 
     memory_initializer = MemoryManager(config, logger)
     memory_initializer.init_db()
+
+    legacy = legacy_datasets(Path(config.DATASETS_ROOT))
+    if legacy:
+        logger.warning(
+            f"Datasets in the old single-file layout aren't listed until migrated: "
+            f"{', '.join(p.name for p in legacy)}. Run "
+            "`python -m pneuma_seeker.services.db.datasets.migrate`."
+        )
 
     admin_group = db_initializer.get_group_by_name("admin")
     if admin_group is None:
@@ -84,7 +94,7 @@ app = FastAPI(title="Pneuma-Seeker", lifespan=lifespan)
 # route's path pattern, returning 405 Method Not Allowed for the GET.
 app.include_router(auth.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
-app.include_router(indexing.router, prefix="/api")
+app.include_router(datasets.router, prefix="/api")
 app.include_router(memory.router, prefix="/api")
 
 logger = setup_logger()

@@ -10,9 +10,13 @@ If you use these datasets, please also cite the KramaBench repository.
 
 # Dataset Download
 
-Some datasets are too large to include in this repository. You can download the CSV files from the following link:
+To download the source CSVs of the larger datasets (Astronomy and Wildfire), go to: https://drive.google.com/drive/folders/1jL2T8N8X8ncFyERdZ1lg0DcKZDwFqKaG?usp=sharing
 
-https://drive.google.com/drive/folders/1jL2T8N8X8ncFyERdZ1lg0DcKZDwFqKaG?usp=sharing
+To register the datasets into Pneuma-Seeker, run:
+
+```bash
+docker compose exec core python -m pneuma_seeker.services.db.datasets.download
+```
 
 # Directory Layout
 

@@ -89,9 +89,15 @@ npm run dev
 ```
 
 # Next Steps
-Before asking questions on a dataset, you need to index it using the `/index` endpoint in the backend (see [indexing.py](src/pneuma_seeker/routers/indexing.py)).
+## Adding datasets
+Download the datasets in [data_src](data_src/README.md) with:
+```bash
+docker compose exec core python -m pneuma_seeker.services.db.datasets.download
+```
 
-For a complete walkthrough of the system, including dataset indexing and query execution, refer to [quick_start.ipynb](./quick_start.ipynb), which demonstrates how to configure Pneuma-Seeker on a sample dataset.
+Administrators can add other datasets on the **Datasets** page ("+ Add dataset"): upload CSV, TSV, Parquet or Excel files, or connect a Postgres database, a CSV or Parquet folder, or a DuckDB or SQLite file. Datasets in the old `<dataset>.db` layout are converted with `python -m pneuma_seeker.services.db.datasets.migrate`.
+
+For a complete walkthrough of the system, refer to [quick_start.ipynb](./quick_start.ipynb), which demonstrates how to configure Pneuma-Seeker on a sample dataset.
 
 For a deeper understanding of the system architecture, check out the [architecture overview](/docs/architecture.md) in the `/docs` directory.
 
@@ -141,26 +147,5 @@ For questions or support regarding `Pneuma-Seeker`, please email: pneuma-team@go
       title     = {The Pneuma Project: Reifying Information Needs as Relational Schemas to Automate Discovery, Guide Preparation, and Align Data with Intent},
       booktitle = {Proceedings of the 16th Annual Conference on Innovative Data Systems Research (CIDR '26)},
       year      = {2026},
-}
-```
-
-## [Pneuma (data discovery system) paper](https://dl.acm.org/doi/10.1145/3725337)
-```
-@article{PneumaDataDiscovery2025,
-      author = {Balaka, Muhammad Imam Luthfi and Alexander, David and Wang, Qiming and Gong, Yue and Krisnadhi, Adila and Castro Fernandez, Raul},
-      title = {Pneuma: Leveraging LLMs for Tabular Data Representation and Retrieval in an End-to-End System},
-      year = {2025},
-      issue_date = {June 2025},
-      publisher = {Association for Computing Machinery},
-      address = {New York, NY, USA},
-      volume = {3},
-      number = {3},
-      url = {https://doi.org/10.1145/3725337},
-      doi = {10.1145/3725337},
-      journal = {Proc. ACM Manag. Data},
-      month = jun,
-      articleno = {200},
-      numpages = {28},
-      keywords = {data discovery, large language models, natural-language questions}
 }
 ```

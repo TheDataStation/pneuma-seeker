@@ -166,11 +166,11 @@ class TableUnion(Action, Applicable):
             self.db_api.link_dataset_tables(self.user_id, self.chat_id, dataset_part)
 
     def __list_available_tables(self) -> list[tuple[str, str]]:
-        """Return (display_name, sql_ref) for all visible base tables.
+        """Return (display_name, sql_ref) for the workspace's base tables and the attached datasets' tables.
 
         display_name is:
         - workspace: <table>
-        - attached datasets: <catalog>.<table>
+        - attached datasets: <catalog>.<table> (dataset tables are views)
         """
         rows = self.db_api.execute_query(
             self.user_id,
@@ -178,7 +178,8 @@ class TableUnion(Action, Applicable):
             """
 			SELECT table_catalog, table_schema, table_name
 			FROM information_schema.tables
-			WHERE table_type = 'BASE TABLE'
+			WHERE (table_type = 'BASE TABLE' OR table_catalog <> current_database())
+			  AND NOT suffix(table_catalog, '__source')
 			""",
         )
 

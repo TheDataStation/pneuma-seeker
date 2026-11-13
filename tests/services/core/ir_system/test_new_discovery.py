@@ -49,10 +49,13 @@ class JudgeLLM:
 
 
 def make_dataset(root: Path, name: str, tables: dict[str, str]) -> None:
-    (root / name).mkdir(parents=True, exist_ok=True)
-    con = duckdb.connect(str(root / name / f"{name}.db"))
-    for sql in tables.values():
+    """Writes each table (a CREATE TABLE statement) as <root>/<name>/<table>/<table>.parquet."""
+    con = duckdb.connect()
+    for table, sql in tables.items():
         con.execute(sql)
+        out = root / name / table / f"{table}.parquet"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        con.execute(f"COPY {table} TO '{out}' (FORMAT parquet)")
     con.close()
 
 
@@ -130,13 +133,25 @@ class NewDiscoveryTests(unittest.TestCase):
         self.assertEqual(self.current_version(), version)
 
         # The dataset changes: the index is rebuilt and sees the new table.
-        self.db_api.detach_datasets_except("u1", "c1", set())
-        con = duckdb.connect(str(self.tmp / "datasets" / "env" / "env.db"))
-        con.execute("CREATE TABLE air_quality AS SELECT * FROM (VALUES ('Suffolk', 'good')) t(county, air)")
-        con.close()
+        make_dataset(self.tmp / "datasets", "env", {
+            "air_quality": "CREATE TABLE air_quality AS SELECT * FROM (VALUES ('Suffolk', 'good')) t(county, air)",
+        })
         docs = self.retriever(JudgeLLM("air")).retrieve("good air days", "env", 10, True, 3)
         self.assertNotEqual(self.current_version(), version)
         self.assertIn("air_quality", [d.doc_id for d in docs])
+
+    def test_rebuild_reports_progress_and_records_when_it_was_built(self):
+        retriever = self.retriever(JudgeLLM("rain"))
+        self.assertIsNone(retriever.index_status("env"))
+        calls = []
+        retriever.rebuild_index("env", lambda done, total: calls.append((done, total)))
+        self.assertEqual(calls, [(0, 4), (1, 4), (2, 4), (3, 4), (4, 4)])
+        status = retriever.index_status("env")
+        self.assertEqual(status["candidates"], 3)  # rain_boston and rain_chatham form one family
+        self.assertIsNotNone(status["built_at"])
+        version = self.current_version()
+        retriever.rebuild_index("env")  # rebuilt even though nothing changed
+        self.assertNotEqual(self.current_version(), version)
 
     def test_falls_back_to_bm25_top_k_when_the_llm_fails(self):
         docs = self.retriever(JudgeLLM(fail=True)).retrieve("beach status closed", "env", 2, True, 3)

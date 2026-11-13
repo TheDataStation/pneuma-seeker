@@ -35,7 +35,7 @@ class DBAPI:
             )
 
     # ------------------------------------------------------------------
-    # Dataset Management (one .db per dataset)
+    # Dataset Management
     # ------------------------------------------------------------------
     def ingest_dataset(
         self,
@@ -45,17 +45,15 @@ class DBAPI:
         overwrite: bool = True,
     ):
         """
-        Stores CSV files inside the dataset's own DuckDB file.
-        - table name = cleaned(Path(csv_file).stem)
-        - cleans column names
-        - only reads file once for ingestion (fast path)
+        Ingests the CSV files at `dataset_path` as a local dataset (one Parquet
+        table per file, with cleaned table and column names).
         """
         self.pneuma_db.ingest_dataset(
             dataset_name, dataset_path, metadata_path, overwrite
         )
 
     def dataset_fingerprint(self, dataset_name: str) -> str:
-        """Changes when the dataset's data may have."""
+        """Returns a fingerprint that changes when the dataset's data may have."""
         return self.pneuma_db.dataset_fingerprint(dataset_name)
 
     def list_dataset_tables(self, dataset_name: str) -> list[str]:
@@ -92,9 +90,8 @@ class DBAPI:
     # ------------------------------------------------------------------
     def link_dataset_tables(self, user_id: str, chat_id: str, dataset_name: str):
         """
-        Attach a dataset DB into the workspace connection under a safe alias.
-        The alias is the cleaned dataset_name.
-        This is idempotent (no error if already attached).
+        Attaches a dataset into the workspace connection under its cleaned name,
+        re-attaching it only if its data changed since.
         """
         self.pneuma_db.link_dataset_tables(user_id, chat_id, dataset_name)
 
@@ -103,10 +100,6 @@ class DBAPI:
     ) -> list[str]:
         """Detaches every attached dataset not in `allowed`; returns the detached aliases."""
         return self.pneuma_db.detach_datasets_except(user_id, chat_id, allowed)
-
-    def register_postgres_dataset(self, dataset_name: str, connection_string: str):
-        """Registers a PostgreSQL dataset connection string for later linking."""
-        self.pneuma_db.register_postgres_dataset(dataset_name, connection_string)
 
     # ------------------------------------------------------------------
     # Query Execution

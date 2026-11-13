@@ -342,6 +342,39 @@ class MemoryManager:
             con.close()
         return len(rows)
 
+    def delete_metadata(
+        self, dataset_name: str, table_name: str | None = None, keep_columns: set[str] | None = None
+    ) -> None:
+        """
+        Deletes descriptions: of the whole dataset, of one table and its columns,
+        or (with `keep_columns`) only of that table's columns not in `keep_columns`.
+        """
+        con = self._get_connection()
+        try:
+            if table_name is None:
+                con.execute(
+                    "DELETE FROM memory_entries WHERE dataset_name = %s AND memory_type = ANY(%s)",
+                    (dataset_name, ["dataset_metadata", "table_metadata", "column_metadata"]),
+                )
+                return
+            prefix = f"{table_name}."
+            if keep_columns is None:
+                con.execute(
+                    "DELETE FROM memory_entries WHERE dataset_name = %s AND memory_type = 'table_metadata' "
+                    "AND key_text = %s",
+                    (dataset_name, table_name),
+                )
+                keep: list[str] = []
+            else:
+                keep = [prefix + c for c in keep_columns]
+            con.execute(
+                "DELETE FROM memory_entries WHERE dataset_name = %s AND memory_type = 'column_metadata' "
+                "AND starts_with(key_text, %s) AND NOT (key_text = ANY(%s))",
+                (dataset_name, prefix, keep),
+            )
+        finally:
+            con.close()
+
     def _to_record(self, row: tuple) -> MemoryEntryRecord:
         return MemoryEntryRecord(**dict(zip(_COLUMNS, row)))
 
