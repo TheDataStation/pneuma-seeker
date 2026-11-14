@@ -1,10 +1,6 @@
-fisher*
 target_tables
 intermediate_data
 *test_data*
 *.db
 dw
-procurement_data*
-buysite
-marketo
-proc_spend
+*/dataset/metadata.csv
