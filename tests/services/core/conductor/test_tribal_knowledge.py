@@ -112,6 +112,16 @@ class ConductorTribalKnowledgeTests(unittest.TestCase):
         )
         self.assertEqual(self.conductor.used_memory_entries, [])
 
+    def test_disabled_means_no_search_and_unchanged_prompts(self):
+        self.conductor.config.ENABLE_TRIBAL_KNOWLEDGE = False
+        self.retrieve.return_value = [
+            {"memory_id": "m1", "memory_type": "tribal_knowledge", "content": "Inches.", "query": "What unit?"},
+        ]
+        self._run("1. What unit?")
+        self.retrieve.assert_not_called()
+        self.assertEqual(self._system_messages(), [self.conductor.prompt_factory.get_sys_prompt()])
+        self.assertEqual(self.conductor.used_memory_entries, [])
+
     def test_retrieval_failure_does_not_break_the_turn(self):
         self.retrieve.side_effect = RuntimeError("postgres down")
         self._run("1. What unit?")

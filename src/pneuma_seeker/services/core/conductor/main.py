@@ -846,7 +846,9 @@ class Conductor:
         return notes
 
     def _fetch_tribal_knowledge(self, dataset_name: str) -> list[dict[str, Any]]:
-        """Fetches tribal knowledge for `dataset_name` matching this turn's information needs."""
+        """Fetches tribal knowledge for `dataset_name` matching this turn's information needs (none if disabled)."""
+        if not self.config.ENABLE_TRIBAL_KNOWLEDGE:
+            return []
         try:
             entries = self.tribal_knowledge_retriever.retrieve(
                 dataset_name,

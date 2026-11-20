@@ -158,6 +158,8 @@ class Config:
             getenv("AUTH_PASSWORD_HASH_ITERATIONS", "200000")
         )
 
+        # Whether agents use tribal knowledge at all (off: prompts are as with no entries).
+        self.ENABLE_TRIBAL_KNOWLEDGE = getenv("ENABLE_TRIBAL_KNOWLEDGE", "true").lower() == "true"
         # Tribal knowledge, retrieved per information need: "m1" | "bm25". TOP_K is
         # the "bm25" cap per need, and M1's fallback if the classifier fails.
         self.TRIBAL_KNOWLEDGE_RETRIEVAL_METHOD = _choice(
