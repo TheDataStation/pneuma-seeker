@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import unittest
@@ -307,3 +308,37 @@ class IRSystemSchemaTests(unittest.TestCase):
         )
         result = table.to_str(strategy="five_rows")
         self.assertEqual(result.count("sample row"), 2)
+
+    def test_table_header_shows_column_descriptions_of_shown_columns(self):
+        """The header lists the column descriptions of the columns the table shows, in their order."""
+        table = Table(
+            doc_id="review",
+            retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+            content=pd.DataFrame({"rating": [5.0], "purchase_id": ["purchaseid_1"]}),
+            metadata={
+                "dataset_name": "reviews",
+                "description": "Book reviews",
+                "column_descriptions": json.dumps({
+                    "purchase_id": "Identifier linking to book_id in books_info",
+                    "rating": "Rating (1-5)",
+                    "dropped": "A column the table does not show",
+                }),
+            },
+        )
+        for strategy in ("one_row", "zero_rows", "column_profile"):
+            result = table.to_str(strategy=strategy)
+            self.assertIn(
+                "column descriptions: rating: Rating (1-5); purchase_id: Identifier linking to book_id in books_info",
+                result,
+            )
+            self.assertNotIn("dropped", result)
+
+    def test_table_header_without_column_descriptions_is_unchanged(self):
+        """A table without column descriptions gets no extra header line."""
+        table = Table(
+            doc_id="t",
+            retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+            content=pd.DataFrame({"a": [1]}),
+            metadata={"dataset_name": "d", "column_descriptions": "not json"},
+        )
+        self.assertNotIn("column descriptions", str(table))

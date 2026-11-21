@@ -155,17 +155,34 @@ class Table(AbstractDocument):
                 for col, dtype in zip(table.columns, table.dtypes)
             )
 
-        if "description" in self.metadata and "keywords_existence" in self.metadata:
-            return f"Table {table_id} ({self.metadata['description']}; include these keywords: {self.metadata['keywords_existence']}):\ncol: {cols}"
-        elif "description" in self.metadata:
-            return f"Table {table_id} ({self.metadata['description']}):\ncol: {cols}"
+        if self.metadata.get("description") and "keywords_existence" in self.metadata:
+            header = f"Table {table_id} ({self.metadata['description']}; include these keywords: {self.metadata['keywords_existence']}):\ncol: {cols}"
+        elif self.metadata.get("description"):
+            header = f"Table {table_id} ({self.metadata['description']}):\ncol: {cols}"
         elif "keywords_existence" in self.metadata:
-            return (
+            header = (
                 f"Table {table_id} "
                 f"(include these keywords: {self.metadata['keywords_existence']}):\n"
                 f"col: {cols}"
             )
-        return f"Table {table_id}:\ncol: {cols}"
+        else:
+            header = f"Table {table_id}:\ncol: {cols}"
+        descriptions = self._column_descriptions()
+        shown = [f"{col}: {descriptions[str(col)]}" for col in table.columns if descriptions.get(str(col))]
+        if shown:
+            header += "\ncolumn descriptions: " + "; ".join(shown)
+        return header
+
+    def _column_descriptions(self) -> dict[str, str]:
+        """Returns the column descriptions in metadata["column_descriptions"] (JSON), or {} if none."""
+        raw = self.metadata.get("column_descriptions")
+        if not isinstance(raw, str) or not raw.strip():
+            return {}
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            return {}
+        return {str(k): " ".join(str(v).split()) for k, v in parsed.items() if v} if isinstance(parsed, dict) else {}
 
     def _type_family(self, series: pd.Series, duckdb_type: str | None) -> str:
         """Classify a column as "numeric", "date", or "categorical". Prefers
