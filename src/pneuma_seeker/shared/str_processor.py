@@ -2,28 +2,52 @@
 import ast
 import re
 
-from pandas import DataFrame, option_context
+from pandas import NA, DataFrame, isna
 
 
-def dataframe_to_preview_str(df: DataFrame) -> str:
-    """Renders a DataFrame in full, with no column or row truncation.
+# Bounds on what a model is shown of a result; stored results stay whole.
+PREVIEW_MAX_CELL_CHARS = 300
+PREVIEW_MAX_CHARS = 16_000
 
-    Callers are expected to have already bounded the row count (e.g. via a SQL
-    LIMIT), so pandas' own display truncation is disabled here — otherwise
-    pandas' default repr would additionally collapse wide frames into a
-    "col_1 ... col_10" ellipsis and re-truncate rows on top of that cap.
+
+def _preview_cell(value, max_cell_chars: int) -> str:
+    if value is None or (isinstance(value, float) and isna(value)) or value is NA:
+        return "NULL"
+    text = f"{value:.6g}" if isinstance(value, float) else " ".join(str(value).split())
+    if len(text) <= max_cell_chars:
+        return text
+    return f"{text[:max_cell_chars]}… (+{len(text) - max_cell_chars:,} chars)"
+
+
+def dataframe_to_preview_str(
+    df: DataFrame, max_cell_chars: int = PREVIEW_MAX_CELL_CHARS, max_chars: int = PREVIEW_MAX_CHARS
+) -> str:
     """
-    with option_context(
-        "display.max_columns",
-        None,
-        "display.max_rows",
-        None,
-        "display.width",
-        10_000,
-        "display.max_colwidth",
-        None,
-    ):
-        return df.to_string(index=False)
+    Renders a DataFrame for a model to read: a header line, then one line per row,
+    cells separated by " | " (not padded to the widest cell). Each cell is cut to
+    `max_cell_chars` and the whole to `max_chars`, at a row boundary; each cut says
+    what it left out, so a model can query a narrower result instead.
+
+    Callers are expected to have already bounded the row count (e.g. via a SQL LIMIT).
+    """
+    lines = [" | ".join(str(c) for c in df.columns)]
+    for row in df.itertuples(index=False, name=None):
+        lines.append(" | ".join(_preview_cell(v, max_cell_chars) for v in row))
+    text = "\n".join(lines)
+    if len(text) <= max_chars:
+        return text
+    shown, size = [lines[0]], len(lines[0])
+    for line in lines[1:]:
+        if size + 1 + len(line) > max_chars:
+            if len(shown) == 1:  # always show one row, cut if it alone is too long
+                shown.append(line[: max(0, max_chars - size - 1)])
+            break
+        shown.append(line)
+        size += 1 + len(line)
+    return "\n".join(shown) + (
+        f"\n… (showing {len(shown) - 1} of {len(df)} rows; the result is {len(text):,} characters. "
+        "Aggregate, filter or select fewer columns to see the rest.)"
+    )
 
 
 def clean_column_table_name(name):
