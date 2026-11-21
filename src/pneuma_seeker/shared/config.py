@@ -131,6 +131,16 @@ class Config:
             getenv("MAX_CONTEXT_EXTRACTION_LOOP_STEPS", "3")
         )
         self.MAX_RESULT_PREVIEW_ROWS = int(getenv("MAX_RESULT_PREVIEW_ROWS", "100"))
+        # Context extraction reuses an earlier answer in the same chat when one
+        # resolves a new question: each question is shown its top-k earlier
+        # answers on overlapping tables (BM25), and one call decides for all
+        # questions. 0 turns reuse off.
+        self.CONTEXT_EXTRACTION_REUSE_TOP_K = int(
+            getenv("CONTEXT_EXTRACTION_REUSE_TOP_K", "3")
+        )
+        self.CONTEXT_EXTRACTION_REUSE_EFFORT = (
+            getenv("CONTEXT_EXTRACTION_REUSE_EFFORT", "low") or None
+        )
         # Max rows of model decisions (e.g., semantic join matches) embedded in
         # the end-to-end script per step; above it, the script loads the step's
         # result from a CSV snapshot instead.

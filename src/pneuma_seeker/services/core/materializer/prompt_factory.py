@@ -104,6 +104,15 @@ For each table in T, a short numbered list of integration steps: which source ta
 Plain text: the plan only.
 """.strip()
 
+    @staticmethod
+    def get_established_facts_prompt(facts: str) -> str:
+        """Gets the message listing what the Conductor's checks established, or "" when there are none."""
+        if not facts:
+            return ""
+        return f"""Facts the Conductor established with its own checks on these tables in this chat (from Context Extraction). Take them as given: do not check them again, and build on them (for example, use a join key they confirm as they describe it). Check only what they do not cover.
+
+{facts}"""
+
     def get_integration_plan_user_prompt(
         self,
         T: dict[str, DataFrame],
@@ -112,6 +121,7 @@ Plain text: the plan only.
         S: str,
         note: str,
         tables: list[AbstractDocument],
+        established_facts: str = "",
     ) -> str:
         """Gets the user message for the Materializer's up-front integration plan."""
         return f"""
@@ -129,6 +139,7 @@ Script (S) to be run on T later (for reference):
 {f"\nNote from Conductor: {note}\n" if note else ""}
 Provided tables:
 {render_retrieved_tables(tables)}
+{f"\n{self.get_established_facts_prompt(established_facts)}\n" if established_facts else ""}
 """.strip()
 
     def __get_update_mode_section(

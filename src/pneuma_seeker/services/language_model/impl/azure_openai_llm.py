@@ -50,7 +50,9 @@ class AzureOpenAILLM(AbstractModel):
         json_mode = False
         stream = False
         temperature = self.config.LLM_TEMPERATURE
+        reasoning_effort = self.config.LLM_REASONING_EFFORT
         if llm_option:
+            reasoning_effort = llm_option.reasoning_effort or reasoning_effort
             max_completion_tokens = llm_option.max_new_tokens
             json_mode = llm_option.json_mode
             stream = llm_option.stream
@@ -66,7 +68,7 @@ class AzureOpenAILLM(AbstractModel):
                     model=self.config.LLM_PATH,
                     seed=42,
                     temperature=temperature,
-                    reasoning_effort=self.config.LLM_REASONING_EFFORT or Omit(),
+                    reasoning_effort=reasoning_effort or Omit(),
                     max_completion_tokens=max_completion_tokens,
                     response_format={"type": "json_object"},
                     stream=stream,
@@ -78,7 +80,7 @@ class AzureOpenAILLM(AbstractModel):
                     model=self.config.LLM_PATH,
                     seed=42,
                     temperature=temperature,
-                    reasoning_effort=self.config.LLM_REASONING_EFFORT or Omit(),
+                    reasoning_effort=reasoning_effort or Omit(),
                     max_completion_tokens=max_completion_tokens,
                     stream=stream,
                     stream_options={"include_usage": True},
@@ -103,7 +105,7 @@ class AzureOpenAILLM(AbstractModel):
                     model=self.config.LLM_PATH,
                     seed=42,
                     temperature=temperature,
-                    reasoning_effort=self.config.LLM_REASONING_EFFORT or Omit(),
+                    reasoning_effort=reasoning_effort or Omit(),
                     max_completion_tokens=max_completion_tokens,
                     response_format={"type": "json_object"},
                 )
@@ -113,7 +115,7 @@ class AzureOpenAILLM(AbstractModel):
                     model=self.config.LLM_PATH,
                     seed=42,
                     temperature=temperature,
-                    reasoning_effort=self.config.LLM_REASONING_EFFORT or Omit(),
+                    reasoning_effort=reasoning_effort or Omit(),
                     max_completion_tokens=max_completion_tokens,
                 )
             end_llm_time = time()

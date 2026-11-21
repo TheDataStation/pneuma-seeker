@@ -14,6 +14,7 @@ class LLMOption:
     json_mode: bool = False
     batch_size: Optional[int] = None
     stream: Optional[bool] = False
+    reasoning_effort: Optional[str] = None
 
 
 @dataclass

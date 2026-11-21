@@ -372,6 +372,13 @@ class ActionSet:
             }
         )
 
+    def established_facts(self, asked_by: str, available_tables: list[AbstractDocument]) -> str:
+        """Returns what `asked_by`'s context extraction checks established about the tables (see ContextExtraction)."""
+        action = self.registry.get(ActionNames.CONTEXT_EXTRACTION)
+        if action is None:
+            return ""
+        return action.established_facts(asked_by, available_tables)  # type: ignore[union-attr]
+
     def resolve_entities(
         self,
         source_table_id: str,

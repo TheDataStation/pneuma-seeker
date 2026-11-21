@@ -76,6 +76,7 @@ class Materializer:
         self.state = MaterializerState(self.user_id, self.chat_id, self.db_api)
         self.actions: list[str] = []
         self.llm_messages: list[LLMMessage] = []
+        self._established_facts = ""
         self.last_intermediate_table_ids: set[str] = set()
         self._saved_intermediate_tables: list[AbstractDocument] = []
         self.dataset_ctx = DatasetContext.single("")
@@ -168,6 +169,21 @@ class Materializer:
                 ),
             )
         ]
+        # What the Conductor's checks already established, once, so the step loop
+        # builds on it instead of checking it again.
+        self._established_facts = self.action_set.established_facts(
+            "conductor",
+            self.state.retrieved_tables
+            + self.state.external_tables
+            + list(self.state.intermediate_tables),
+        )
+        if self._established_facts:
+            self.llm_messages.append(
+                LLMMessage(
+                    role=Role.USER.value,
+                    content=self.prompt_factory.get_established_facts_prompt(self._established_facts),
+                )
+            )
         self._plan_integration(client_note)
 
         current_step = 0
@@ -402,6 +418,7 @@ class Materializer:
                                 self.state.S,
                                 client_note,
                                 self.state.retrieved_tables + self.state.external_tables,
+                                self._established_facts,
                             ),
                         ),
                     ],
