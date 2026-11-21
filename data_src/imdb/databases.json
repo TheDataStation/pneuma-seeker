@@ -1,0 +1,14 @@
+{
+  "movies_database": {
+    "type": "postgres",
+    "file": "movies.sql",
+    "port": 5456,
+    "dbname": "movies_db",
+    "user": "postgres",
+    "password": "postgres"
+  },
+  "people_database": {
+    "type": "sqlite",
+    "file": "people.sqlite"
+  }
+}

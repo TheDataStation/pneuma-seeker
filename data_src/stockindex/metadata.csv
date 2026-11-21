@@ -1,0 +1,13 @@
+database,table_name,column_name,description
+indexinfo_database,,,"This database is stored in a SQLite database and contains metadata about stock market indices from major exchanges around the world, including the United States, China, Canada, Germany, Japan, and more."
+indexinfo_database,index_info,Exchange,Full name of the stock exchange
+indexinfo_database,index_info,Currency,Trading currency of the exchange
+indextrade_database,,,This database is stored in a DuckDB database and contains daily price data for indices tracking stock exchanges across various countries and regions.
+indextrade_database,index_trade,Index,Abbreviated index symbol
+indextrade_database,index_trade,Date,Trading date
+indextrade_database,index_trade,Open,Opening price
+indextrade_database,index_trade,High,Highest price during the day
+indextrade_database,index_trade,Low,Lowest price during the day
+indextrade_database,index_trade,Close,Closing price
+indextrade_database,index_trade,Adj Close,Adjusted closing price
+indextrade_database,index_trade,CloseUSD,Closing price in USD

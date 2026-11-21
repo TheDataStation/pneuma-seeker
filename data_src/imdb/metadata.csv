@@ -1,0 +1,132 @@
+database,table_name,column_name,description
+movies_database,,,"This database is stored in a PostgreSQL database and contains movie-centric information. It covers titles, production companies, keywords, genres, ratings, and structural relationships between titles."
+movies_database,title,,"This table is the central table of the movies_database. Each row represents a unique title entry (movie, TV series, episode, video game, etc.)."
+movies_database,title,id,Unique identifier for the title.
+movies_database,title,title,The title string of the movie or show.
+movies_database,title,imdb_index,"Disambiguation suffix used by IMDB (e.g., Roman numerals)."
+movies_database,title,kind_id,Foreign key referencing kind_type.id; indicates the type of title.
+movies_database,title,production_year,Year in which the title was produced or released.
+movies_database,title,imdb_id,Original numeric IMDB identifier.
+movies_database,title,phonetic_code,Phonetic encoding of the title for search purposes.
+movies_database,title,episode_of_id,"For TV episodes, references the id of the parent series in this table."
+movies_database,title,season_nr,Season number (for TV episodes).
+movies_database,title,episode_nr,Episode number within a season.
+movies_database,title,series_years,"Year span for TV series (e.g., ""1990-1995"")."
+movies_database,title,md5sum,MD5 checksum of the record.
+movies_database,aka_title,,This table stores alternate or foreign-language titles for movies and shows.
+movies_database,aka_title,id,Unique identifier for the alternate title record.
+movies_database,aka_title,movie_id,Foreign key referencing title.id.
+movies_database,aka_title,title,The alternate title string.
+movies_database,aka_title,imdb_index,Disambiguation suffix.
+movies_database,aka_title,kind_id,Foreign key referencing kind_type.id.
+movies_database,aka_title,production_year,Production year for this alternate release.
+movies_database,aka_title,phonetic_code,Phonetic encoding of the alternate title.
+movies_database,aka_title,episode_of_id,Parent series ID for episode alternate titles.
+movies_database,aka_title,season_nr,Season number.
+movies_database,aka_title,episode_nr,Episode number.
+movies_database,aka_title,note,"Notes on context (e.g., country, dubbed version)."
+movies_database,aka_title,md5sum,MD5 checksum.
+movies_database,kind_type,,"This lookup table enumerates the types of titles (e.g., movie, TV series, episode)."
+movies_database,kind_type,id,Unique identifier.
+movies_database,kind_type,kind,"Label for the title type (e.g., ""movie"", ""tv series"", ""episode"")."
+movies_database,movie_info,,"This table stores free-text metadata about movies, such as genres, languages, countries, plot summaries, and technical specifications."
+movies_database,movie_info,id,Unique identifier for the info record.
+movies_database,movie_info,movie_id,Foreign key referencing title.id.
+movies_database,movie_info,info_type_id,Foreign key referencing info_type.id.
+movies_database,movie_info,info,"The metadata value (e.g., ""English"", ""USA"", ""Drama"")."
+movies_database,movie_info,note,Supplemental notes.
+movies_database,movie_info_idx,,"This table stores indexed numeric metadata about movies, primarily ratings and vote counts."
+movies_database,movie_info_idx,id,Unique identifier for the index record.
+movies_database,movie_info_idx,movie_id,Foreign key referencing title.id.
+movies_database,movie_info_idx,info_type_id,Foreign key referencing info_type.id.
+movies_database,movie_info_idx,info,"The numeric metadata value (e.g., a rating score)."
+movies_database,movie_info_idx,note,Supplemental notes.
+movies_database,info_type,,"This lookup table enumerates the categories of metadata stored in movie_info and movie_info_idx (e.g., ""genres"", ""rating"", ""votes"")."
+movies_database,info_type,id,Unique identifier.
+movies_database,info_type,info,"Description of the info category (e.g., ""genres"", ""rating"", ""languages"")."
+movies_database,movie_keyword,,This table records the association between movies and descriptive keywords.
+movies_database,movie_keyword,id,Unique identifier for the movie-keyword association.
+movies_database,movie_keyword,movie_id,Foreign key referencing title.id.
+movies_database,movie_keyword,keyword_id,Foreign key referencing keyword.id.
+movies_database,keyword,,This lookup table contains all descriptive keywords (tags) used to annotate movies.
+movies_database,keyword,id,Unique identifier.
+movies_database,keyword,keyword,"The keyword text (e.g., ""murder"", ""based-on-novel"")."
+movies_database,keyword,phonetic_code,Phonetic encoding of the keyword.
+movies_database,movie_companies,,This table links movies to the production or distribution companies involved.
+movies_database,movie_companies,id,Unique identifier.
+movies_database,movie_companies,movie_id,Foreign key referencing title.id.
+movies_database,movie_companies,company_id,Foreign key referencing company_name.id.
+movies_database,movie_companies,company_type_id,Foreign key referencing company_type.id.
+movies_database,movie_companies,note,Additional notes on the company's role.
+movies_database,company_name,,This lookup table contains names and metadata for production and distribution companies.
+movies_database,company_name,id,Unique identifier.
+movies_database,company_name,name,Full name of the company.
+movies_database,company_name,country_code,"Country code of the company (e.g., ""[us]"", ""[gb]"")."
+movies_database,company_name,imdb_id,Original IMDB numeric identifier.
+movies_database,company_name,name_pcode_nf,Phonetic code for the company name.
+movies_database,company_name,name_pcode_sf,Alternate phonetic code.
+movies_database,company_name,md5sum,MD5 checksum.
+movies_database,company_type,,"This lookup table enumerates the roles a company can have (e.g., production, distribution)."
+movies_database,company_type,id,Unique identifier.
+movies_database,company_type,kind,"Company role label (e.g., ""production companies"", ""distributors"")."
+movies_database,movie_link,,"This table records directional relationships between titles (e.g., sequel, remake, spin-off)."
+movies_database,movie_link,id,Unique identifier.
+movies_database,movie_link,movie_id,Foreign key referencing title.id (the source title).
+movies_database,movie_link,linked_movie_id,Foreign key referencing title.id (the related title).
+movies_database,movie_link,link_type_id,Foreign key referencing link_type.id.
+movies_database,link_type,,This lookup table enumerates the types of relationships between titles.
+movies_database,link_type,id,Unique identifier.
+movies_database,link_type,link,"Relationship description (e.g., ""follows"", ""sequel"", ""remake of"")."
+movies_database,complete_cast,,This table records the completeness status of cast and crew information for a movie.
+movies_database,complete_cast,id,Unique identifier.
+movies_database,complete_cast,movie_id,Foreign key referencing title.id.
+movies_database,complete_cast,subject_id,Foreign key referencing comp_cast_type.id; indicates whether cast or crew is being described.
+movies_database,complete_cast,status_id,Foreign key referencing comp_cast_type.id; indicates the completeness status.
+movies_database,comp_cast_type,,This lookup table enumerates the subjects and statuses used in complete_cast.
+movies_database,comp_cast_type,id,Unique identifier.
+movies_database,comp_cast_type,kind,"Label for the subject or status (e.g., ""cast"", ""crew"", ""complete"", ""complete+verified"")."
+people_database,,,"This database is stored in a SQLite database and contains people-centric information from IMDB. It covers individuals who worked on movies (actors, directors, writers, etc.), their alternate names, roles, biographical information, and their casting associations with titles."
+people_database,name,,This table is the central table of the people_database. Each row represents a unique person in the IMDB database.
+people_database,name,id,Unique identifier.
+people_database,name,name,"Full name of the person (last name, first name format)."
+people_database,name,imdb_index,Disambiguation suffix for persons sharing the same name.
+people_database,name,imdb_id,Original IMDB numeric identifier.
+people_database,name,gender,"Gender of the person (""m"" or ""f"")."
+people_database,name,name_pcode_cf,Phonetic code for the full name.
+people_database,name,name_pcode_nf,Alternate phonetic code.
+people_database,name,surname_pcode,Phonetic code for the surname.
+people_database,name,md5sum,MD5 checksum.
+people_database,aka_name,,This table stores alternate names or pseudonyms for people.
+people_database,aka_name,id,Unique identifier.
+people_database,aka_name,person_id,Foreign key referencing name.id.
+people_database,aka_name,name,The alternate name or pseudonym.
+people_database,aka_name,imdb_index,Disambiguation suffix.
+people_database,aka_name,name_pcode_cf,Phonetic code.
+people_database,aka_name,name_pcode_nf,Alternate phonetic code.
+people_database,aka_name,surname_pcode,Phonetic code for the surname.
+people_database,aka_name,md5sum,MD5 checksum.
+people_database,cast_info,,This table records the association between a person and a movie in a specific role. It is the central join table linking people_database to movies_database.
+people_database,cast_info,id,Unique identifier.
+people_database,cast_info,person_id,Foreign key referencing name.id.
+people_database,cast_info,movie_id,Foreign key referencing title.id in movies_database.
+people_database,cast_info,person_role_id,Foreign key referencing char_name.id; the character played.
+people_database,cast_info,note,"Additional credit notes (e.g., ""uncredited"")."
+people_database,cast_info,nr_order,Billing order of the credit.
+people_database,cast_info,role_id,Foreign key referencing role_type.id.
+people_database,char_name,,This table contains character names that appear in movie credits.
+people_database,char_name,id,Unique identifier.
+people_database,char_name,name,The character name.
+people_database,char_name,imdb_index,Disambiguation suffix.
+people_database,char_name,imdb_id,Original IMDB numeric identifier.
+people_database,char_name,name_pcode_nf,Phonetic code.
+people_database,char_name,surname_pcode,Phonetic code for the surname portion.
+people_database,char_name,md5sum,MD5 checksum.
+people_database,person_info,,"This table stores biographical and career metadata about people (e.g., birth date, birthplace, trivia)."
+people_database,person_info,id,Unique identifier.
+people_database,person_info,person_id,Foreign key referencing name.id.
+people_database,person_info,info_type_id,Foreign key referencing info_type.id in movies_database.
+people_database,person_info,info,The metadata value.
+people_database,person_info,note,Supplemental notes.
+people_database,role_type,,"This lookup table enumerates the types of roles a person can have in a movie (e.g., actor, director, writer)."
+people_database,role_type,id,Unique identifier.
+people_database,role_type,role,"Role description (e.g., ""actor"", ""director"", ""writer"", ""producer"")."

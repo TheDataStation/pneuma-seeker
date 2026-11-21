@@ -87,6 +87,16 @@ class DatasetRegistry:
         self.remove(source.name)  # a leftover row of a deleted local folder
         return self._insert(source)
 
+    def replace(self, source: DatasetSource) -> DatasetSource:
+        """
+        Registers a dataset in place of any registration of the same name, also
+        over a local folder of that name (whose data is left alone).
+        """
+        check_name(source.name)
+        self._require_postgres()
+        self.remove(source.name)
+        return self._insert(source)
+
     def register_local(self, name: str, created_by: str | None = None) -> None:
         """Records a local dataset folder in the registry (a no-op without Postgres or if recorded)."""
         if self.available and is_local_folder(self.root / name):

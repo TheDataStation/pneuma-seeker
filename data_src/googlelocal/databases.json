@@ -1,0 +1,14 @@
+{
+  "business_database": {
+    "type": "postgres",
+    "file": "business_description.sql",
+    "port": 5453,
+    "dbname": "googlelocal_db",
+    "user": "postgres",
+    "password": "postgres"
+  },
+  "review_database": {
+    "type": "sqlite",
+    "file": "review_query.db"
+  }
+}

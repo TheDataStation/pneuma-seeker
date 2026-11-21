@@ -1,0 +1,34 @@
+database,table_name,column_name,description
+metadata_database,,,"This database is stored in SQLite database format and contains metadata about GitHub repositories, including their declared programming languages, licenses, and repository-level statistics. It consists of three tables:"
+metadata_database,languages,repo_name,Name of the GitHub repository in `owner/repo` format.
+metadata_database,languages,language_description,"Programming language(s) used in the repository, represented in natural language format."
+metadata_database,licenses,repo_name,Name of the GitHub repository in `owner/repo` format.
+metadata_database,licenses,license,"License identifier associated with the repository (e.g., `apache-2.0`, `mit`)."
+metadata_database,repos,repo_name,Name of the GitHub repository in `owner/repo` format.
+metadata_database,repos,watch_count,Number of users watching the repository on GitHub.
+artifacts_database,,,"This database is stored in DuckDB format and contains GitHub repository artifacts, including file contents, commit history, and file-level metadata. It consists of three tables:"
+artifacts_database,contents,id,Identifier of the file blob in the repository.
+artifacts_database,contents,content,"The file content (textual data). For large or binary files, this may contain placeholders or truncated values."
+artifacts_database,contents,sample_repo_name,"Name of the repository where the file resides, in `owner/repo` format."
+artifacts_database,contents,sample_ref,"Reference name (e.g., branch or commit SHA)."
+artifacts_database,contents,sample_path,Path of the file within the repository.
+artifacts_database,contents,sample_symlink_target,"If the file is a symlink, indicates the symlink target path."
+artifacts_database,contents,repo_data_description,"Natural language description summarizing the file’s metadata (derived from original size, binary, copies, and mode fields)."
+artifacts_database,commits,commit,Unique identifier (SHA) of the commit.
+artifacts_database,commits,tree,SHA identifier of the commit’s associated tree object.
+artifacts_database,commits,parent,One or more parent commit SHAs (JSON-like format for merge commits).
+artifacts_database,commits,author,"JSON-like object containing author information (name, email, timestamp)."
+artifacts_database,commits,committer,"JSON-like object containing committer information (name, email, timestamp)."
+artifacts_database,commits,subject,Short subject line of the commit message.
+artifacts_database,commits,message,Full commit message.
+artifacts_database,commits,trailer,Additional metadata fields attached to the commit (JSON-like).
+artifacts_database,commits,difference,JSON-like structure representing file changes introduced by the commit.
+artifacts_database,commits,difference_truncated,Indicator if the difference data is truncated.
+artifacts_database,commits,repo_name,Repository name in `owner/repo` format.
+artifacts_database,commits,encoding,Encoding format of the commit data (if applicable).
+artifacts_database,files,repo_name,Name of the GitHub repository in `owner/repo` format.
+artifacts_database,files,ref,Reference name (branch or commit SHA) at which the file metadata is recorded.
+artifacts_database,files,path,Path of the file within the repository.
+artifacts_database,files,mode,"File mode (e.g., normal file, executable, symlink)."
+artifacts_database,files,id,Identifier of the file blob.
+artifacts_database,files,symlink_target,"If the file is a symlink, the target path it points to."

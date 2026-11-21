@@ -1,0 +1,52 @@
+[
+  {
+    "id": "q1",
+    "question": "Among movies, TV movies, video movies, and video games produced after 1990 that are tagged with at least one keyword, are associated with a US company, have a US internet release date recorded in the 1990s or 2000s, and have a complete and verified cast listing — what is the alphabetically first title, and what type of title is it?",
+    "answer": "movie_kind,complete_us_internet_movie\nmovie,Dirt Merchant"
+  },
+  {
+    "id": "q2",
+    "question": "Among writers who have a registered pseudonym and are credited on titles associated with a US company, what is the alphabetically first pseudonym and the alphabetically first title?",
+    "answer": "writer_pseudo_name,movie_title\n\"\"\"A.J.\"\"\",#1 Cheerleader Camp"
+  },
+  {
+    "id": "q3",
+    "question": "Among female actresses credited with a voice role — including general voice, uncredited voice, Japanese dubbed version, or English dubbed version — in titles produced after 2000 that are associated with a US company and have a release date on record, where the actress has a registered alternate name and played a named character, what is the alphabetically first actress name and the alphabetically first title?",
+    "answer": "voicing_actress,jap_engl_voiced_movie\n\"Aaron, Caroline\",$9.99"
+  },
+  {
+    "id": "q4",
+    "question": "Among cast and crew members whose name starts with 'Z' and who are credited in movies tagged with the keyword 'character-name-in-title' — indicating the movie's title contains a character's name — that are associated with at least one company, what is the alphabetically first name?",
+    "answer": "member_in_charnamed_movie,a1\n\"Z'Dar, Robert\",\"Z'Dar, Robert\""
+  },
+  {
+    "id": "q5",
+    "question": "Among titles of kind 'movie' (excluding TV movies, video movies, and other title types) that have a release date and a rating on record and are associated with a US production company, what are the alphabetically first company name, the alphabetically first rating value, and the alphabetically first title?",
+    "answer": "producing_company,rating,movie\n\"\"\"O\"\" Films\",1.0,#54 Meets #47"
+  },
+  {
+    "id": "q6",
+    "question": "Among female actresses whose name contains 'An', who have a registered alternate name, played a named character, and have trivia on record, and who are credited with a voice role (general, uncredited, Japanese version, or English version) in a computer-animated film produced between 2000 and 2010 with a Japan or USA release in the 2000s, associated with a US company, and with a complete and verified cast listing — what are the alphabetically first character name, the alphabetically first actress name, and the alphabetically first title?",
+    "answer": "voiced_char,voicing_actress,voiced_animation\nLola,\"Andrews, Julie\",Hoodwinked!"
+  },
+  {
+    "id": "q7",
+    "question": "Among cast and crew members who have a registered pseudonym and are credited in movies tagged with the keyword 'character-name-in-title' — indicating the movie's title contains a character's name — that are associated with a US company, what are the alphabetically first pseudonym and the alphabetically first title?",
+    "answer": "cool_actor_pseudonym,series_named_after_char\n\"!!!, Toy\",& Teller"
+  },
+  {
+    "id": "q8",
+    "question": "Among female actresses credited with a voice role — including general voice, uncredited voice, Japanese version, or English version — who have a registered alternate name (with the alternate name belonging to the same person holding the credit) and played a named character, in movies associated with a US company, what are the alphabetically first alternate name, the alphabetically first character name, the alphabetically first actress name, and the alphabetically first title?",
+    "answer": "alternative_name,voiced_char_name,voicing_actress,american_movie\n\"!!!, Toy\",\"\"\"Cockamamie's\"\" Salesgirl\",\"Aaron, Caroline\",\"$15,000.00 Error\""
+  },
+  {
+    "id": "q9",
+    "question": "Among male writers credited in a writing role — writer, head writer, written by, story, or story editor — on Horror or Thriller movies that are tagged with at least one of the keywords 'murder', 'violence', 'blood', 'gore', 'death', 'female-nudity', or 'hospital', have a vote count on record, and are associated with a Lionsgate company, where the genre, vote count, keyword, company, and writer credit all refer to the same movie — what are the alphabetically first genre, the alphabetically first vote count, the alphabetically first writer name, and the alphabetically first title?",
+    "answer": "movie_budget,movie_votes,writer,violent_liongate_movie\nHorror,1040,\"Agnew, Jim\",2001 Maniacs"
+  },
+  {
+    "id": "q10",
+    "question": "Among cast members who played a character whose name is not null and contains 'man' or 'Man', in titles of kind 'movie' produced after 2000, tagged with at least one of the keywords 'superhero', 'marvel-comics', 'based-on-comic', 'tv-special', 'fight', 'violence', 'magnet', 'web', 'claw', or 'laser', and with a cast listing whose completeness status contains 'complete', where the keyword tag, cast credit, and cast completeness record all refer to the same movie — what are the alphabetically first cast member name and the alphabetically first title?",
+    "answer": "cast_member,complete_dynamic_hero_movie\n\"Abell, Alistair\",...And Then I..."
+  }
+]

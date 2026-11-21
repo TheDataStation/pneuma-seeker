@@ -1,0 +1,17 @@
+[
+  {
+    "id": "q1",
+    "question": "Which stock index in the Asia region has exhibited the highest average intraday volatility since 2020?",
+    "answer": "399001.SZ"
+  },
+  {
+    "id": "q2",
+    "question": "Among North American stock indices, which indices had more up days than down days in 2018?",
+    "answer": "IXIC"
+  },
+  {
+    "id": "q3",
+    "question": "If an investor had made regular monthly investments in all indices since 2000, which 5 indices would have produced the highest overall returns, and what countries do they belong to?",
+    "answer": "399001.SZ,China\nNSEI,India\nIXIC,United States\n000001.SS,China\nNYA,United States"
+  }
+]

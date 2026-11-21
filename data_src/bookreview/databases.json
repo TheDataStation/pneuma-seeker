@@ -1,0 +1,14 @@
+{
+  "books_database": {
+    "type": "postgres",
+    "file": "books_info.sql",
+    "port": 5451,
+    "dbname": "bookreview_db",
+    "user": "postgres",
+    "password": "postgres"
+  },
+  "review_database": {
+    "type": "sqlite",
+    "file": "review_query.db"
+  }
+}

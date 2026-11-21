@@ -1,0 +1,17 @@
+[
+  {
+    "id": "q1",
+    "question": "For LGG patients, compute the average log10-transformed expression of the IGF2 gene across different histology types. Only include patients with valid IGF2 expression values and histology annotations that are not enclosed in square brackets. Report the final average values with at least four decimal places of precision.",
+    "answer": "Histology_Type,Average_Log_Expression\n9382/3,2.713571305193452\n9400/3,2.6014163319762287\n9401/3,2.558390345072906\n9450/3,2.6967184429497295\n9451/3,2.5826348457075095"
+  },
+  {
+    "id": "q2",
+    "question": "Among BRCA patients in the PanCancer Atlas who are alive, which top three histological types show the highest percentage of CDH1 gene mutations?",
+    "answer": "Histological_Type,mutation_count,total,mutation_percentage\nInfiltrating Lobular Carcinoma,74,178,0.4157303370786517\nMixed Histology (please specify),3,24,0.125\nOther  specify,3,36,0.08333333333333333"
+  },
+  {
+    "id": "q3",
+    "question": "Calculate the chi-square statistic to assess the association between histological types and the presence of CDH1 gene mutations in female BRCA patients from the PanCancer Atlas, excluding categories with marginal totals less than or equal to 10, and only focusing on patients with known histological types and consider only reliable mutation entries.",
+    "answer": "Chi2\n305.1239198007461"
+  }
+]

@@ -1,0 +1,67 @@
+[
+  {
+    "id": "q1",
+    "question": "Can this lead be qualified based on the latest discussions? If the answer is no, which factors—'Budget', 'Authority', 'Need', or 'Timeline'—are responsible? Return only one or several of the four BANT factors that the lead qualification fails to meet (i.e. 'Budget', 'Authority', 'Need', 'Timeline').\n\n## Lead qualification guide.\nLook for the voice call transcripts with the lead and relevant knowledge articles to justify the lead qualification.\n\n- Lead Id to be considered is: 00QWt0000089AekMAE",
+    "answer": "Authority"
+  },
+  {
+    "id": "q2",
+    "question": "Does the cost and setup of this quote comply with our company policy? If it doesn't, which knowledge article is it in conflict with? Return only the Id of the knowledge article that the quote violates. If no violation is found, return None.\n\n## Quote approval guide.\nLook for relevant knowledge articles to justify the quote approval.\n\n- Quote Id to be considered is: 0Q0Wt000001WSDVKA4",
+    "answer": "ka0Wt000000Eq0MIAS"
+  },
+  {
+    "id": "q3",
+    "question": "Is the stage name accurately representing the tasks for this opportunity? If it is not, what should the appropriate stage name be? Return only the correct stage label among ('Qualification', 'Discovery', 'Quote', 'Negotiation', 'Closed').\n\n- Opportunity Id to be considered is: 006Wt000007BGGjIAO",
+    "answer": "Negotiation"
+  },
+  {
+    "id": "q4",
+    "question": "Is there a particular month in the past 10 months where the number of SecureAnalytics Pro cases significantly exceeds those of other months? The associated product Id is 01tWt000006hVJdIAM. Return only the month name.\n\n- Today's date: 2021-04-10",
+    "answer": "November"
+  },
+  {
+    "id": "q5",
+    "question": "What has been the most frequent problem AI Cirku-Tech encountered over the past five months? The associated product Id is 01tWt000006hV8LIAU. Return only the issue Id of the most reported issue for this product.\n\n- Today's date: 2023-01-16",
+    "answer": "a03Wt00000JqnHwIAJ"
+  },
+  {
+    "id": "q6",
+    "question": "Is the product setup in this quotation, including elements like quantity and price, against company regulations? Return only the Id of the knowledge article that the invalid config violates.\n\n## Invalid config guide.\nLook for the relevant knowledge articles to justify the invalid config.\n\n- Quote Id to be considered is: 0Q0Wt000001WRAzKAO",
+    "answer": "ka0Wt000000EnwvIAC"
+  },
+  {
+    "id": "q7",
+    "question": "Did the agent breach the policy, and if so, which knowledge article was breached? Return only the Id of the knowledge article or None if no violation is found.\n\n- Case Id to be considered is: 500Wt00000DDyznIAD",
+    "answer": "ka0Wt000000EoD3IAK"
+  },
+  {
+    "id": "q8",
+    "question": "Identify the agent with the fewest transfer counts in the last 4 quarters among those who handled more than 0 cases. Return only the Id of the agent.\n\n## Transfer Count Policy\n- Definition: The number of instances a case was reassigned or transferred from one agent to another. Each transfer from agent A to agent B adds to the transfer count for agent A.\n- In the queries that specify 'agents managed/queries x cases' -- this filter applies to both the first agent that the case was first assigned to and the agent that the case was transferred to. This means that if an agent has 2 cases that was initially assigned to itself by admin and 1 case transferred from another agent, a filter like 'handled/managed at least 3 cases' would not filter this agent out.\n- For cases that have NOT been transferred to an other agent, there will be only ONE 'Owner Assignment', and for those that have been transferred, there will be MORE THAN ONE 'Owner Assignment'.\n\n## Today's date: 2023-04-10",
+    "answer": "005Wt000003NIliIAG"
+  },
+  {
+    "id": "q9",
+    "question": "Which states have the quickest case closure time in the past 6 quarters? Return only the two-letter abbreviation of the most matching state (eg. CA).\n\n- Today's date: 2022-10-26",
+    "answer": "MI"
+  },
+  {
+    "id": "q10",
+    "question": "In the past four months, which agent had the lowest average handle time for those processing more than one case? Return only the Id of the agent.\n\n## Handle Time Policy\n- Definition: The duration taken to close a case. Specifically, it is the time from when a case is opened to when it is closed.\n- In the queries that specify 'agents managed/queries x cases' -- this filter applies to both the first agent that the case was first assigned to and the agent that the case was transferred to. This means that if an agent has 2 cases that was initially assigned to itself by admin and 1 case transferred from another agent, a filter like 'handled/managed at least 3 cases' would not filter this agent out.\n- When computing handle time, we do not compute handle time for cases that have been transferred to other agents.\n- For cases that have NOT been transferred to an other agent, there will be only ONE 'Owner Assignment', and for those that have been transferred, there will be MORE THAN ONE 'Owner Assignment'.\n\n## Today's date: 2023-09-02",
+    "answer": "005Wt000003NDqDIAW"
+  },
+  {
+    "id": "q11",
+    "question": "Can you show me the AI processing unit I purchased last month? Return only the Id of the product from the contact's relevant past transaction.\n\n- Contact Id interacting: 003Wt00000Jqy8SIAR\n- Today's date: 2021-07-15",
+    "answer": "01tWt000006hV8LIAU"
+  },
+  {
+    "id": "q12",
+    "question": "Who had the quickest average turnaround from opening to closing opportunities among agents in April 2023? Return only the Id of the agent.\n\n## Sales Cycle Policy\n- Definition: The sales cycle is measured as the number of days between an opportunity's creation date and the company signed date on the corresponding contract.\n\n## Today's date: 2024-09-12",
+    "answer": "005Wt000003NDEBIA4"
+  },
+  {
+    "id": "q13",
+    "question": "Identify the agent who achieved the top sales figures for orders made in the past five months. Return only the Id of the agent.\n\n## Sales Amount Policy\n- Definition: The sales amount for an order is calculated as the product of the quantity and the unit price from the Order object (Quantity * UnitPrice). An opportunity is eligible if its associated contract has a company signed date that falls within the time interval of interest.\n\n- Today's date: 2022-11-25",
+    "answer": "005Wt000003NIXCIA4"
+  }
+]

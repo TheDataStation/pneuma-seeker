@@ -1,0 +1,34 @@
+database,table_name,column_name,description
+core_crm,,,"This database is stored in a SQLite database and contains core CRM data including users, accounts, and contacts from Salesforce CRMArena."
+core_crm,User,,Sales team information
+core_crm,Account,,Company/customer data
+core_crm,Contact,,Individual contacts
+sales_pipeline,,,"This database is stored in a DuckDB database and contains sales pipeline data including opportunities, quotes, contracts, and leads."
+sales_pipeline,Contract,,Signed contracts
+sales_pipeline,Lead,,Sales leads
+sales_pipeline,Opportunity,,Sales deals
+sales_pipeline,OpportunityLineItem,,Deal line items
+sales_pipeline,Quote,,Price quotes
+sales_pipeline,QuoteLineItem,,Quote details
+support,,,"This database is stored in a PostgreSQL database and contains customer support data including cases, knowledge articles, and communications."
+support,Case,,Support cases
+support,knowledge__kav,,Knowledge articles
+support,issue__c,,Custom issues
+support,casehistory__c,,Case history
+support,emailmessage,,Email communications
+support,livechattranscript,,Chat logs
+products_orders,,,This database is stored in a SQLite database and contains product catalog and order data.
+products_orders,ProductCategory,,Product categories
+products_orders,Product2,,Product catalog
+products_orders,ProductCategoryProduct,,one of the pricing and mapping tables
+products_orders,Pricebook2,,one of the pricing and mapping tables
+products_orders,PricebookEntry,,one of the pricing and mapping tables
+products_orders,Order,,Customer orders
+products_orders,OrderItem,,Order details
+activities,,,"This database is stored in a DuckDB database and contains activity data including tasks, events, and voice call transcripts."
+activities,Event,,Calendar events
+activities,Task,,Activities and tasks
+activities,VoiceCallTranscript__c,,Call records
+territory,,,This database is stored in a SQLite database and contains sales territory management data.
+territory,Territory2,,Sales territories
+territory,UserTerritory2Association,,Territory assignments

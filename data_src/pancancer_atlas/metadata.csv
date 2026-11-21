@@ -1,0 +1,25 @@
+database,table_name,column_name,description
+clinical_database,,,"This database is stored in POSTGRES format and contains clinical information for patients in the PanCancer Atlas.
+It includes detailed metadata such as patient identifiers, cancer type acronyms, demographics, diagnosis records, treatment outcomes, survival status, and other clinical annotations."
+clinical_database,clinical_info,,Fields: over one hundred attributes describing each patient (not listed here individually).
+molecular_database,,,This database is stored in DuckDB database format and contains molecular profiling data of patients in the PanCancer Atlas.
+molecular_database,Mutation_Data,ParticipantBarcode,Patient identifier
+molecular_database,Mutation_Data,Tumor_SampleBarcode,Tumor sample identifier
+molecular_database,Mutation_Data,Tumor_AliquotBarcode,Tumor aliquot identifier
+molecular_database,Mutation_Data,Normal_SampleBarcode,Normal control sample identifier
+molecular_database,Mutation_Data,Normal_AliquotBarcode,Normal control aliquot identifier
+molecular_database,Mutation_Data,Normal_SampleTypeLetterCode,Sample type abbreviation for the normal sample
+molecular_database,Mutation_Data,Hugo_Symbol,"Gene symbol of the mutation (e.g., TP53, CDH1)"
+molecular_database,Mutation_Data,HGVSp_Short,Protein-level mutation annotation
+molecular_database,Mutation_Data,Variant_Classification,"Classification of the mutation (e.g., Missense_Mutation, Nonsense_Mutation)"
+molecular_database,Mutation_Data,HGVSc,Coding DNA sequence mutation annotation
+molecular_database,Mutation_Data,CENTERS,Contributing sequencing center
+molecular_database,Mutation_Data,FILTER,"Mutation filter status (e.g., PASS for reliable calls)"
+molecular_database,RNASeq_Expression,ParticipantBarcode,Patient identifier
+molecular_database,RNASeq_Expression,SampleBarcode,Sample identifier
+molecular_database,RNASeq_Expression,AliquotBarcode,Aliquot identifier
+molecular_database,RNASeq_Expression,SampleTypeLetterCode,Sample type abbreviation
+molecular_database,RNASeq_Expression,SampleType,Sample type description
+molecular_database,RNASeq_Expression,Symbol,Gene symbol
+molecular_database,RNASeq_Expression,Entrez,Entrez gene ID
+molecular_database,RNASeq_Expression,normalized_count,Normalized RNA expression value

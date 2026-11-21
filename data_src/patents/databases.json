@@ -1,0 +1,14 @@
+{
+  "publication_database": {
+    "type": "sqlite",
+    "file": "patent_publication.db"
+  },
+  "CPCDefinition_database": {
+    "type": "postgres",
+    "file": "patent_CPCDefinition.sql",
+    "port": 5455,
+    "dbname": "patent_CPCDefinition",
+    "user": "postgres",
+    "password": "postgres"
+  }
+}

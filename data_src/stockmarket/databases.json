@@ -1,0 +1,10 @@
+{
+  "stockinfo_database": {
+    "type": "sqlite",
+    "file": "stockinfo_query.db"
+  },
+  "stocktrade_database": {
+    "type": "duckdb",
+    "file": "stocktrade_query.db"
+  }
+}

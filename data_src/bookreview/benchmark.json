@@ -1,0 +1,17 @@
+[
+  {
+    "id": "q1",
+    "question": "Which decade of publication (e.g., 1980s) has the highest average rating among decades with at least 10 distinct books that have been rated? Return the decade with the highest average rating.",
+    "answer": "2020"
+  },
+  {
+    "id": "q2",
+    "question": "Which English-language books in the 'Literature & Fiction' category have a perfect average rating of 5.0? Return all matching books.",
+    "answer": "The Sludge\nSomething That Feels Like Truth (Switchgrass Books)\nKennebago Moments\nHollywood Confessions: Hollywood Headlines Book #3 (Hollywood Headlines Mysteries)\nForged in Blood (Freehold)\nLocal Honey\n\"Exits, Desires, & Slow Fires\"\nFire Cracker\nReunion: The Children of Lauderdale Park\nChilde Harold of Dysna\nThe Prophet: With Original 1923 Illustrations by the Author\nKnowing When To Die: Uncollected Stories\nLiza of Lambeth\nChild Of The King A Journey of Hope Book 1: Earthly Story With A Heavenly Message\nThe Melancholy Strumpet Master"
+  },
+  {
+    "id": "q3",
+    "question": "Which books categorized as 'Children's Books' have received an average rating of at least 4.5 based on reviews from 2020 onwards?",
+    "answer": "Around the World Mazes\nBehind the Wheel (Choose Your Own Adventure #35)(Paperback/Revised)\nBenny Goes To The Moon: The great new book from Top Children's entertainer Gerry Ogilvie (1)\n\"Cheer Up, Ben Franklin! (Young Historians)\"\nFavorite Thorton W. Burgess Stories: 6 Books\nEgypt (Enchantment of the World)\n\"Pokémon: Sun & Moon, Vol. 8 (8)\"\nThe Library Book\nLunaLu the Llamacorn\nMonstrous Stories #4: The Day the Mice Stood Still\nThe Old Man and the Pirate Princess\nTrouble in the CTC!: The Terra Prime Adventures Book 2\n\"Clark the Shark: Tooth Trouble, No. 1\"\nCleo Porter and the Body Electric"
+  }
+]

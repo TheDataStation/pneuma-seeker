@@ -1,0 +1,114 @@
+# DataAgentBench's Postgres databases, each loaded from <benchmark>/dataset/<file>.sql on first start:
+#   docker compose -f data_src/docker-compose.yml up -d
+name: pneuma_dab
+
+services:
+  pancancer_atlas:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: pancancer_clinical
+    ports:
+      - "5454:5432"
+    volumes:
+      - ./pancancer_atlas/dataset/pancancer_clinical.sql:/docker-entrypoint-initdb.d/01_pancancer_clinical.sql:ro
+      - pancancer_atlas_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 120
+
+  patents:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: patent_CPCDefinition
+    ports:
+      - "5455:5432"
+    volumes:
+      - ./patents/dataset/patent_CPCDefinition.sql:/docker-entrypoint-initdb.d/01_patent_CPCDefinition.sql:ro
+      - patents_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 120
+
+  bookreview:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: bookreview_db
+    ports:
+      - "5451:5432"
+    volumes:
+      - ./bookreview/dataset/books_info.sql:/docker-entrypoint-initdb.d/01_books_info.sql:ro
+      - bookreview_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 120
+
+  crmarenapro:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: crm_support
+    ports:
+      - "5452:5432"
+    volumes:
+      - ./crmarenapro/dataset/support.sql:/docker-entrypoint-initdb.d/01_support.sql:ro
+      - crmarenapro_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 120
+
+  googlelocal:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: googlelocal_db
+    ports:
+      - "5453:5432"
+    volumes:
+      - ./googlelocal/dataset/business_description.sql:/docker-entrypoint-initdb.d/01_business_description.sql:ro
+      - googlelocal_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 120
+
+  imdb:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: movies_db
+    ports:
+      - "5456:5432"
+    volumes:
+      - ./imdb/dataset/movies.sql:/docker-entrypoint-initdb.d/01_movies.sql:ro
+      - imdb_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 120
+
+volumes:
+  pancancer_atlas_pgdata:
+  patents_pgdata:
+  bookreview_pgdata:
+  crmarenapro_pgdata:
+  googlelocal_pgdata:
+  imdb_pgdata:

@@ -1,0 +1,10 @@
+{
+  "package_database": {
+    "type": "sqlite",
+    "file": "package_query.db"
+  },
+  "project_database": {
+    "type": "duckdb",
+    "file": "project_query.db"
+  }
+}

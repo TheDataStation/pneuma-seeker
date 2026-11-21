@@ -100,6 +100,10 @@ class _CSVConfig(_PathConfig):
         return _relative_pattern(value)
 
 
+# As uploads read CSVs; a serial read also handles quoted newlines alongside null padding.
+CSV_OPTIONS = "header=true, ignore_errors=true, strict_mode=false, null_padding=true, sample_size=100000, parallel=false"
+
+
 class CSVDirConnector(DatasetConnector):
     """Represents a folder of CSV or TSV files, one table per file named by its stem."""
 
@@ -118,17 +122,14 @@ class CSVDirConnector(DatasetConnector):
         relations = {}
         for file in self.files():
             delim = ", delim='\\t'" if file.suffix.lower() == ".tsv" else ""
-            relations[file.stem] = (
-                f"read_csv({sql_literal(file.as_posix())}, header=true, ignore_errors=true, "
-                f"null_padding=true, sample_size=100000{delim})"
-            )
+            relations[file.stem] = f"read_csv({sql_literal(file.as_posix())}, {CSV_OPTIONS}{delim})"
         return relations
 
     def allowed_paths(self) -> tuple[list[str], list[str]]:
         return [Path(self.cfg.path).resolve().as_posix() + "/"], []
 
     def fingerprint(self) -> str:
-        return "csv:" + digest(_stat_parts(self.files()))
+        return "csv:" + digest([CSV_OPTIONS, *_stat_parts(self.files())])
 
 
 class _DatabaseFileConnector(DatasetConnector):

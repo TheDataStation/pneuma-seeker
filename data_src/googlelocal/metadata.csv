@@ -1,0 +1,15 @@
+database,table_name,column_name,description
+review_database,,,"This database is stored in SQLite database format and contains review information from Google Maps (reviewer name, ratings, text, etc.) collected up to September 2021 in the United States."
+review_database,review,name,Name of the reviewer
+review_database,review,time,Timestamp of the review
+review_database,review,rating,Rating given by the reviewer (1-5 scale)
+review_database,review,text,Review text content
+review_database,review,gmap_id,Google Maps business identifier
+business_database,,,"This database is stored in PostgreSQL format and contains business metadata from Google Maps (business name, description, hours, etc.) collected up to September 2021 in the United States."
+business_database,business_description,name,Business name
+business_database,business_description,gmap_id,Google Maps business identifier (links to review_database)
+business_database,business_description,description,Business description
+business_database,business_description,num_of_reviews,Total number of reviews for this business
+business_database,business_description,hours,Operating hours information
+business_database,business_description,MISC,Additional miscellaneous business information
+business_database,business_description,state,"Business operating status (e.g., open, closed, temporarily closed)"

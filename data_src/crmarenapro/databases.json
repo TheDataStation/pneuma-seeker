@@ -1,0 +1,30 @@
+{
+  "core_crm": {
+    "type": "sqlite",
+    "file": "core_crm.db"
+  },
+  "sales_pipeline": {
+    "type": "duckdb",
+    "file": "sales_pipeline.duckdb"
+  },
+  "support": {
+    "type": "postgres",
+    "file": "support.sql",
+    "port": 5452,
+    "dbname": "crm_support",
+    "user": "postgres",
+    "password": "postgres"
+  },
+  "products_orders": {
+    "type": "sqlite",
+    "file": "products_orders.db"
+  },
+  "activities": {
+    "type": "duckdb",
+    "file": "activities.duckdb"
+  },
+  "territory": {
+    "type": "sqlite",
+    "file": "territory.db"
+  }
+}

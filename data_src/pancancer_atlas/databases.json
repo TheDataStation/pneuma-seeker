@@ -1,0 +1,14 @@
+{
+  "clinical_database": {
+    "type": "postgres",
+    "file": "pancancer_clinical.sql",
+    "port": 5454,
+    "dbname": "pancancer_clinical",
+    "user": "postgres",
+    "password": "postgres"
+  },
+  "molecular_database": {
+    "type": "duckdb",
+    "file": "pancancer_molecular.db"
+  }
+}

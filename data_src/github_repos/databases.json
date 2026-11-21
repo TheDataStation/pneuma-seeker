@@ -1,0 +1,10 @@
+{
+  "metadata_database": {
+    "type": "sqlite",
+    "file": "repo_metadata.db"
+  },
+  "artifacts_database": {
+    "type": "duckdb",
+    "file": "repo_artifacts.db"
+  }
+}

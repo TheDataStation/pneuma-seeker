@@ -1,0 +1,12 @@
+[
+  {
+    "id": "q1",
+    "question": "Considering only the latest release versions for each distinct NPM package, which packages are the top 5 most popular based on the Github star number, as well as their versions?",
+    "answer": "Name,Version\n@dmrvos/infrajs>0.0.6>typescript,2.6.2\n@dmrvos/infrajs>0.0.5>typescript,2.6.2\n@dylanvann/svelte,3.25.4\n@dumc11/tailwindcss,0.4.0\n@dwarvesf/react-scripts>0.7.0>lodash.indexof,4.0.5"
+  },
+  {
+    "id": "q2",
+    "question": "Among all NPM packages with project license 'MIT' and marked as release, which 5 projects have the highest GitHub fork count?",
+    "answer": "ProjectName,Version,ForksCount\nmui-org/material-ui,0.2.0,30522\nmoment/moment,2.22.2,7201\nsemantic-org/semantic-ui,2.2.11,4955\nreact-native-elements/react-native-elements,4.0.2,4623\nsveltejs/svelte,3.25.4,4091"
+  }
+]

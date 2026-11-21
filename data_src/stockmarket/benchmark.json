@@ -1,0 +1,27 @@
+[
+  {
+    "id": "q1",
+    "question": "What was the maximum adjusted closing price in 2020 for The RealReal, Inc.?",
+    "answer": "18.440000534057617"
+  },
+  {
+    "id": "q2",
+    "question": "List all ETF securities listed on NYSE Arca that reached an adjusted closing price above $200 at any point during 2015, and also report the total number of such ETFs.",
+    "answer": "ProShares Ultra Bloomberg Natural Gas\nProShares UltraShort MSCI Brazil Capped\nDirexion Auspice Broad Commodity Strategy ETF\nDirexion Daily Gold Miners Index Bear 2X Shares\nDirexion Emerging Markets Bear 3X Shares\nDirexion Energy Bull 2X Shares\nDirexion Financial Bear 3X Shares\nProShares Ultrashort FTSE China 50\nGoldman Sachs Motif Finance Reimagined ETF\nDirexion Daily S&P Oil & Gas Exp. & Prod. Bull 2X Shares\nXtrackers High Beta High Yield Bond ETF\nDirexion Daily Junior Gold Miners Index Bear 2X Shares\nDirexion Daily Junior Gold Miners Index Bull 2X Shares\nXtrackers Japan JPX-Nikkei 400 Equity ETF\nDirexion Daily S&P Biotech Bear 3X Shares\nDirexion Daily S&P Biotech Bull 3X Shares\nDirexion Daily Latin America 3x Bull Shares\nSPDR MidCap Trust Series I\nPacer Trendpilot International ETF\nPacer Benchmark Retail Real Estate SCTR ETF\nUltraPro Short Dow30\nDirexion Daily Semiconductor Bear 3x Shares\nProShares UltraShort Semiconductors\nDirexion Technology Bear 3X Shares\nDirexion Small Cap Bear 3X Shares\nProShares Trust Ultra VIX Short Term Futures ETF\nProShares Trust VIX Short-Term Futures ETF\nVirtus Private Credit Strategy ETF\nSPDR Series Trust SPDR S&P Oil & Gas Equipment & Services ETF\nSPDR S&P Oil & Gas Explor & Product\nDirexion Daily FTSE China Bear 3x Shares\nTotal: 31"
+  },
+  {
+    "id": "q3",
+    "question": "List all company names on the NASDAQ-listed Market that were financially troubled (delinquent, deficient, or both) and have trading volume in 2008, for each, report its exisiting non-null average daily trading volume in 2008.",
+    "answer": "Apex Global Brands Inc,23781.42\nBIO-key International, Inc,10988.14\nCBAK Energy Technology, Inc,86223.32\nChina Ceramics Co, Ltd,4366.80\nCorrevio Pharma Corp,145247.83\nCounterPath Corporation,375.49\nDASAN Zhone Solutions, Inc,15578.66\nFuture FinTech Group Inc,9.85\nFrontier Communications Corporation,254397.63\nIdeanomics, Inc,10.28\nOcean Power Technologies, Inc,254.15\nPacific Ethanol, Inc,10706.72\nSynthesis Energy Systems, Inc,2390.51\nSunesis Pharmaceuticals, Inc,781.82\nSypris Solutions, Inc,36836.36"
+  },
+  {
+    "id": "q4",
+    "question": "What are the names (not symbol) of the top 5 non-ETF stocks listed on the New York Stock Exchange (NYSE) that had more up days than down days in 2017? (Up days: closing price > opening price; Down days: closing price < opening price)",
+    "answer": "MFA Financial, Inc\nArgo Group International Holdings, Ltd\nHDFC Bank Limited Common Stock\nAlbany International Corporation Common Stock\nDTE Energy Company"
+  },
+  {
+    "id": "q5",
+    "question": "Which 5 companies listed on the NASDAQ Capital Market had the highest number of days in 2019 where the intraday price range exceeded 20% of the low price, list the company names please?",
+    "answer": "Synthesis Energy Systems, Inc. - Common Stock\nTD Holdings, Inc. - Common Stock\nTMSR Holding Company Limited - Common Stock\nVerb Technology Company, Inc. - Common Stock\nSunesis Pharmaceuticals, Inc. - Common Stock"
+  }
+]

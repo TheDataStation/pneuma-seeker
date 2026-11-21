@@ -4,7 +4,8 @@ services:
       context: .
       dockerfile: src/pneuma_seeker/docker/postgres.dockerfile
     ports:
-      - "5432:5432"
+      # Host port only; containers reach it as postgres:5432. Off 5432 so it cannot clash with other Postgres servers.
+      - "${POSTGRES_HOST_PORT:-5442}:5432"
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-pneuma_users}
@@ -49,6 +50,9 @@ services:
         condition: service_healthy
     networks:
       - backend-net
+    # Lets the Postgres connector reach databases on the host as host.docker.internal (needed on Linux).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./src/pneuma_seeker/services/db/datasets/_data:/app/src/pneuma_seeker/services/db/datasets/_data
       - ./src/pneuma_seeker/services/db/workspaces:/app/src/pneuma_seeker/services/db/workspaces

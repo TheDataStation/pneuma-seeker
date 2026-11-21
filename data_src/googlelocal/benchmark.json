@@ -1,0 +1,22 @@
+[
+  {
+    "id": "q1",
+    "question": "What are the top 5 businesses located in Los Angeles, California, ranked by highest average rating in descending order?",
+    "answer": "Widows Peak Salon,4.857142857142857\nCity Textile,4.5\nNobel Textile Co,4.285714285714286\nSan Soo Dang,4.277777777777778\nNova Fabrics,3.3333333333333335"
+  },
+  {
+    "id": "q2",
+    "question": "Which massage therapy businesses have an average rating of at least 4.0, and what are their respective average ratings?",
+    "answer": "Elite Massage,5.0\nAngel-A Massage,4.333333333333333\nAurora Massage,4.178571428571429\nJ B Oriental Inc,4.166666666666667"
+  },
+  {
+    "id": "q3",
+    "question": "What are the top 5 businesses that remain open after 6:00 PM on at least one weekday, ranked by highest average rating? Include their names, operating hours, and average ratings.",
+    "answer": "TACOS LA CABANA,\"[['Thursday', 'Closed'], ['Friday', '5–11PM'], ['Saturday', '5–11PM'], ['Sunday', '5–11PM'], ['Monday', '5–11PM'], ['Tuesday', 'Closed'], ['Wednesday', 'Closed']]\",5.0\nWhite Barn Candle Co,\"[['Thursday', '10AM–9PM'], ['Friday', '10AM–9PM'], ['Saturday', '10AM–9PM'], ['Sunday', '11AM–7PM'], ['Monday', '10AM–9PM'], ['Tuesday', '10AM–9PM'], ['Wednesday', '10AM–9PM']]\",5.0\nMariscos el poblano,\"[['Thursday', 'Open 24 hours'], ['Friday', '8AM–3:30PM'], ['Saturday', '8AM–3:30PM'], ['Sunday', '8AM–3:30PM'], ['Monday', '9AM–3:30AM'], ['Tuesday', '8AM–3:30PM'], ['Wednesday', '8AM–3:30PM']]\",5.0\nBeauty Divine Artistry,\"[['Thursday', '9AM–8PM'], ['Friday', '9AM–8PM'], ['Saturday', '10AM–7PM'], ['Sunday', '11AM–6PM'], ['Monday', '9AM–8PM'], ['Tuesday', '9AM–8PM'], ['Wednesday', '9AM–8PM']]\",5.0\nTaba Rug Gallery,\"[['Thursday', '10AM–7PM'], ['Friday', '10AM–7PM'], ['Saturday', '10AM–7PM'], ['Sunday', '11AM–6PM'], ['Monday', '10AM–7PM'], ['Tuesday', '10AM–7PM'], ['Wednesday', '10AM–7PM']]\",5.0"
+  },
+  {
+    "id": "q4",
+    "question": "Which 3 businesses received the highest number of reviews with ratings of 4.5 or higher during 2019? Include their names and the count of high-rating reviews.",
+    "answer": "Encino Dermatology & Laser: Alex Khadavi MD,19\nThe Boochyard @ Local Roots,17\nAurora Massage,14"
+  }
+]

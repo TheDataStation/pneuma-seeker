@@ -1,0 +1,21 @@
+database,table_name,column_name,description
+books_database,,,"This database is stored in a PostgreSQL database and contains Amazon book information including descriptions, price, details, title, etc. up to 2023."
+books_database,books_info,title,Book title
+books_database,books_info,subtitle,Book subtitle
+books_database,books_info,author,Book author(s)
+books_database,books_info,rating_number,Total number of ratings received
+books_database,books_info,features,Book features (stored as string representation of list/dict)
+books_database,books_info,description,Book description (stored as string representation of list/dict)
+books_database,books_info,price,Book price
+books_database,books_info,store,Store information
+books_database,books_info,categories,Book categories (stored as string representation of list/dict)
+books_database,books_info,details,Additional book details
+books_database,books_info,book_id,Unique book identifier
+review_database,,,"This database is stored in a SQLite database and contains Amazon book review information including ratings, text, helpfulness votes, etc. up to 2023."
+review_database,review,rating,Rating given by reviewer (1.0-5.0 scale)
+review_database,review,title,Review Title
+review_database,review,text,Review text content
+review_database,review,purchase_id,Unique identifier linking to book_id in books_info table in books_database
+review_database,review,review_time,Timestamp when review was posted
+review_database,review,helpful_vote,Number of helpful votes received
+review_database,review,verified_purchase,Whether purchase was verified

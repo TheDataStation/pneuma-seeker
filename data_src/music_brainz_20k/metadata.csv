@@ -1,0 +1,20 @@
+database,table_name,column_name,description
+tracks_database,,,"This database is stored in a SQLite database and contains detailed information about music tracks. It serves as the primary source for the content of each track, including title, artist, album, etc."
+tracks_database,tracks,,"This table contains all the tracks, including potential duplicates generated from different sources. Each row represents a single track record with a unique track_id."
+tracks_database,tracks,track_id,Unique identifier for the track record in this database.
+tracks_database,tracks,source_id,Identifier of the source from which the track record originates.
+tracks_database,tracks,source_track_id,Original track identifier from the source; uniqueness is not guaranteed.
+tracks_database,tracks,title,Title of the track.
+tracks_database,tracks,artist,Name of the track’s artist or band.
+tracks_database,tracks,album,Name of the album in which the track appears.
+tracks_database,tracks,year,Year of publication.
+tracks_database,tracks,length,Length of the track (in seconds or formatted string).
+tracks_database,tracks,language,Language of the track.
+sales_database,,,"This database is stored in a DuckDB database and contains sales information for the tracks in the tracks_database. It provides details about individual sales transactions, including the number of units sold and the revenue generated."
+sales_database,sales,,This table contains individual sales transactions for tracks. Each row represents a single sale record for a specific track_id.
+sales_database,sales,sale_id,Unique identifier for the sale record.
+sales_database,sales,track_id,Identifier linking the sale to a track in the tracks table.
+sales_database,sales,country,Country in which the sale occurred.
+sales_database,sales,store,Store or platform where the sale occurred.
+sales_database,sales,units_sold,Number of units sold in this transaction.
+sales_database,sales,revenue_usd,Revenue generated in USD from this sale.

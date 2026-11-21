@@ -1,0 +1,30 @@
+database,table_name,column_name,description
+package_database,,,"This database is stored in SQLite database format and contains metadata of software packages, including licensing information, version release data, dependency details, and registry metadata."
+package_database,packageinfo,System,"Package ecosystem (e.g., NPM, Maven)"
+package_database,packageinfo,Name,Package name
+package_database,packageinfo,Version,Version string of the package
+package_database,packageinfo,Licenses,"License(s) associated with the package, stored as a JSON-like array"
+package_database,packageinfo,Links,"JSON-like list of relevant links (e.g., origin, documentation, source code)"
+package_database,packageinfo,Advisories,JSON-like list of security advisories related to the package
+package_database,packageinfo,VersionInfo,"JSON-like object with release metadata (e.g., `IsRelease`, `Ordinal`)"
+package_database,packageinfo,Hashes,JSON-like list of file hashes
+package_database,packageinfo,DependenciesProcessed,Whether dependencies have been processed successfully
+package_database,packageinfo,DependencyError,Whether a dependency processing error occurred
+package_database,packageinfo,UpstreamPublishedAt,Unix timestamp (ms) for when the upstream release was published
+package_database,packageinfo,Registries,JSON-like list of registries where the package is published
+package_database,packageinfo,SLSAProvenance,SLSA provenance level if available
+package_database,packageinfo,UpstreamIdentifiers,JSON-like list of upstream identifiers
+package_database,packageinfo,Purl,Package URL in purl format (if available)
+project_database,,,This database is stored in DuckDB format and contains GitHub project information and mappings between projects and their package versions. It is organized into two tables:
+project_database,project_packageversion,System,"Package ecosystem (e.g., NPM)"
+project_database,project_packageversion,Name,Package name
+project_database,project_packageversion,Version,Package version string
+project_database,project_packageversion,ProjectType,"Type of project (e.g., GITHUB)"
+project_database,project_packageversion,ProjectName,Repository path in `owner/repo` format
+project_database,project_packageversion,RelationProvenance,Provenance of the relationship data
+project_database,project_packageversion,RelationType,"Type of relationship (e.g., source repository type)"
+project_database,project_info,Project_Information,"Textual description of the project (may include name, owner, and general purpose)"
+project_database,project_info,Licenses,"License(s) associated with the project, stored as a JSON-like array"
+project_database,project_info,Description,Project description field (may differ from Project_Information)
+project_database,project_info,Homepage,"Homepage URL of the project, if available"
+project_database,project_info,OSSFuzz,OSSFuzz status indicator (if applicable)

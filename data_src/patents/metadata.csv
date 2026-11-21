@@ -1,0 +1,49 @@
+database,table_name,column_name,description
+publication_database,,,"This database is stored in SQLite database format and contains natural-language metadata for published patents. Each record corresponds to a single patent publication, with descriptive fields for publication details, dates, classification codes, relationships, and citations."
+publication_database,publicationinfo,Patents_info,"Natural-language summary of the patent publication, including key identifiers and status like publication number, application number etc,."
+publication_database,publicationinfo,kind_code,"Description of the publication kind code (e.g., type of document issued)."
+publication_database,publicationinfo,application_kind,"Type of application (e.g., “utility patent application”)."
+publication_database,publicationinfo,pct_number,"Patent Cooperation Treaty application number, if applicable."
+publication_database,publicationinfo,family_id,Identifier linking related patents in the same family.
+publication_database,publicationinfo,title_localized,Patent title in localized language form.
+publication_database,publicationinfo,abstract_localized,Patent abstract in natural language.
+publication_database,publicationinfo,claims_localized_html,Claims section in HTML format containing readable text.
+publication_database,publicationinfo,description_localized_html,Description section in HTML format containing readable text.
+publication_database,publicationinfo,publication_date,"Publication date in natural language format (e.g., “March 15th, 2020”)."
+publication_database,publicationinfo,filing_date,Filing date in natural language format.
+publication_database,publicationinfo,grant_date,Grant date in in natural language format.
+publication_database,publicationinfo,priority_date,Priority date in in natural language format.
+publication_database,publicationinfo,priority_claim,List of claimed priority applications.
+publication_database,publicationinfo,inventor_harmonized,Harmonized list of inventors.
+publication_database,publicationinfo,examiner,Examiner(s) handling the case.
+publication_database,publicationinfo,uspc,United States Patent Classification code(s).
+publication_database,publicationinfo,ipc,International Patent Classification code(s).
+publication_database,publicationinfo,cpc,"JSON-like list of Cooperative Patent Classification entries, each with code and metadata."
+publication_database,publicationinfo,citation,List of cited patents and non-patent literature.
+publication_database,publicationinfo,parent,Parent patent applications.
+publication_database,publicationinfo,child,Child patent applications.
+publication_database,publicationinfo,entity_status,"Legal entity status of the assignee (e.g., “small entity”, “large entity”)."
+publication_database,publicationinfo,art_unit,USPTO art unit assigned to the application.
+CPCDefinition_database,,,"This database is stored in PostgreSQL database format and contains the hierarchical structure, definitions, and metadata for Cooperative Patent Classification (CPC) codes. Each record represents a CPC symbol at a specific hierarchy level, with parent-child relationships, references, and descriptive titles."
+CPCDefinition_database,cpc_definition,applicationReferences,Informative references to related applications.
+CPCDefinition_database,cpc_definition,breakdownCode,Indicates whether the symbol is a breakdown code.
+CPCDefinition_database,cpc_definition,childGroups,JSON-like list of child CPC symbols at the next level.
+CPCDefinition_database,cpc_definition,children,Additional JSON-like child references.
+CPCDefinition_database,cpc_definition,dateRevised,"Revision date (e.g., “January 5th, 2021”)."
+CPCDefinition_database,cpc_definition,definition,Full definition of the CPC symbol.
+CPCDefinition_database,cpc_definition,glossary,Glossary terms and explanations for the symbol.
+CPCDefinition_database,cpc_definition,informativeReferences,Additional informative references.
+CPCDefinition_database,cpc_definition,ipcConcordant,IPC concordance mapping for the CPC symbol.
+CPCDefinition_database,cpc_definition,level,"Hierarchical level of the CPC symbol (e.g., 1 to 5)."
+CPCDefinition_database,cpc_definition,limitingReferences,Scope-limiting references.
+CPCDefinition_database,cpc_definition,notAllocatable,Indicates whether this symbol can be assigned to a patent.
+CPCDefinition_database,cpc_definition,parents,JSON-like list of parent CPC symbols in the hierarchy.
+CPCDefinition_database,cpc_definition,precedenceLimitingReferences,Precedence-limiting references.
+CPCDefinition_database,cpc_definition,residualReferences,Residual references for related but distinct subject matter.
+CPCDefinition_database,cpc_definition,rules,Rules for interpreting and applying the CPC symbol.
+CPCDefinition_database,cpc_definition,scopeLimitingReferences,Scope-limiting references for the symbol.
+CPCDefinition_database,cpc_definition,status,"Status of the CPC symbol (e.g., “active”, “deleted”)."
+CPCDefinition_database,cpc_definition,symbol,CPC classification code symbol.
+CPCDefinition_database,cpc_definition,synonyms,Synonyms for the CPC symbol.
+CPCDefinition_database,cpc_definition,titleFull,Full descriptive title of the CPC symbol.
+CPCDefinition_database,cpc_definition,titlePart,Abbreviated or partial title of the CPC symbol.

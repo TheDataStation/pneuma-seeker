@@ -1,0 +1,10 @@
+{
+  "indexinfo_database": {
+    "type": "sqlite",
+    "file": "indexInfo_query.db"
+  },
+  "indextrade_database": {
+    "type": "duckdb",
+    "file": "indextrade_query.db"
+  }
+}

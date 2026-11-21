@@ -1,0 +1,10 @@
+{
+  "tracks_database": {
+    "type": "sqlite",
+    "file": "tracks.db"
+  },
+  "sales_database": {
+    "type": "duckdb",
+    "file": "sales.duckdb"
+  }
+}

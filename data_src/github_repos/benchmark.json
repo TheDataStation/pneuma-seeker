@@ -1,0 +1,22 @@
+[
+  {
+    "id": "q1",
+    "question": "Among repositories that do not use Python, what proportion of their README.md files include copyright information?",
+    "answer": "total_readmes,copyright_readmes,proportion\n3,1,0.3333333333333333"
+  },
+  {
+    "id": "q2",
+    "question": "Identify the repository that contains Swift code and the most frequently copied non-binary Swift (.swift) file in the dataset, ensuring that each file is uniquely determined by its ID in the files table.",
+    "answer": "repo_name\nSwiftAndroid/swift"
+  },
+  {
+    "id": "q3",
+    "question": "How many commit messages are found in repositories that use the Shell programming language and are licensed under Apache-2.0, where each message exists, is shorter than 1,000 characters, and does not begin with 'merge', 'update', or 'test'?",
+    "answer": "num_messages\n1077"
+  },
+  {
+    "id": "q4",
+    "question": "List the repository names for the top five GitHub repositories whose main language is not Python, ordered by the highest number of commits.",
+    "answer": "repo_name,num_commits\napple/swift,1051\ntwbs/bootstrap,340\nMicrosoft/vscode,190\nfacebook/react,178\ntensorflow/tensorflow,156"
+  }
+]
