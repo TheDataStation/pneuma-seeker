@@ -157,7 +157,12 @@ class ActionSet:
 
     def discover_join_paths(self, tables: list[AbstractDocument]) -> str:
         tables_df: dict[str, DataFrame] = {doc.doc_id: doc.content for doc in tables}
-        return self.join_path_extraction.discover_join_paths(tables_df)
+        sources = {
+            doc.doc_id: doc.metadata["dataset_name"]
+            for doc in tables
+            if isinstance(doc.metadata, dict) and doc.metadata.get("dataset_name")
+        }
+        return self.join_path_extraction.discover_join_paths(tables_df, sources)
 
     # ------------------------------------------------------------------
     # Operator wrappers (thin delegates to action instances)

@@ -20,6 +20,7 @@ from pneuma_seeker.routers.chat import (
     pneuma_db,
 )
 from pneuma_seeker.services.core.api.db import DBAPI
+from pneuma_seeker.services.core.ir_system.join_profiles import JoinProfiles
 from pneuma_seeker.services.core.ir_system.retriever.impl.new_discovery import NewDiscovery
 from pneuma_seeker.services.db.datasets import uploads
 from pneuma_seeker.services.db.datasets.connectors import CONNECTOR_TYPES
@@ -235,7 +236,8 @@ def rebuild_index(
     """
     Rebuilds the dataset's retrieval index in the background, for the configured
     TABLE_DISCOVERY_METHOD: M1's (otherwise rebuilt on its own when files change,
-    but not when a connected database's contents do) or the Pneuma retriever's.
+    but not when a connected database's contents do) or the Pneuma retriever's;
+    then its join profiles.
     """
     if pneuma_db.get_dataset_source(dataset_name) is None:
         raise HTTPException(status_code=404, detail=f"No dataset named {dataset_name!r}.")
@@ -265,6 +267,8 @@ def rebuild_index(
     def run() -> None:
         try:
             build()
+            # The column sketches join discovery compares (ir_system.join_profiles).
+            JoinProfiles(config, DBAPI(config, logger, pneuma_db=pneuma_db)).build(dataset_name, force=True)
             _jobs.pop(dataset_name, None)
         except Exception as exc:
             job["error"] = str(exc) or type(exc).__name__

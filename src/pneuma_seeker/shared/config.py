@@ -72,6 +72,20 @@ class Config:
             getenv("JOIN_PATH_EXTRACTION_NAME_SIMILARITY_WEIGHT", "0.6")
         )
         self.JOIN_PATH_EXTRACTION_TOP_K = int(getenv("JOIN_PATH_EXTRACTION_TOP_K", "5"))
+        # Also compare values after normalizing them (case and whitespace,
+        # trailing digits such as purchaseid_7 ~ bookid_7, numbers), and check
+        # each suggested join's coverage and cardinality on the tables' rows.
+        self.JOIN_PATH_EXTRACTION_NORMALIZE = (
+            getenv("JOIN_PATH_EXTRACTION_NORMALIZE", "true").lower() == "true"
+        )
+        self.JOIN_PATH_EXTRACTION_VERIFY = (
+            getenv("JOIN_PATH_EXTRACTION_VERIFY", "true").lower() == "true"
+        )
+        # Score join paths between source tables from their datasets' join profiles,
+        # built offline (see ir_system.join_profiles), instead of the few retrieved rows.
+        self.JOIN_PATH_EXTRACTION_PROFILES = (
+            getenv("JOIN_PATH_EXTRACTION_PROFILES", "true").lower() == "true"
+        )
         self.TABLE_RETRIEVE_MAX_TOPICS = int(getenv("TABLE_RETRIEVE_MAX_TOPICS", "3"))
         self.TABLE_RETRIEVE_ENABLE_ENTITIES_RELEVANCE_BOOSTER = (
             getenv("TABLE_RETRIEVE_ENABLE_ENTITIES_RELEVANCE_BOOSTER", "true").lower()
