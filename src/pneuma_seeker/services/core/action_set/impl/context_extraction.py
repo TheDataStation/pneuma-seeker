@@ -16,6 +16,17 @@ from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.schemas.language_model.option import LLMOption
 from pneuma_seeker.shared.schemas.language_model.role import Role
 from pneuma_seeker.shared.str_processor import dataframe_to_preview_str
+from pneuma_seeker.services.core.action_set.sql_notes import (
+    BATCHES,
+    CTE_IN_CREATE,
+    DATASET_QUALIFIED,
+    DB_API_VARIABLES,
+    DUCKDB_DIVISION,
+    NO_ESCAPED_NEWLINES,
+    NO_NEW_CONNECTION,
+    PREFER_SQL,
+    WORKSPACE_TABLES,
+)
 
 _SHARED_PREAMBLE = f"""**{ActionNames.CONTEXT_EXTRACTION.value}**
   - Explores tables to answer specific uncertainty questions before committing to a schema or script.
@@ -360,24 +371,23 @@ class ContextExtraction(Action, Applicable):
         return f"""You are a focused data exploration assistant. Given a specific question about one or more database tables, generate Python code to answer it.
 
 # Code Requirements
-- Tables are stored in a DuckDB-based workspace database and are NOT guaranteed to fit in memory.
+- {WORKSPACE_TABLES}
 - To access tables, use the provided database API:
     - `db_api.execute_query(user_id, chat_id, "<SQL query>")` — returns a Pandas DataFrame
-    - `db_api`, `user_id`, and `chat_id` are available as variables. Do NOT import `db_api`.
-- When referencing retrieved or enumerated tables, use the dataset-qualified name as provided. For example, Table x (dataset: y) -> y."x".
+    - {DB_API_VARIABLES}
+- {DATASET_QUALIFIED}
 - When referencing target tables in T or external tables, use the table name directly.
-- Prefer SQL over Pandas for transformations. If Python processing is necessary, process in small batches and never load full tables into memory.
-- When using CTEs (WITH ...), attach them directly to the SELECT of a CREATE TABLE AS statement:
-    CREATE OR REPLACE TABLE <name> AS
-    WITH ...
-    SELECT ...
-- Never use escaped newlines (\\n) inside strings. Use triple-quoted strings for multi-line SQL.
+- {PREFER_SQL}
+- {BATCHES}
+- {CTE_IN_CREATE}
+- {NO_ESCAPED_NEWLINES}
 - The result MUST be materialized using:
     db_api.execute_query(user_id, chat_id, 'CREATE OR REPLACE TABLE "<result_table_name>" AS SELECT ...')
 - **Result size**: The result table must contain at most {max_rows} rows. Always aggregate, filter, or add LIMIT to your result query. Never materialize a full table scan or unbounded GROUP BY without a row cap.
 - **CRITICAL — column names**: Only use column names that are explicitly listed in the table schema provided. Never assume a column exists (e.g. a derived "year" column) — compute derived values inline in SQL or Python instead.
 - Allowed libraries: Pandas, NumPy, SciPy.
-- Do NOT create a new DuckDB connection (no `duckdb.connect()`).
+- {NO_NEW_CONNECTION}
+- {DUCKDB_DIVISION}
 - Output ONLY the Python code. No markdown fences, no explanation."""
 
     @staticmethod

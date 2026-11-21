@@ -1,6 +1,16 @@
 """src/pneuma_seeker/core/conductor/prompt_factory.py"""
 
 from pneuma_seeker.services.core.action_set.main import ActionSet
+from pneuma_seeker.services.core.action_set.sql_notes import (
+    BATCHES,
+    CTE_IN_CREATE,
+    DB_API_VARIABLES,
+    DUCKDB_DIVISION,
+    NO_ESCAPED_NEWLINES,
+    NO_NEW_CONNECTION,
+    PREFER_SQL,
+    WORKSPACE_TABLES,
+)
 from pneuma_seeker.services.core.conductor.state import ConductorState
 from pneuma_seeker.services.core.retrieved_tables import render_retrieved_tables
 from pneuma_seeker.services.core.materializer.models import MaterializerMode
@@ -236,29 +246,26 @@ You maintain and update a shared state (T,S) that formalizes the user's active i
     - *Format:*
       - `S: str` (Python code operating on tables in `T`)
     - *Execution context:*
-      - Tables in T exist as tables in the DuckDB-based workspace database and are NOT guaranteed to fit in memory.
+      - {WORKSPACE_TABLES}
       - You may ONLY reference tables defined in T using their IDs (e.g., "Table x" -> "x").
       - To access tables, use the provided database API:
         - `db_api.execute_query(user_id, chat_id, "<SQL query>")`
         - `db_api.register_temporary_df(user_id, chat_id, df, "<table_name>")` can be used to register a small temporary Pandas DataFrame in the workspace for SQL queries.
-        - `db_api`, `chat_id`, and `user_id` are available as variables in the environment when S is executed. Do NOT import `db_api`; use `db_api.<function_name>`.
+        - {DB_API_VARIABLES}
         - These APIs return a Pandas DataFrame containing the query result.
-      - Prefer performing transformations directly in standard SQL whenever possible instead of loading tables using Pandas.
-      - If Python processing is necessary, process data in small batches and never load full tables into memory.
-      - Do NOT create a new DuckDB connection in S (no `duckdb.connect()`): it will not be linked to the workspace DB, and any tables created there (including "conductor_s_execution") will not be visible to the system.
+      - {PREFER_SQL}
+      - {BATCHES}
+      - {NO_NEW_CONNECTION} That includes "conductor_s_execution".
+      - {DUCKDB_DIVISION}
       - Carefully consider *all* user constraints when defining T and S. For example, If the user specifies a filter (e.g., **in-policy orders only**), you MUST:
         - Include the required columns in T (so they exist after materialization), and
         - Apply the filter explicitly in S.
       - When writing Python code:
-        - Never use escaped newlines (\n) inside strings.
-        - Use triple-quoted strings for multi-line SQL with real newlines.
+        - {NO_ESCAPED_NEWLINES}
         - `S` MUST be raw Python source code, not a quoted string.
         - Never wrap Python code in quotes.
         - Do not construct Python code as strings for later execution (no exec-style indirection).
-      - When using CTEs (WITH ...), attach them directly to the SELECT of a CREATE TABLE AS statement:
-        CREATE OR REPLACE TABLE <name> AS
-        WITH ...
-        SELECT ...
+      - {CTE_IN_CREATE}
       - Allowed libraries: Pandas, NumPy, and SciPy.
       - Do not create intermediate tables. The final result must be materialized into a single table named "conductor_s_execution" using SQL (e.g., CREATE OR REPLACE TABLE "conductor_s_execution" AS SELECT ...).
         - The CREATE/REPLACE must be executed via `db_api.execute_query(...)` so it runs in the workspace DB connection.

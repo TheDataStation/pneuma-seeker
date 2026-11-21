@@ -6,6 +6,10 @@ import pandas as pd
 from pneuma_seeker.services.core.action_set.interfaces import Action, Executable
 from pneuma_seeker.shared.schemas.core.action import ActionNames
 from pneuma_seeker.shared.schemas.core.agent import AgentType
+from pneuma_seeker.services.core.action_set.sql_notes import (
+    DATASET_QUALIFIED,
+    DUCKDB_DIVISION,
+)
 
 # Matches a leading "CREATE [OR REPLACE] TABLE <ident> AS" that the LLM may
 # mistakenly include even though execute() already adds that wrapper itself.
@@ -54,8 +58,9 @@ class QueryExecutor(Action, Executable):
     - Input guidelines:
         - `query` should generally start with `SELECT ...` or `WITH ... SELECT ...`.
         - Provide only one SQL statement (no embedded `;`).
-        - When referencing retrieved/enumerated tables, use dataset-qualified names like `y."x"`.
+        - {DATASET_QUALIFIED}
         - When referencing intermediate or external tables created in the workspace, use the table name directly.
+        - {DUCKDB_DIVISION}
     - Args: {{"query": "<SQL query>", "assign_to": "<ID of the resulting intermediate table>"}}\n"""
 
     def get_input_schema(self) -> dict[str, str]:

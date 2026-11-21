@@ -7,6 +7,17 @@ import scipy
 from pneuma_seeker.services.core.action_set.interfaces import Action, Executable
 from pneuma_seeker.shared.schemas.core.action import ActionNames
 from pneuma_seeker.shared.schemas.core.agent import AgentType
+from pneuma_seeker.services.core.action_set.sql_notes import (
+    BATCHES,
+    CTE_IN_CREATE,
+    DATASET_QUALIFIED,
+    DB_API_VARIABLES,
+    DUCKDB_DIVISION,
+    NO_ESCAPED_NEWLINES,
+    NO_NEW_CONNECTION,
+    PREFER_SQL,
+    WORKSPACE_TABLES,
+)
 
 
 class PythonExecutor(Action, Executable):
@@ -31,35 +42,32 @@ class PythonExecutor(Action, Executable):
     def _materializer_description(self) -> str:
         return f"""**{ActionNames.PYTHON_EXECUTOR.value}**
     - Executes Python code to transform and/or combine data.
-    - Tables are stored in the DuckDB-based workspace database and are NOT guaranteed to fit in memory.
+    - {WORKSPACE_TABLES}
     - To access tables, use the provided database API:
         - `db_api.execute_query(user_id, chat_id, "<SQL query>")`
         - `db_api.register_temporary_df(user_id, chat_id, df, "<table_name>")` can be used to register a small temporary Pandas DataFrame in the workspace for SQL queries.
-        - `db_api`, `chat_id`, and `user_id` are available as variables in the environment. Do NOT import `db_api`; use `db_api.<function_name>`.
+        - {DB_API_VARIABLES}
         - These APIs return a Pandas DataFrame containing the relational query result.
     - Note:
-        - When referencing retrieved or enumerated tables, use the dataset-qualified name as provided by the system. For example, Table x (dataset: y) -> y."x".
+        - {DATASET_QUALIFIED}
             - Internally, `db_api` uses DuckDB ATTACH DATABASE to connect datasets to the workspace database. The attached dataset name (e.g., y) is a *catalog* (database), not a schema. Tables live under y.main.<table>, but DuckDB allows shorthand access as y.<table>.
             Do NOT treat the dataset name as a schema when inspecting metadata.
         - When referencing intermediate or external tables created in the workspace, use the table name directly. For example, Table x -> x.
-    - Prefer performing transformations directly in standard SQL whenever possible instead of loading tables using Pandas.
-    - If Python processing is necessary, process data in batches and never load full tables into memory. For example:
+    - {PREFER_SQL}
+    - {DUCKDB_DIVISION}
+    - {BATCHES} For example:
         - Offset pagination:
             - SELECT * FROM "<table_id>" ORDER BY rowid LIMIT 100 OFFSET 0;
             - SELECT * FROM "<table_id>" ORDER BY rowid LIMIT 100 OFFSET 100;
         - Keyset pagination (preferred for large tables):
             - SELECT * FROM "<table_id>" WHERE rowid > last_seen_rowid ORDER BY rowid LIMIT 100;
     - When writing Python code:
-        - Never use escaped newlines (\\n) inside strings.
-        - Use triple-quoted strings for multi-line SQL with real newlines.
+        - {NO_ESCAPED_NEWLINES}
         - The value of `code` MUST be raw Python source code, not a quoted string.
         - Never wrap Python code in quotes.
         - Do not construct Python code as strings for later execution (no exec-style indirection).
-        - Do NOT create a new DuckDB connection (no `duckdb.connect()`). Any tables created on a standalone connection will not be visible to the workspace DB, and the system will fail when it tries to read the expected output table.
-    - When using CTEs (WITH ...), attach them directly to the SELECT of a CREATE TABLE AS statement:
-        CREATE OR REPLACE TABLE <name> AS
-        WITH ...
-        SELECT ...
+        - {NO_NEW_CONNECTION} The system would then fail to read the expected output table.
+    - {CTE_IN_CREATE}
     - Pandas, NumPy, and SciPy are available for small, intermediate, in-memory batches only (remember to add relevant import statements if needed).
     - You can perform operations such as renaming or reordering columns, transforming column values, normalizing formats (e.g., "Month Date, Year" -> "yyyy-mm-dd"), etc.
     - You may create intermediate tables during processing (e.g., to store batches or results of sub-steps; don't forget to clean them up), but the final output must be materialized as a single table in the database using SQL (for example, `CREATE OR REPLACE TABLE "<assign_to>" AS SELECT ...`).
