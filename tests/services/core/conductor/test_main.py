@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 
 from pneuma_seeker.provenance.graph import ProvenanceGraph
-from pneuma_seeker.shared.schemas.core.action import ActionNames
+from pneuma_seeker.shared.schemas.core.action import ActionExecutionStatus, ActionNames
 from pneuma_seeker.services.core.api.db import DBAPI
 from pneuma_seeker.services.core.api.language_model import LanguageModelAPI
 from pneuma_seeker.services.core.conductor.main import Conductor
@@ -608,9 +608,55 @@ class ConductorTests(unittest.TestCase):
         )
 
     def test_degenerate_s_result_flag_resets_between_turns(self):
-        self.conductor._degenerate_result_flagged = True
+        self.conductor._degenerate_scripts = {"x"}
         self.conductor._reset_conductor()
-        self.assertFalse(self.conductor._degenerate_result_flagged)
+        self.assertEqual(self.conductor._degenerate_scripts, set())
+
+    def test_a_rewritten_s_with_an_empty_result_is_handed_back_again(self):
+        """Fixing S after an empty result can yield another empty result; that new S is
+        handed back too, instead of answering (only rerunning the same S accepts it)."""
+        rewrite = lambda s: f"""{{"plan": [
+            {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"S":"{s}"}}}},
+            {{"action":"{ActionNames.PYTHON_EXECUTOR.value}","args":{{}}}}
+        ]}}"""
+        self.conductor.language_model_api.llm._responses = [  # type: ignore
+            f"""{{"plan": [
+                {{"action":"{ActionNames.STATE_MANIPULATION.value}","args":{{"T":{{"t1":["a"]}},"column_descriptions":{{"t1":{{"a":"col a"}}}},"column_sources":{{"t1":{{"a":[]}}}},"S":"x"}}}},
+                {{"action":"{ActionNames.MATERIALIZER.value}","args":{{"note":""}}}}
+            ]}}""",
+            rewrite("y"),
+            rewrite("z"),
+            "answered once S works",
+        ]
+        self.conductor.materializer.materialize_T = MagicMock(
+            return_value=([], None, None, None, {"t1": pd.DataFrame({"a": [1]})})
+        )
+        empty = pd.DataFrame({"decade": []})
+        self.conductor.action_set.execute_code = MagicMock(
+            side_effect=[empty, empty, pd.DataFrame({"decade": ["2020s"]})]
+        )
+
+        responses = list(
+            self.conductor.chat("q", interaction_history=[], external_table_paths=[])
+        )
+
+        self.assertEqual(self.conductor.action_set.execute_code.call_count, 3)
+        self.assertEqual(responses[-1].message, "answered once S works")
+        self.assertEqual(self.conductor._degenerate_scripts, {"x", "y"})
+        for step in self.conductor.actions[:2]:
+            self.assertNotIn(ActionNames.USER_FACING_COMMUNICATION.value, step)
+
+    def test_empty_results_are_accepted_after_the_hand_back_limit(self):
+        from pneuma_seeker.services.core.conductor import main as conductor_main
+
+        self.conductor._degenerate_scripts = {f"s{i}" for i in range(conductor_main.MAX_DEGENERATE_HANDBACKS)}
+        self.conductor.state.T = {"t1": MagicMock()}
+        self.conductor.state.S = "another"
+        self.conductor.action_set.execute_code = MagicMock(return_value=pd.DataFrame({"decade": []}))
+
+        _, status = self.conductor._handle_python_executor("q", {}, "ds")
+
+        self.assertEqual(status, ActionExecutionStatus.SUCCESS)
 
     def test_python_executor_self_trigger_chain_executes_s_once(self):
         """python_executor with T undefined-but-materializable is intercepted by

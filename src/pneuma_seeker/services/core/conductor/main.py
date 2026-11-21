@@ -46,6 +46,8 @@ from pneuma_seeker.shared.schemas.language_model.message import LLMMessage
 from pneuma_seeker.shared.schemas.language_model.option import LLMOption
 from pneuma_seeker.shared.schemas.language_model.role import Role
 
+# Times a turn an empty or all-NULL result of a new S is handed back before being accepted.
+MAX_DEGENERATE_HANDBACKS = 3
 
 
 def split_information_needs(needs: str) -> list[str]:
@@ -138,7 +140,8 @@ class Conductor:
 
         self._pending_plan_feedback: str | None = None
         self._plan_mode: bool = False
-        self._degenerate_result_flagged: bool = False
+        # Scripts (S) whose empty or all-NULL result was handed back this turn.
+        self._degenerate_scripts: set[str] = set()
         self._information_needs: str | None = None
 
         self._action_handlers: dict[str, Any] = {
@@ -1168,11 +1171,14 @@ class Conductor:
             self._log(f"Script (S) execution result: {execution_result_str}")
             # An empty or all-NULL result is almost always a defect in S, but the
             # accelerated plan would answer the user in this same step. Hand control
-            # back once so Conductor can inspect it; a second one is accepted.
-            if not self._degenerate_result_flagged and (
-                execution_result.empty or execution_result.isna().all().all()
+            # back for each new S that gives one (up to MAX_DEGENERATE_HANDBACKS a
+            # turn); running the same S again accepts its result.
+            if (
+                (execution_result.empty or execution_result.isna().all().all())
+                and self.state.S not in self._degenerate_scripts
+                and len(self._degenerate_scripts) < MAX_DEGENERATE_HANDBACKS
             ):
-                self._degenerate_result_flagged = True
+                self._degenerate_scripts.add(self.state.S)
                 kind = "no rows" if execution_result.empty else "only NULL/NaN values"
                 warning = (
                     f"S ran but produced {kind}:\n{execution_result_str}\n"
@@ -1180,7 +1186,7 @@ class Conductor:
                     "that matched nothing, a failed cast, or a join on mismatched keys), "
                     "not a finding about the data. Investigate what your filters actually "
                     "match and fix S before answering. If you confirm the empty result is "
-                    "genuinely correct, you may answer."
+                    "genuinely correct, run the same S again to accept it, then answer."
                 )
                 self._log(f"=> {warning}")
                 return warning, ActionExecutionStatus.ERROR
@@ -1262,7 +1268,7 @@ class Conductor:
         self.llm_messages = []
         self._pending_plan_feedback = None
         self._plan_mode = False
-        self._degenerate_result_flagged = False
+        self._degenerate_scripts = set()
         self._information_needs = None
         self._needs = []
         self._need_resolutions = {}
