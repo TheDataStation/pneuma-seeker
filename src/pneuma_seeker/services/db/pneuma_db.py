@@ -424,6 +424,24 @@ class PneumaDB:
     # ------------------------------------------------------------------
     # Memory Layer
     # ------------------------------------------------------------------
+    def get_descriptions(
+        self, dataset_name: str, columns: dict[str, list[str]]
+    ) -> tuple[dict[str, str], dict[str, dict[str, str]]]:
+        """
+        Returns ({table: description}, {table: {column: description}}) for the tables
+        and columns in `columns` ({table: its columns}) that have one, in two queries.
+        """
+        if self.memory_manager is None:
+            return {}, {}
+        tables = self.memory_manager.get_contents_by_keys("table_metadata", dataset_name, list(columns))
+        keys = {f"{t}.{c}": (t, c) for t, cols in columns.items() for c in cols}
+        found = self.memory_manager.get_contents_by_keys("column_metadata", dataset_name, list(keys))
+        by_table: dict[str, dict[str, str]] = {}
+        for key, content in found.items():
+            table, column = keys[key]
+            by_table.setdefault(table, {})[column] = content
+        return tables, by_table
+
     def get_column_description(
         self, dataset_name: str, table_name: str, column_name: str
     ) -> str:

@@ -88,10 +88,13 @@ class JoinPathExtraction(Action):
         lines = [
             f"Top-{self.config.JOIN_PATH_EXTRACTION_TOP_K} potential join paths (sorted from more likely to less likely):"
         ]
+        def name(t: str, others: int) -> str:
+            return f"{t} (and {others} other tables with its columns)" if others else t
+
         for c in topk:
             line = (
-                f"- {c['t1']} (columns: [{c['c1']}]) "
-                f"<-> {c['t2']} (columns: [{c['c2']}]) "
+                f"- {name(c['t1'], c.get('others', (0, 0))[0])} (columns: [{c['c1']}]) "
+                f"<-> {name(c['t2'], c.get('others', (0, 0))[1])} (columns: [{c['c2']}]) "
                 f"[score={c['score']:.3f}]"
             )
             if c["how"] is not None and c["vo"] > 0:
@@ -143,7 +146,17 @@ class JoinPathExtraction(Action):
         whose values overlap at all, each by score. Trailing
         digits are compared only between columns of one kind (prefixed ids with prefixed
         ids, integers with integers), since small numbers occur in any range of ids.
+
+        Tables with the same columns (partitions of one table, e.g. one file per period)
+        are compared once, through the first of them, since they are unioned, not joined.
         """
+        families: dict[tuple, list[str]] = {}
+        for t in sorted(stored):
+            signature = tuple(sorted((c, p["kind"]) for c, p in stored[t]["columns"].items()))
+            families.setdefault(signature, []).append(t)
+        others = {members[0]: len(members) - 1 for members in families.values()}
+        stored = {t: stored[t] for t in others}
+
         def pct(share: float | None, exact: bool) -> str:
             if share is None:
                 return "an unknown share (too few values in the sketches)"
@@ -173,6 +186,7 @@ class JoinPathExtraction(Action):
                         "score": self.config.JOIN_PATH_EXTRACTION_ALPHA * ns
                         + (1 - self.config.JOIN_PATH_EXTRACTION_ALPHA) * best["vo"],
                         "t1": t1, "c1": c1, "t2": t2, "c2": c2, "how": best["how"], "vo": best["vo"],
+                        "others": (others[t1], others[t2]),
                         "prefixed": (p1["kind"] == "prefixed", p2["kind"] == "prefixed"),
                         "check": {
                             "text": (

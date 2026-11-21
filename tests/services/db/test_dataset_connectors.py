@@ -70,6 +70,30 @@ class FileConnectorTests(TempDirTestCase):
         self.assertEqual(con.execute('SELECT amount_usd, region FROM ds."sales_2024"').fetchall(), [(10, "east")])
         self.assertEqual(con.execute('SELECT b FROM ds."t"').fetchall(), [(2,)])
 
+    def test_csv_layouts_are_stored_once_and_read_files_the_same_way(self):
+        self.write("csv/Sales 2024.csv", 'Amount ($),Region,Note\n10,east,"two\nlines"\n20,west,x\n')
+        self.write("csv/t.tsv", "a\tb\n1\t2\n")
+        config = {"path": str(self.tmp / "csv"), "file_pattern": "*.*sv"}
+        queries = ['SELECT * FROM ds."sales_2024" ORDER BY 1', 'SELECT * FROM ds."t"']
+        with unittest.mock.patch.dict(os.environ, {"RETRIEVAL_INDEX_ROOT": str(self.tmp / "indices")}):
+            detected = [attached(build("csv_dir", config)).execute(q).fetchall() for q in queries]
+            connector = build("csv_dir", config)
+            self.assertEqual(connector.build_layouts(), 2)
+            self.assertEqual(connector.build_layouts(), 0)  # current
+
+            fresh = build("csv_dir", config)
+            relations = fresh.relations(duckdb.connect(), "ds")
+            self.assertTrue(all("auto_detect=false" in r for r in relations.values()))
+            con = attached(fresh)
+            self.assertEqual([con.execute(q).fetchall() for q in queries], detected)
+            self.assertEqual(detected[0][0], (10, "east", "two\nlines"))
+
+            # A changed file is detected again until its layout is rebuilt.
+            self.write("csv/t.tsv", "a\tb\tc\n1\t2\t3\n")
+            relations = build("csv_dir", config).relations(duckdb.connect(), "ds")
+            self.assertNotIn("auto_detect=false", relations["t"])
+            self.assertEqual(attached(build("csv_dir", config)).execute('SELECT c FROM ds."t"').fetchall(), [(3,)])
+
     def test_duckdb_and_sqlite_files_are_attached_read_only(self):
         db = duckdb.connect(str(self.tmp / "x.duckdb"))
         db.execute('CREATE TABLE "Big Table" AS SELECT 1 AS "A B"')

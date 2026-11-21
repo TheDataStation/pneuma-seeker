@@ -7,6 +7,9 @@ data_src/README.md), mounted read-only at /data in the core container:
   DuckDB file, or its Postgres database (data_src/docker-compose.yml, reached as
   host.docker.internal). A registration of the same name, such as a KramaBench
   Parquet folder, is replaced; its data stays on disk.
+- CSV layouts: each CSV file's detected layout, stored once so attaching a folder
+  of thousands of files does not detect every file's layout again (see
+  CSVDirConnector.build_layouts).
 - Descriptions from each metadata.csv into the memory layer: DataAgentBench's
   database, table and column descriptions, KramaBench's table descriptions. A
   dataset whose data and metadata.csv rows are unchanged since its descriptions
@@ -77,6 +80,7 @@ class BenchmarkSetup:
                 bar.set_postfix_str(name)
                 states[self.register(name, src)] += 1
         print("datasets: " + ", ".join(f"{n} {state}" for state, n in sorted(states.items())))
+        self.build_layouts()
         unmatched, written = self.write_descriptions()
         print("descriptions: " + ", ".join(f"{n} {state}" for state, n in sorted(written.items()))
               + f"; {len(unmatched)} unmatched" + (f": {unmatched[:10]}" if unmatched else ""))
@@ -193,6 +197,20 @@ class BenchmarkSetup:
         self.memory.replace_dataset_rows(name, "table_metadata", table_rows, REGISTERED_BY)
         self.memory.replace_dataset_rows(name, "column_metadata", column_rows, REGISTERED_BY)
         return unmatched
+
+    def build_layouts(self) -> None:
+        """Stores the layout of each CSV file whose layout is missing or stale (CSV folders only)."""
+        folders = {n: s for n, s in self.sources.items() if s["type"] == "csv_dir"}
+        stored = 0
+        with tqdm(folders, desc="CSV layouts", unit="dataset", position=0) as bar:
+            for name in bar:
+                bar.set_postfix_str(name)
+                files = ColumnBar(name, unit="file")
+                try:
+                    stored += self.pneuma_db.dataset_manager.connector(name).build_layouts(progress=files)
+                finally:
+                    files.close()
+        print(f"CSV layouts: {stored} stored, the rest current")
 
     def build_indices(self) -> None:
         """Builds each dataset's discovery index and join profiles unless current, so no chat waits for them."""

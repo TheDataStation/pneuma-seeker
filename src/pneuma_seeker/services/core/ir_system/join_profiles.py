@@ -210,16 +210,16 @@ def containment(a: dict, b: dict) -> tuple[float | None, bool]:
 
 class ColumnBar:
     """
-    Shows a dataset's profiling as a bar of its columns done, under an outer bar; use
-    it as JoinProfiles.build's `progress`, then close it.
+    Shows a dataset's progress as a bar of its columns (or other `unit`) done, under an
+    outer bar; use it as a `progress(done, total, what)` callback, then close it.
     """
 
-    def __init__(self, dataset_name: str) -> None:
-        self.dataset_name, self.bar = dataset_name, None
+    def __init__(self, dataset_name: str, unit: str = "column") -> None:
+        self.dataset_name, self.unit, self.bar = dataset_name, unit, None
 
     def __call__(self, done: int, total: int, what: str) -> None:
         if self.bar is None:
-            self.bar = tqdm(total=total, desc=f"  {self.dataset_name}", unit="column", leave=False, position=1)
+            self.bar = tqdm(total=total, desc=f"  {self.dataset_name}", unit=self.unit, leave=False, position=1)
         self.bar.n = done
         self.bar.set_postfix_str(what, refresh=True)
 

@@ -310,11 +310,9 @@ class NewDiscovery(AbstractRetriever):
             f"in {result.calls} call(s), returned {len(accepted)} "
             f"({'BM25 fallback' if result.failed else 'M1'})",
         )
-        return [
-            self._table_document(dataset_name, name, sample_only, sample_size)
-            for c in accepted
-            for name in c["tables"]
-        ]
+        return self._table_documents(
+            dataset_name, [name for c in accepted for name in c["tables"]], sample_only, sample_size
+        )
 
     def rebuild_index(self, dataset_name: str, progress: Callable[[int, int], None] | None = None) -> int:
         """
@@ -390,35 +388,63 @@ class NewDiscovery(AbstractRetriever):
             return {}
         return {str(c): str(t) for c, t in zip(df["column_name"], df["data_type"])}
 
-    def _table_document(
+    def _many_column_types(self, dataset_name: str, table_names: list[str]) -> dict[str, dict[str, str]]:
+        """Returns {table: _column_types of it} for many tables in one query."""
+        try:
+            df = self.db_api.execute_query(
+                self.user_id,
+                self.chat_id,
+                """
+                SELECT table_name, column_name, data_type
+                FROM information_schema.columns
+                WHERE table_name IN (SELECT unnest(?)) AND (table_schema = ? OR table_catalog = ?)
+                ORDER BY table_name, ordinal_position
+                """.strip(),
+                (list(table_names), dataset_name, dataset_name),
+            )
+        except Exception:
+            return {name: self._column_types(dataset_name, name) for name in table_names}
+        types: dict[str, dict[str, str]] = {name: {} for name in table_names}
+        for t, c, d in zip(df["table_name"], df["column_name"], df["data_type"]):
+            types.setdefault(str(t), {})[str(c)] = str(d)
+        return types
+
+    def _table_documents(
         self,
         dataset_name: str,
-        table_name: str,
+        table_names: list[str],
         sample_only: bool,
         sample_size: int | None,
-    ) -> Table:
-        query = f'SELECT * FROM {dataset_name}."{table_name}"'
-        if sample_only:
-            query += f" LIMIT {sample_size if sample_size and sample_size > 0 else 5}"
-        content = self.db_api.execute_query(self.user_id, self.chat_id, query)
-        column_types = self._column_types(dataset_name, table_name)
-        metadata: dict[str, str] = {
-            "description": self.db_api.get_table_description(dataset_name, table_name),
-            "dataset_name": dataset_name,
-        }
-        if column_types:
-            metadata["column_types"] = json.dumps(column_types, ensure_ascii=False)
-        column_descriptions = {
-            c: d
-            for c in column_types
-            if (d := self.db_api.get_column_description(dataset_name, table_name, c))
-        }
-        if column_descriptions:
-            metadata["column_descriptions"] = json.dumps(column_descriptions, ensure_ascii=False)
-        return Table(
-            doc_id=table_name,
-            retriever_type=RetrieverType.PNEUMA_RETRIEVER,
-            content=content,
-            metadata=metadata,
-            path=f'{dataset_name}."{table_name}"',
+    ) -> list[Table]:
+        """Returns the tables as documents, their descriptions looked up for all of them at once."""
+        rows = {}
+        for name in table_names:
+            query = f'SELECT * FROM {dataset_name}."{name}"'
+            if sample_only:
+                query += f" LIMIT {sample_size if sample_size and sample_size > 0 else 5}"
+            rows[name] = self.db_api.execute_query(self.user_id, self.chat_id, query)
+        types = self._many_column_types(dataset_name, table_names)
+        table_descriptions, column_descriptions = self.db_api.get_descriptions(
+            dataset_name, {name: list(types[name]) for name in table_names}
         )
+        documents = []
+        for name in table_names:
+            metadata: dict[str, str] = {
+                "description": table_descriptions.get(name, ""),
+                "dataset_name": dataset_name,
+            }
+            if types[name]:
+                metadata["column_types"] = json.dumps(types[name], ensure_ascii=False)
+            described = {c: d for c, d in column_descriptions.get(name, {}).items() if d and c in types[name]}
+            if described:
+                metadata["column_descriptions"] = json.dumps(
+                    {c: described[c] for c in types[name] if c in described}, ensure_ascii=False
+                )
+            documents.append(Table(
+                doc_id=name,
+                retriever_type=RetrieverType.PNEUMA_RETRIEVER,
+                content=rows[name],
+                metadata=metadata,
+                path=f'{dataset_name}."{name}"',
+            ))
+        return documents

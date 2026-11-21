@@ -71,6 +71,12 @@ class DBAPI:
     # ------------------------------------------------------------------
     # Memory Layer
     # ------------------------------------------------------------------
+    def get_descriptions(
+        self, dataset_name: str, columns: dict[str, list[str]]
+    ) -> tuple[dict[str, str], dict[str, dict[str, str]]]:
+        """Returns the table and column descriptions of many tables at once (see PneumaDB.get_descriptions)."""
+        return self.pneuma_db.get_descriptions(dataset_name, columns)
+
     def get_column_description(
         self, dataset_name: str, table_name: str, column_name: str
     ) -> str:

@@ -266,6 +266,10 @@ def rebuild_index(
 
     def run() -> None:
         try:
+            # A CSV folder's stored layouts, so attaching it (as the index build does) is fast.
+            connector = pneuma_db.dataset_manager.connector(dataset_name)
+            if hasattr(connector, "build_layouts"):
+                connector.build_layouts()
             build()
             # The column sketches join discovery compares (ir_system.join_profiles).
             JoinProfiles(config, DBAPI(config, logger, pneuma_db=pneuma_db)).build(dataset_name, force=True)

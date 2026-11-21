@@ -167,8 +167,14 @@ class DatasetConnector(ABC):
                 text = text.replace(str(secret), "••••••••")
         return text
 
+    def known_columns(self, relation: str) -> list[str] | None:
+        """Returns a relation's columns if the connector already knows them (saving a schema read), else None."""
+        return None
+
     def _select_list(self, conn: duckdb.DuckDBPyConnection, relation: str) -> str:
-        columns = [row[0] for row in conn.execute(f"DESCRIBE SELECT * FROM {relation}").fetchall()]
+        columns = self.known_columns(relation)
+        if columns is None:
+            columns = [row[0] for row in conn.execute(f"DESCRIBE SELECT * FROM {relation}").fetchall()]
         return ", ".join(
             f"{quote_ident(original)} AS {quote_ident(clean)}"
             for original, clean in zip(columns, clean_names(columns))

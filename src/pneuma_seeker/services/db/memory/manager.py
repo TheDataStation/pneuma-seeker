@@ -176,6 +176,29 @@ class MemoryManager:
             con.close()
         return self._to_record(row) if row else None
 
+    def get_contents_by_keys(
+        self, memory_type: str, dataset_name: str, key_texts: list[str]
+    ) -> dict[str, str]:
+        """
+        Returns {key_text: content} of the latest entry for each of `key_texts` that has
+        one, in one query (get_by_key's lookup, for many keys at once).
+        """
+        if not key_texts:
+            return {}
+        con = self._get_connection()
+        try:
+            rows = con.execute(
+                """
+                SELECT DISTINCT ON (key_text) key_text, content FROM memory_entries
+                WHERE memory_type = %s AND dataset_name = %s AND key_text = ANY(%s)
+                ORDER BY key_text, updated_at DESC
+                """,
+                (memory_type, dataset_name, list(key_texts)),
+            ).fetchall()
+        finally:
+            con.close()
+        return {str(key): str(content) for key, content in rows}
+
     def update_entry(self, memory_id: str, content: Any = _UNSET) -> bool:
         """Updates a memory entry's content. Returns False if the entry doesn't exist."""
         if content is _UNSET:

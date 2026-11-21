@@ -284,3 +284,23 @@ class JoinProfileTests(unittest.TestCase):
         with patch.object(JoinProfiles, "load", return_value=None):  # missing or stale
             fallback = extractor.discover_join_paths(three_rows, {"books_info": "books", "review": "books"})
         self.assertNotIn("distinct values occur", fallback)
+
+    def test_tables_with_the_same_columns_are_compared_once(self):
+        self.con.execute("""
+            CREATE TABLE sensors AS SELECT 'S_' || range AS sensor_id, 'site ' || range AS site FROM range(1, 51);
+        """)
+        for day in range(1, 6):  # one partition per day, as files per period are
+            self.con.execute(
+                f"CREATE TABLE readings_{day} AS SELECT 'S_' || (range % 50 + 1) AS sensor_id, range * {day} AS value FROM range(200)"
+            )
+        tables = ["sensors"] + [f"readings_{d}" for d in range(1, 6)]
+        stored = {t: profile_relation(self.run, t) for t in tables}
+        extractor = JoinPathExtraction("u", "c", Config(), MagicMock(), MagicMock(), MagicMock())
+        rows = {t: self.con.execute(f"SELECT * FROM {t} LIMIT 3").df() for t in tables}
+        with patch.object(JoinProfiles, "load", return_value=stored):
+            result = extractor.discover_join_paths(rows, {t: "ds" for t in tables})
+
+        paths = result.split("\n")[1:]
+        self.assertIn("readings_1 (and 4 other tables with its columns)", paths[0])
+        self.assertIn("sensors (columns: [sensor_id])", paths[0])
+        self.assertFalse(any("readings_2" in p or "readings_1 (columns" in p for p in paths))
