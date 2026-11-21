@@ -61,6 +61,7 @@ class OpenAILLM(AbstractModel):
                 model=self.config.LLM_PATH,
                 seed=42,
                 temperature=temperature,
+                reasoning_effort=self.config.LLM_REASONING_EFFORT or Omit(),
                 max_completion_tokens=max_completion_tokens,
                 response_format={"type": "json_object"} if json_mode else Omit(),
                 stream=stream,
@@ -84,6 +85,7 @@ class OpenAILLM(AbstractModel):
                 model=self.config.LLM_PATH,
                 seed=42,
                 temperature=temperature,
+                reasoning_effort=self.config.LLM_REASONING_EFFORT or Omit(),
                 max_completion_tokens=max_completion_tokens,
                 response_format={"type": "json_object"} if json_mode else Omit(),
             )

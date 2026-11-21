@@ -24,6 +24,8 @@ class Config:
         # Unset: no temperature is sent and the model uses its default.
         temperature = getenv("LLM_TEMPERATURE")
         self.LLM_TEMPERATURE = float(temperature) if temperature else None
+        # Unset: no reasoning effort is sent and the model uses its default (OpenAI / Azure OpenAI only).
+        self.LLM_REASONING_EFFORT = getenv("LLM_REASONING_EFFORT") or None
         self.EMBED_MODEL_PATH = getenv("EMBED_MODEL_PATH", "text-embedding-3-small")
         self.EMBEDDING_MAX_TOKENS = int(getenv("EMBEDDING_MAX_TOKENS", "1536"))
 

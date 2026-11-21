@@ -66,6 +66,7 @@ class AzureOpenAILLM(AbstractModel):
                     model=self.config.LLM_PATH,
                     seed=42,
                     temperature=temperature,
+                    reasoning_effort=self.config.LLM_REASONING_EFFORT or Omit(),
                     max_completion_tokens=max_completion_tokens,
                     response_format={"type": "json_object"},
                     stream=stream,
@@ -77,6 +78,7 @@ class AzureOpenAILLM(AbstractModel):
                     model=self.config.LLM_PATH,
                     seed=42,
                     temperature=temperature,
+                    reasoning_effort=self.config.LLM_REASONING_EFFORT or Omit(),
                     max_completion_tokens=max_completion_tokens,
                     stream=stream,
                     stream_options={"include_usage": True},
@@ -101,6 +103,7 @@ class AzureOpenAILLM(AbstractModel):
                     model=self.config.LLM_PATH,
                     seed=42,
                     temperature=temperature,
+                    reasoning_effort=self.config.LLM_REASONING_EFFORT or Omit(),
                     max_completion_tokens=max_completion_tokens,
                     response_format={"type": "json_object"},
                 )
@@ -110,6 +113,7 @@ class AzureOpenAILLM(AbstractModel):
                     model=self.config.LLM_PATH,
                     seed=42,
                     temperature=temperature,
+                    reasoning_effort=self.config.LLM_REASONING_EFFORT or Omit(),
                     max_completion_tokens=max_completion_tokens,
                 )
             end_llm_time = time()
